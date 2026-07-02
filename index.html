@@ -2257,7 +2257,9 @@ async function _a_cargarDatos() {
       }
 
       // Día de semana actual en slug inglés (para comparar con days_off)
-      const HOY_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()];
+      // Calcular el día de la semana desde la fecha LOCAL ya cargada (hoy = 'YYYY-MM-DD')
+      // usando T12:00:00 para evitar desfases de UTC vs hora México
+      const HOY_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
 
       _a_TEAM = empList.map(e => {
         const s = todaySummary.find(x => x.employee_id === e.id);
