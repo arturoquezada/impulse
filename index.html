@@ -2159,6 +2159,11 @@ function _a_startLiveFeed(){ if(_a_liveFeedTimer)clearInterval(_a_liveFeedTimer)
 function _a_stopLiveFeed(){ if(_a_liveFeedTimer){clearInterval(_a_liveFeedTimer);_a_liveFeedTimer=null;} }
 
 async function _a_cargarQDAYS(empId, from, to) {
+  // Cargar days_off del empleado para marcar días de descanso en el histórico
+  const { data: empData } = await _a_sb.from('employees').select('days_off').eq('id', empId).maybeSingle();
+  const daysOff = empData?.days_off || [];
+  const DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
   const [summaryRes, notesRes, excepRes] = await Promise.all([
     _a_sb.from('attendance_daily_summary').select('*').eq('employee_id', empId).gte('punch_date', from).lte('punch_date', to).order('punch_date'),
     _a_sb.from('attendance_punches').select('punch_date, notes').eq('employee_id', empId).eq('punch_type','entrada').gte('punch_date', from).lte('punch_date', to),
@@ -2181,8 +2186,11 @@ async function _a_cargarQDAYS(empId, from, to) {
       const s = summary.find(x => x.punch_date === fecha);
       const n = notesData.find(x => x.punch_date === fecha);
       const ex = excep.find(x => x.exception_date === fecha);
+      const diaSemana = DIA_SLUG[new Date(fecha + 'T12:00:00').getDay()];
+      const esDescanso = daysOff.includes(diaSemana);
       dias.push({
         fecha,
+        esDescanso,
         entrada_at:          s?.time_in    ? `${fecha}T${s.time_in}-06:00`  : null,
         salida_at:           s?.time_out   ? `${fecha}T${s.time_out}-06:00` : null,
         segundos_trabajados: s ? Math.round((s.hours_worked||0) * 3600) : 0,
@@ -2248,15 +2256,19 @@ async function _a_cargarDatos() {
         todaySummary = ts || [];
       }
 
+      // Día de semana actual en slug inglés (para comparar con days_off)
+      const HOY_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date().getDay()];
+
       _a_TEAM = empList.map(e => {
         const s = todaySummary.find(x => x.employee_id === e.id);
         const lateMin = s ? (s.minutes_late || 0) : 0;
-        let status = 'sin_punch';
-        if (s) {
+        const descansaHoy = (e.days_off || []).includes(HOY_DIA_SLUG);
+        let status = descansaHoy ? 'descanso' : 'sin_punch';
+        if (!descansaHoy && s) {
           const ast = s.attendance_status;
           if (ast === 'absent' || ast === 'excused_absence') status = 'falta';
-          else if (ast === 'missing_checkout') status = 'on_time'; // marcó entrada, falta salida — no es falta
-          else if (ast === 'no_show') status = 'sin_punch'; // llegó > 1h tarde, sin salida
+          else if (ast === 'missing_checkout') status = 'on_time';
+          else if (ast === 'no_show') status = 'sin_punch';
           else if (ast === 'late' || lateMin > 0) status = 'late';
           else if (ast === 'on_time' || s.time_in) status = 'on_time';
         }
@@ -2411,14 +2423,25 @@ async function _a_cargarDatos() {
 // ── PUNCH REAL ───────────────────────────────────────────────
 async function _a_punchSB(tipo) {
   const ro = ROLES[currentRole];
-  const hoy = ymd(NOW);
-  const ahora = NOW.toTimeString().slice(0,8);
+
+  // Primero obtenemos la hora real del servidor (no del dispositivo del agente,
+  // que puede estar manipulado). Usamos una función RPC o un select de now().
+  let serverTime;
+  try {
+    const { data } = await _a_sb.rpc('get_server_time');
+    serverTime = data ? new Date(data) : new Date();
+  } catch {
+    serverTime = new Date(); // fallback si falla el RPC
+  }
+
+  const hoy = ymd(serverTime);
+  const punch_time = serverTime.toTimeString().slice(0,8);
 
   const { error } = await _a_sb.from('attendance_punches').insert({
     employee_id: ro.id,
     punch_date:  hoy,
-    punch_time:  ahora,
-    punched_at:  NOW.toISOString(),
+    punch_time,
+    punched_at:  serverTime.toISOString(),
     punch_type:  tipo,
     campaign_id: ro.camp,
     created_by:  ro.id,
@@ -3204,12 +3227,15 @@ function _a_roleSwitcherHTML(){
 
 // ── HELPERS ──
 function _a_statusBadge(d){
+  if(d.esDescanso) return`<span class="pill" style="background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0">🌙 Descanso</span>`;
   if(d.tipo_falta) return`<span class="pill pill-red"><span class="dot"></span>Falta inj.</span>`;
   if(d.es_retardo) return`<span class="pill pill-amber"><span class="dot"></span>Retardo</span>`;
+  if(d.entrada_at && !d.salida_at) return`<span class="pill pill-blue"><span class="dot"></span>Sin salida</span>`;
   if(!d.entrada_at) return`<span class="pill pill-gray">—</span>`;
   return`<span class="pill pill-green"><span class="dot"></span>A tiempo</span>`;
 }
 function _a_agentBadge(status,falta){
+  if(status==='descanso') return`<span class="pill" style="background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0">🌙 Descanso</span>`;
   if(status==='falta'&&falta){
     const cfg=_a_CATEGORIA_CONFIG[falta.categoria]||_a_CATEGORIA_CONFIG.falta_injustificada;
     const por=falta.marcadaPor==='sistema'?' 🤖':' 👤';
@@ -4753,23 +4779,40 @@ async function _a_marcarEntrada(){
   const p = _a_getPunch();
   if(p.entrada) return;
   _a_punchBusy = true;
-  const horaLocal = NOW.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:false});
   const ok = await _a_punchSB('entrada');
+  if (!ok) { _a_punchBusy = false; alert('No se pudo registrar tu entrada. Intenta de nuevo o avisa a tu supervisor si sigue fallando.'); return; }
+  // Hora local solo para mostrar en pantalla (la real ya quedó en Supabase)
   _a_punchBusy = false;
-  if (!ok) { alert('No se pudo registrar tu entrada. Intenta de nuevo o avisa a tu supervisor si sigue fallando.'); return; }
-  p.entrada = horaLocal;
+  p.entrada = new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:false});
   _a_render();
 }
 async function _a_marcarSalida(){
   if (_a_punchBusy) return;
   const p = _a_getPunch();
   if(!p.entrada || p.salida) return;
+
+  // Obtener hora del servidor para validar las 2 horas mínimas
+  let serverNow;
+  try {
+    const { data } = await _a_sb.rpc('get_server_time');
+    serverNow = data ? new Date(data) : new Date();
+  } catch { serverNow = new Date(); }
+
+  const ahoraMin = serverNow.getHours() * 60 + serverNow.getMinutes();
+  const [h, m] = p.entrada.split(':').map(Number);
+  const entradaMin = h * 60 + m;
+  const diff = ahoraMin - entradaMin;
+  if (diff < 120) {
+    const falta = 120 - diff;
+    alert(`⚠️ Solo llevas ${diff} minuto${diff!==1?'s':''} desde tu entrada (${p.entrada}).\n\nFaltan ${falta} minuto${falta!==1?'s':''} para poder marcar salida.\n\nSi necesitas salir antes por una emergencia, pide a tu supervisor que registre la corrección.`);
+    return;
+  }
+
   _a_punchBusy = true;
-  const horaLocal = NOW.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:false});
   const ok = await _a_punchSB('salida');
   _a_punchBusy = false;
   if (!ok) { alert('No se pudo registrar tu salida. Intenta de nuevo o avisa a tu supervisor si sigue fallando.'); return; }
-  p.salida = horaLocal;
+  p.salida = serverNow.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:false});
   _a_render();
 }
 async function _a_drillToAgent(id){
