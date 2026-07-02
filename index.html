@@ -4738,8 +4738,8 @@ function _a_renderSupDetail(supId){
     ? _a_TEAM.filter(a => sup._teamIds.includes(a.id))
     : _a_TEAM;
 
-  // Día de la semana en slug inglés usando la fecha local (hoy) — igual que en _a_cargarDatos
-  const HOY_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
+  // Día de la semana en slug inglés — usa ymd(NOW) porque 'hoy' es local de _a_cargarDatos
+  const HOY_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(ymd(NOW) + 'T12:00:00').getDay()];
 
   const onTime = myTeam.filter(a=>a.status==='on_time').length;
   const late   = myTeam.filter(a=>a.status==='late').length;
