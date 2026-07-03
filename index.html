@@ -1964,8 +1964,8 @@ function _a_secsMin(s){if(!s||s<=0)return'0 min';const m=Math.floor(s/60);return
 // _a_dateFilter.mode: 'today' | 'week' | 'quincena' | 'month' | 'custom'
 const _a_dateFilter = {
   mode: 'today',
-  from: NOW.toISOString().split('T')[0],
-  to:   NOW.toISOString().split('T')[0],
+  from: ymd(NOW),
+  to:   ymd(NOW),
   label: 'Hoy'
 };
 
