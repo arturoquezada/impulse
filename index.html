@@ -6200,6 +6200,17 @@ async function _t_confirmarResolver(id) {
   closeModal();
   _t_detalleId = null;
   await _t_cargarTickets(); _t_render();
+
+  // Si fue corrección de asistencia, recargar datos del agente corregido
+  // para que la tabla de asistencia refleje el cambio inmediatamente
+  if (t?.type === 'correccion_asistencia' && t.target_employee_id) {
+    await _a_cargarQDAYS(t.target_employee_id, _a_dateFilter.from, _a_dateFilter.to);
+    // También recargar _a_TEAM completo para que se actualicen los KPIs del equipo
+    if (typeof _a_cargarDatos === 'function') {
+      await _a_cargarDatos();
+      if (typeof _a_render === 'function') _a_render();
+    }
+  }
 }
 
 // ══ PERMUTAS ════════════════════════════════════════════════════════
