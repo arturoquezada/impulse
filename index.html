@@ -1908,7 +1908,14 @@ const MODULE_INFO={
   permutas:{icon:'🔄',label:'Permutas'},vacaciones:{icon:'🏖️',label:'Vacaciones'},
   disciplinario:{icon:'⚠️',label:'Disciplinario'},equipo:{icon:'👥',label:'Equipo'},
 };
-function ymd(d){return d.toISOString().split('T')[0]}
+function ymd(d){
+  // Usar hora de México (America/Mexico_City) para evitar que UTC adelante el día
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  });
+  return fmt.format(d); // devuelve 'YYYY-MM-DD' directo en locale en-CA
+}
 function fmtDate(s){if(!s)return'—';return new Date(s+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'})}
 function fmtDateShort(s){if(!s)return'—';return new Date(s+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric'})}
 function fmtShort(s){if(!s)return'—';return new Date(s+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric'})}
