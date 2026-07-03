@@ -2236,6 +2236,17 @@ async function _a_cargarDatos() {
       // usando T12:00:00 para evitar desfases de UTC vs hora México
       const HOY_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
 
+      // Cargar excepciones de hoy del equipo (para saber si la falta es del bot o del supervisor)
+      let excepcionesHoy = [];
+      if (empIds.length > 0) {
+        const { data: ex } = await _a_sb
+          .from('attendance_exceptions')
+          .select('employee_id, type, notes, status')
+          .eq('exception_date', hoy)
+          .in('employee_id', empIds);
+        excepcionesHoy = ex || [];
+      }
+
       _a_TEAM = empList.map(e => {
         const s = todaySummary.find(x => x.employee_id === e.id);
         const lateMin = s ? (s.minutes_late || 0) : 0;
@@ -2269,12 +2280,17 @@ async function _a_cargarDatos() {
           salary:     0, // se conectará con employees_payroll
           retardos30: 0,
           faltas30:   0,
-          falta:      status === 'falta' ? {
-            categoria: s?.exception_type || 'falta_injustificada',
-            estado:    s?.exception_status || 'falta_injustificada',
-            motivo:    s?.notes || 'Sin registro',
-            marcadaPor:'sistema', hora:'—', nota:''
-          } : null,
+          falta:      status === 'falta' ? (() => {
+            const ex = excepcionesHoy.find(x => x.employee_id === e.id);
+            const esBot = ex?.notes === 'Falta agregada por Bot';
+            return {
+              categoria: ex?.type || s?.exception_type || 'falta_injustificada',
+              estado:    ex?.status || s?.exception_status || 'falta_injustificada',
+              motivo:    ex?.notes || s?.notes || 'Sin registro',
+              marcadaPor: esBot ? 'sistema' : 'supervisor',
+              hora:'—', nota:''
+            };
+          })() : null,
         };
       });
     }
@@ -3348,8 +3364,12 @@ function _a_renderSupervisor(){
       ? `<button onclick="event.stopPropagation();_a_abrirModalFalta('${a.id}')"
            style="border:none;background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">
            ⚠️ Marcar falta</button>`
+      : a.status==='falta' && a.falta?.marcadaPor==='sistema'
+        ? `<button onclick="event.stopPropagation();_a_abrirModalFalta('${a.id}')"
+             style="border:1px solid #DDD6FE;background:#F5F3FF;color:#6D28D9;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">
+             📝 Agregar motivo</button>`
       : a.status==='falta'
-        ? `<span style="font-size:10px;color:${a.falta?.marcadaPor==='sistema'?'#7E22CE':'#64748B'}">${a.falta?.marcadaPor==='sistema'?'🤖 Sistema':'👤 Supervisor'}</span>`
+        ? `<span style="font-size:10px;color:#64748B">👤 Supervisor</span>`
         : '—';
     // Motivo de retardo
     const retRec = _a_RETARDO_LOG.find(r=>r.agentId===a.id && r.fecha===_a_TODAY);
@@ -3489,8 +3509,12 @@ function _a_renderManager(){
       ? `<button onclick="event.stopPropagation();_a_abrirModalFaltaSup('${s.id}')"
            style="border:none;background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">
            ⚠️ Marcar falta</button>`
+      : s.status==='falta' && s.falta?.marcadaPor==='sistema'
+        ? `<button onclick="event.stopPropagation();_a_abrirModalFaltaSup('${s.id}')"
+             style="border:1px solid #DDD6FE;background:#F5F3FF;color:#6D28D9;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">
+             📝 Agregar motivo</button>`
       : s.status==='falta'
-        ? `<span style="font-size:10px;color:${s.falta?.marcadaPor==='sistema'?'#7E22CE':'#64748B'}">${s.falta?.marcadaPor==='sistema'?'🤖 Sistema':'👤 Manager'}</span>`
+        ? `<span style="font-size:10px;color:#64748B">👤 Manager</span>`
         : '—';
     supRows+=`<tr onclick="_a_drillToSup('${s.id}')">
       <td><div class="agent-row-name">${s.name}</div><div class="agent-row-id">${s.id}</div></td>
