@@ -2307,8 +2307,8 @@ async function _a_cargarDatos() {
       });
     }
 
-    // 4. KPIs globales para Head of People / People
-    if (['people','head_people'].includes(currentRole)) {
+    // 4. KPIs globales para Head of People / People / Manager
+    if (['people','head_people','manager'].includes(currentRole)) {
       // Todos los empleados activos
       const { data: allEmps } = await _a_sb
         .from('employees')
@@ -3755,12 +3755,17 @@ let _a_CAMP_DATA=[];
 // ─────────────────────────────────────────────
 function _a_renderManager(){
   const ro = ROLES[currentRole];
-  // Supervisores que reportan a este manager (directos e indirectos)
-  const mgr = _a_MANAGERS_REAL.find(m => m.id === ro.id);
-  const misSupsIds = mgr ? mgr._directosIds.filter(id =>
-    _a_SUPS_REAL.find(s => s.id === id)
-  ) : [];
-  const misSups = _a_SUPS_REAL.filter(s => misSupsIds.includes(s.id));
+  // Supervisores cuyos reportes directos incluyen al manager actual,
+  // O que tienen al manager como supervisor directo en la BD.
+  // Usamos _a_SUPS_REAL que sí se construye para todos los roles.
+  // Para manager: sus supervisores son los que tienen supervisor_id = ro.id
+  // O los que están en su equipo según allEmps (usamos _a_TEAM_ALL como fallback)
+  const misSupsIds = (_a_TEAM_ALL||[])
+    .filter(e => e.supervisor_id === ro.id && e.system_role === 'supervisor')
+    .map(e => e.id);
+  const misSups = misSupsIds.length > 0
+    ? _a_SUPS_REAL.filter(s => misSupsIds.includes(s.id))
+    : _a_SUPS_REAL; // fallback: muestra todos si no encuentra directos
   return _a_renderPeople(misSups);
 }
 
