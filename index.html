@@ -4307,14 +4307,25 @@ function _a_filtrarSups(lista) {
   });
 }
 
+// Cuenta solo los agentes de la campaña seleccionada dentro del equipo del supervisor
+function _a_agentesEnCampaña(s) {
+  if (!_a_filtros.campana) return s.agents;
+  const c = _a_filtros.campana.toLowerCase();
+  // Usar _a_TEAM para contar agentes de la campaña específica
+  const equipo = _a_TEAM.filter(a => a.supId === s.id || (s._teamIds||[]).includes(a.id));
+  return equipo.filter(a => (a.camp||'').toLowerCase().includes(c)).length;
+}
+
 function _a_renderHeadPeople(){
   // Calcular KPIs según filtros activos
   const hayFiltro = _a_filtros.supervisores.length || _a_filtros.campana;
   const supsFiltrados = _a_filtrarSups(_a_SUPS_REAL);
   let totAgents, totOnTime, totLate, totAbsent, totNoOut;
   if (hayFiltro && supsFiltrados.length > 0) {
-    // KPIs del subconjunto filtrado
-    totAgents = supsFiltrados.reduce((s,x)=>s+x.agents,0);
+    // KPIs del subconjunto filtrado — contar solo agentes de la campaña seleccionada
+    totAgents = _a_filtros.campana
+      ? supsFiltrados.reduce((s,x) => s + _a_agentesEnCampaña(x), 0)
+      : supsFiltrados.reduce((s,x)=>s+x.agents,0);
     totOnTime = supsFiltrados.reduce((s,x)=>s+x.onTime,0);
     totLate   = supsFiltrados.reduce((s,x)=>s+x.late,0);
     totAbsent = supsFiltrados.reduce((s,x)=>s+x.absent,0);
@@ -4473,28 +4484,13 @@ function _a_renderHeadPeople(){
       <div class="kpi-delta">${totAbsent > 0 ? totAbsent + ' faltas registradas hoy' : 'Sin faltas hoy'}</div></div>
   </div>
 
-  <!-- Métricas financieras y operacionales -->
+  <!-- Eficiencia de horas -->
   <div class="kpi4">
-    <div class="kpi-box">
-      <div class="kpi-lbl" style="margin-bottom:6px">Costo ausentismo hoy</div>
-      <div class="kpi-val" style="color:#DC2626;font-size:20px">${pesos(costAus)}</div>
-      <div class="kpi-delta dn">${totAbsent} faltas × salario diario</div>
-    </div>
-    <div class="kpi-box">
-      <div class="kpi-lbl" style="margin-bottom:6px">Costo retardos hoy</div>
-      <div class="kpi-val" style="color:#D97706;font-size:20px">${pesos(costRet)}</div>
-      <div class="kpi-delta w">${totLate} retardos × min perdidos</div>
-    </div>
     <div class="kpi-box">
       <div class="kpi-lbl" style="margin-bottom:6px">Eficiencia de horas</div>
       <div class="kpi-val">${eficGlobal}%</div>
       <div class="kpi-bar" style="margin-top:8px"><div class="kpi-bar-f" style="width:${eficGlobal}%;background:${_a_barColor(eficGlobal)}"></div></div>
       <div class="kpi-delta ${eficGlobal>=90?'up':'w'}">${totHWork}h trabajadas / ${totHContr}h contratadas</div>
-    </div>
-    <div class="kpi-box">
-      <div class="kpi-lbl" style="margin-bottom:6px">Rotación proyectada mes</div>
-      <div class="kpi-val" style="color:#DC2626">${bajasProyectadas}</div>
-      <div class="kpi-delta dn">Basado en sanciones activas</div>
     </div>
   </div>
 
