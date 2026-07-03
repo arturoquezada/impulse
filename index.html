@@ -1999,7 +1999,6 @@ async function _a_setPreset(mode){
   } else if(mode==='q_ant'){
     const day = d.getDate();
     if(day<=15){
-      // quincena anterior = 16-fin mes pasado
       _a_dateFilter.from = ymd(new Date(d.getFullYear(),d.getMonth()-1,16));
       _a_dateFilter.to   = ymd(new Date(d.getFullYear(),d.getMonth(),0));
     } else {
@@ -2008,23 +2007,22 @@ async function _a_setPreset(mode){
     }
     _a_dateFilter.label = 'Quincena anterior';
   }
-  // sync inputs
   const fi = document.getElementById('dfFrom');
   const ti = document.getElementById('dfTo');
   if(fi) fi.value = _a_dateFilter.from;
   if(ti) ti.value = _a_dateFilter.to;
-  await _a_cargarQDAYS(ROLES[currentRole].id, _a_dateFilter.from, _a_dateFilter.to);
+  // Cargar datos del empleado que se está viendo actualmente, no siempre el logueado
+  const empId = _a_QDAYS_EMPLEADO_ID || ROLES[currentRole].id;
+  await _a_cargarQDAYS(empId, _a_dateFilter.from, _a_dateFilter.to);
   _a_render();
 }
 
-// Desplaza el rango activo hacia atrás (-1) o adelante (1), conservando su
-// tamaño, y recarga los datos reales de ese nuevo rango.
 async function _a_navDate(direction, empId){
-  const id = empId || ROLES[currentRole].id;
+  const id = empId || _a_QDAYS_EMPLEADO_ID || ROLES[currentRole].id;
   const span = _a_rangeDays();
   const newFrom = ymd(addDaysDate(new Date(_a_dateFilter.from+'T12:00:00'), direction*span));
   const newTo   = ymd(addDaysDate(new Date(_a_dateFilter.to+'T12:00:00'),   direction*span));
-  if (newTo > ymd(NOW) && direction > 0) return; // no navegar al futuro
+  if (newTo > ymd(NOW) && direction > 0) return;
   _a_dateFilter.mode = 'custom';
   _a_dateFilter.from = newFrom;
   _a_dateFilter.to   = newTo;
@@ -2048,10 +2046,10 @@ async function _a_applyCustom(){
   _a_dateFilter.mode  = 'custom';
   _a_dateFilter.from  = fi.value;
   _a_dateFilter.to    = ti.value;
-  // Calcular días en rango
   const dias = Math.round((new Date(ti.value)-new Date(fi.value))/(1000*60*60*24))+1;
   _a_dateFilter.label = `${fmtDateShort(fi.value)} → ${fmtDateShort(ti.value)} (${dias}d)`;
-  await _a_cargarQDAYS(ROLES[currentRole].id, fi.value, ti.value);
+  const empId = _a_QDAYS_EMPLEADO_ID || ROLES[currentRole].id;
+  await _a_cargarQDAYS(empId, fi.value, ti.value);
   _a_render();
 }
 
@@ -2163,9 +2161,19 @@ async function _a_cargarQDAYS(empId, from, to) {
       const ex = excep.find(x => x.exception_date === fecha);
       const diaSemana = DIA_SLUG[new Date(fecha + 'T12:00:00').getDay()];
       const esDescanso = daysOff.includes(diaSemana);
+
+      // Tiempo extra: minutos trabajados - minutos contratados del turno
+      let tiempoExtraMin = 0;
+      if (s && s.time_in && s.time_out && s.shift_hours) {
+        const trabajadoMin = Math.round((s.hours_worked || 0) * 60);
+        const contratadoMin = Math.round(s.shift_hours * 60);
+        tiempoExtraMin = Math.max(0, trabajadoMin - contratadoMin);
+      }
+
       dias.push({
         fecha,
         esDescanso,
+        tiempoExtraMin,
         entrada_at:          s?.time_in    ? `${fecha}T${s.time_in}-06:00`  : null,
         salida_at:           s?.time_out   ? `${fecha}T${s.time_out}-06:00` : null,
         segundos_trabajados: s ? Math.round((s.hours_worked||0) * 3600) : 0,
@@ -3269,21 +3277,24 @@ function _a_quincenaTable(){
   const tw=validos.reduce((s,d)=>s+(d.segundos_trabajados||0),0);
   const tl=validos.reduce((s,d)=>s+(d.segundos_tarde||0),0);
   const tr=validos.filter(d=>d.es_retardo).length;
+  const te=validos.reduce((s,d)=>s+(d.tiempoExtraMin||0),0);
   const pct=validos.length?Math.round(((validos.length-tr)/validos.length)*100):100;
   let rows='';
   validos.forEach((d,i)=>{
     const motivo = d.motivo_retardo || d.motivo_falta || '';
+    const extraStr = d.tiempoExtraMin > 0 ? `+${d.tiempoExtraMin}m` : '—';
     rows+=`<tr onclick="_a_openDayModal(${_a_QDAYS.filter(x=>!x.weekend).indexOf(d)})" style="cursor:pointer">
       <td>${fmtDate(d.fecha)}</td>
       <td style="font-family:'DM Mono',monospace">${_a_fmtTime(d.entrada_at)}</td>
       <td style="font-family:'DM Mono',monospace">${_a_fmtTime(d.salida_at)}</td>
       <td style="font-family:'DM Mono',monospace">${_a_secsHHMM(d.segundos_trabajados)}</td>
       <td style="font-family:'DM Mono',monospace;color:${d.segundos_tarde>0?'#B45309':'#94A3B8'}">${_a_secsMin(d.segundos_tarde)}</td>
+      <td style="font-family:'DM Mono',monospace;color:${d.tiempoExtraMin>0?'#6366F1':'#94A3B8'};font-weight:${d.tiempoExtraMin>0?'700':'400'}">${extraStr}</td>
       <td>${_a_statusBadge(d)}</td>
-      <td style="font-size:12px;color:${d.motivo_retardo?'#92400E':d.motivo_falta?'#991B1B':'#94A3B8'};max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${motivo||'—'}</td>
+      <td style="font-size:12px;color:${d.motivo_retardo?'#92400E':d.motivo_falta?'#991B1B':'#94A3B8'};max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${motivo||'—'}</td>
     </tr>`;
   });
-  return{rows,tw,tl,tr,pct,count:validos.length};
+  return{rows,tw,tl,tr,te,pct,count:validos.length};
 }
 
 // ─────────────────────────────────────────────
@@ -3332,11 +3343,12 @@ function _a_renderAgent(){
       <div class="qs-box late-time"><div class="qs-label">Tiempo tarde</div><div class="qs-val">${_a_secsMin(tl)}</div></div>
       <div class="qs-box retardos"><div class="qs-label">Retardos</div><div class="qs-val">${tr}</div></div>
       <div class="qs-box puntual"><div class="qs-label">Puntualidad</div><div class="qs-val">${pct}%</div></div>
+      ${te>0?`<div class="qs-box" style="border-color:#DDD6FE;background:#F5F3FF"><div class="qs-label" style="color:#6D28D9">T. extra</div><div class="qs-val" style="color:#6D28D9">+${te}m</div></div>`:''}
     </div>
     <div class="tbl-wrap">
       <div class="tbl-head-dark">Detalle por día — click para ver más</div>
       <div style="overflow-x:auto"><table style="min-width:560px">
-        <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>Status</th><th>Motivo</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>T. extra</th><th>Status</th><th>Motivo</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>
@@ -3935,7 +3947,7 @@ function _a_renderCEO(){
       </div>
       <div class="tbl-wrap"><div class="tbl-head-dark">Detalle por día</div>
       <div style="overflow-x:auto"><table style="min-width:560px">
-        <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>Status</th><th>Motivo</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>T. extra</th><th>Status</th><th>Motivo</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div></div>
     </div>`;
@@ -4682,7 +4694,7 @@ function _a_renderAgentDetail(agentId){
     <div class="tbl-wrap">
       <div class="tbl-head-dark">Detalle por día</div>
       <div style="overflow-x:auto"><table style="min-width:560px">
-        <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>Status</th><th>Motivo</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>T. extra</th><th>Status</th><th>Motivo</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>
@@ -4828,6 +4840,7 @@ function _a_openDayModal(idx){
       <div class="kv"><span class="k">Salida</span><span class="v" style="font-family:'DM Mono',monospace">${_a_fmtTime(d.salida_at)}</span></div>
       <div class="kv"><span class="k">Horas trabajadas</span><span class="v" style="font-family:'DM Mono',monospace">${_a_secsHHMM(d.segundos_trabajados)}</span></div>
       <div class="kv"><span class="k">Tiempo tarde</span><span class="v" style="font-family:'DM Mono',monospace;color:${d.segundos_tarde>0?'#B45309':'#64748B'}">${_a_secsMin(d.segundos_tarde)}</span></div>
+      ${d.tiempoExtraMin>0?`<div class="kv"><span class="k">Tiempo extra</span><span class="v" style="font-family:'DM Mono',monospace;color:#6366F1;font-weight:700">+${d.tiempoExtraMin} min</span></div>`:''}
     </div>
     <div class="modal-section">
       <div class="ms-title">Status</div>
