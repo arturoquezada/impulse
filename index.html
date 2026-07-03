@@ -2480,8 +2480,8 @@ async function _a_punchSB(tipo) {
   }
 
   const ps = _a_getPunch();
-  if (tipo === 'entrada') ps.entrada = ahora.slice(0,5);
-  else ps.salida = ahora.slice(0,5);
+  if (tipo === 'entrada') ps.entrada = punch_time.slice(0,5);
+  else ps.salida = punch_time.slice(0,5);
   return true;
 }
 
