@@ -2124,6 +2124,8 @@ function _a_getPunch(){ return _a_punchState[currentRole] || _a_punchState.agent
 let _a_CAMPS_REAL = [];
 let _a_KPI_GLOBAL = { total:0, onTime:0, late:0, absent:0, noOut:0 };
 let _a_SUPS_REAL  = [];  // supervisores con asistencia de hoy
+let _a_MANAGERS_REAL = []; // managers con su equipo directo
+let _a_drillMgr = null; // manager actualmente en drill-down
 let _a_CAMP_REAL  = {};  // { campaign_id: {total,onTime,late,absent} }
 
 // Carga _a_QDAYS para un rango arbitrario de fechas (lo usa la carga inicial
@@ -2407,6 +2409,33 @@ async function _a_cargarDatos() {
           faltasPorSup: 0,
           faltasPorSistema: teamToday.filter(s=>s.attendance_status==='Falta injustificada').length,
           atencionScore: 100,
+        };
+      });
+
+      // Managers — sección separada con su equipo directo
+      const HOY_SLUG_M = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
+      const managers = (allEmps||[]).filter(e => e.system_role === 'manager');
+      _a_MANAGERS_REAL = managers.map(mgr => {
+        const directos = (allEmps||[]).filter(e => e.supervisor_id === mgr.id);
+        // Todos los agentes bajo este manager (directos + sus equipos)
+        const todosAgentes = (allEmps||[]).filter(e => {
+          if (e.system_role !== 'agent') return false;
+          const sup = (allEmps||[]).find(s => s.id === e.supervisor_id);
+          return e.supervisor_id === mgr.id || (sup && sup.supervisor_id === mgr.id);
+        });
+        const activosHoy = todosAgentes.filter(a => !(a.days_off||[]).includes(HOY_SLUG_M));
+        const teamToday  = activosHoy.map(a => todayAll.find(x=>x.employee_id===a.id)).filter(Boolean);
+        return {
+          id:       mgr.id,
+          name:     mgr.full_name,
+          puesto:   mgr.position_title || 'Manager',
+          camp:     mgr.campaign_id || 'admin',
+          directos: directos.length,
+          _directosIds: directos.map(d=>d.id),
+          agentes:  activosHoy.length,
+          onTime:   teamToday.filter(s=>s.attendance_status==='on_time'||(s.time_in&&(s.minutes_late||0)===0)).length,
+          late:     teamToday.filter(s=>(s.minutes_late||0)>0||s.attendance_status==='late'||s.attendance_status==='no_show').length,
+          absent:   teamToday.filter(s=>s.attendance_status==='absent'||s.attendance_status==='excused_absence').length,
         };
       });
     }
@@ -3197,6 +3226,7 @@ function _a_render(){
   }
   if(_a_drillAgent){c.innerHTML=_a_renderAgentDetail(_a_drillAgent);return}
   if(_a_drillSup){c.innerHTML=_a_renderSupDetail(_a_drillSup);return}
+  if(_a_drillMgr){c.innerHTML=_a_renderMgrDetail(_a_drillMgr);return}
   if(currentRole==='agent') c.innerHTML=_a_renderAgent();
   else if(currentRole==='supervisor') c.innerHTML=_a_renderSupervisor();
   else if(currentRole==='manager') c.innerHTML=_a_renderManager();
@@ -4644,6 +4674,50 @@ function _a_renderHeadPeople(){
     </div>
   </div>
 
+  <!-- Sección de Managers -->
+  ${_a_MANAGERS_REAL.length > 0 ? `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <div class="card-title" style="margin-bottom:2px">👔 Gerentes · estructura de equipos</div>
+        <div style="font-size:11px;color:#94A3B8">Clic en un gerente para ver su equipo directo</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">
+      ${_a_MANAGERS_REAL.map(mgr => {
+        const pct = mgr.agentes ? Math.round(((mgr.onTime)/mgr.agentes)*100) : 0;
+        const color = pct>=90?'#16A34A':pct>=70?'#D97706':'#DC2626';
+        return `<div onclick="_a_drillToMgr('${mgr.id}')" style="border:1px solid #E2E8F0;border-radius:12px;padding:16px;cursor:pointer;transition:all .15s;background:#FAFAFA" onmouseover="this.style.background='#F1F5F9';this.style.borderColor='#CBD5E1'" onmouseout="this.style.background='#FAFAFA';this.style.borderColor='#E2E8F0'">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <div style="width:36px;height:36px;border-radius:50%;background:#1E293B;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">${mgr.name.split(' ').map(p=>p[0]).slice(0,2).join('')}</div>
+            <div>
+              <div style="font-size:13px;font-weight:700;color:#0F172A">${mgr.name}</div>
+              <div style="font-size:11px;color:#64748B">${mgr.puesto}</div>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+            <div style="text-align:center;background:#fff;border-radius:8px;padding:8px 4px;border:1px solid #E2E8F0">
+              <div style="font-size:18px;font-weight:800;color:#0F172A">${mgr.directos}</div>
+              <div style="font-size:10px;color:#94A3B8;margin-top:2px">Reportes directos</div>
+            </div>
+            <div style="text-align:center;background:#fff;border-radius:8px;padding:8px 4px;border:1px solid #E2E8F0">
+              <div style="font-size:18px;font-weight:800;color:#0F172A">${mgr.agentes}</div>
+              <div style="font-size:10px;color:#94A3B8;margin-top:2px">Agentes totales</div>
+            </div>
+            <div style="text-align:center;background:#fff;border-radius:8px;padding:8px 4px;border:1px solid #E2E8F0">
+              <div style="font-size:18px;font-weight:800;color:${color}">${pct}%</div>
+              <div style="font-size:10px;color:#94A3B8;margin-top:2px">Puntualidad</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;font-size:11px;color:#64748B">
+            <span style="color:#16A34A">✅ ${mgr.onTime} a tiempo</span>
+            <span style="color:#D97706">⏰ ${mgr.late} retardos</span>
+            <span style="color:#DC2626">❌ ${mgr.absent} faltas</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>` : ''}
+
   <!-- Tabla completa por supervisor -->
   <div class="card">
     <div class="card-title">Vista completa por supervisor · todas las campañas</div>
@@ -4817,8 +4891,65 @@ async function _a_ceoDrillToAgent(id){
   _a_cargando=false;_a_render();
 }
 function _a_drillToSup(id){_a_drillSup=id;_a_drillAgent=null;_a_render();}
+
+function _a_drillToMgr(id){ _a_drillMgr=id; _a_drillSup=null; _a_drillAgent=null; _a_render(); }
+
+function _a_renderMgrDetail(mgrId) {
+  const mgr = _a_MANAGERS_REAL.find(m=>m.id===mgrId);
+  if (!mgr) return '';
+  // Reportes directos del manager (pueden ser supervisors u otros managers)
+  const directos = _a_SUPS_REAL.filter(s => mgr._directosIds.includes(s.id));
+  // También incluir directos que no son supervisors (managers, people, etc.)
+  const directosOtros = mgr._directosIds.filter(id => !directos.find(s=>s.id===id));
+
+  let rows = '';
+  directos.forEach(s => {
+    const pct = s.agents ? Math.round((s.onTime/s.agents)*100) : 0;
+    const color = pct>=90?'#16A34A':pct>=70?'#D97706':'#DC2626';
+    rows += `<tr onclick="_a_drillToSup('${s.id}')" style="cursor:pointer">
+      <td><div class="agent-row-name">${s.name}</div><div class="agent-row-id">${s.id}</div></td>
+      <td><span class="pill pill-gray">${s.camp}</span></td>
+      <td style="font-family:'DM Mono',monospace">${s.agents}</td>
+      <td style="font-family:'DM Mono',monospace;color:#16A34A">${s.onTime}</td>
+      <td style="font-family:'DM Mono',monospace;color:#D97706">${s.late}</td>
+      <td style="font-family:'DM Mono',monospace;color:#DC2626">${s.absent}</td>
+      <td><span style="font-size:14px;font-weight:800;color:${color}">${pct}%</span></td>
+    </tr>`;
+  });
+
+  // Reportes directos que no son supervisors conocidos — mostrarlos sin drill
+  directosOtros.forEach(id => {
+    const emp = (_a_TEAM_ALL||[]).find(e=>e.id===id) || {full_name:id,id,campaign_id:'—'};
+    rows += `<tr>
+      <td><div class="agent-row-name">${emp.full_name}</div><div class="agent-row-id">${emp.id}</div></td>
+      <td><span class="pill pill-gray">${emp.campaign_id||'—'}</span></td>
+      <td colspan="5" style="color:#94A3B8;font-size:12px">—</td>
+    </tr>`;
+  });
+
+  return `${roleSwitcher()}
+  <div class="drilldown-header">
+    <button class="back-btn" onclick="_a_drillMgr=null;_a_render()">← Volver</button>
+    <div style="font-size:14px;font-weight:600">${mgr.name}</div>
+    <span class="pill pill-gray">${mgr.puesto}</span>
+  </div>
+  <div class="kpi4">
+    <div class="kpi-box"><div class="kpi-val">${mgr.directos}</div><div class="kpi-lbl">Reportes directos</div></div>
+    <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${mgr.onTime}</div><div class="kpi-lbl">A tiempo</div></div>
+    <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${mgr.late}</div><div class="kpi-lbl">Retardos</div></div>
+    <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${mgr.absent}</div><div class="kpi-lbl">Faltas</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Equipo directo de ${mgr.name} · ${mgr.directos} personas</div>
+    <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:560px">
+      <thead><tr><th>Persona</th><th>Campaña</th><th>Agentes</th><th>A tiempo</th><th>Retardos</th><th>Faltas</th><th>Puntualidad</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:#94A3B8;padding:20px">Sin reportes directos registrados</td></tr>'}</tbody>
+    </table></div></div>
+    <div style="margin-top:8px;font-size:11px;color:#94A3B8">Click en un supervisor para ver su equipo de agentes</div>
+  </div>`;
+}
 async function _a_backToTeam(){
-  _a_drillAgent=null;_a_drillSup=null;
+  _a_drillAgent=null;_a_drillSup=null;_a_drillMgr=null;
   _a_cargando=true;_a_render();
   await _a_cargarQDAYS(ROLES[currentRole].id, _a_dateFilter.from, _a_dateFilter.to);
   _a_cargando=false;_a_render();
