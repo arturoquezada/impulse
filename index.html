@@ -4908,6 +4908,9 @@ function _a_renderMgrDetail(mgrId) {
     const color = pct>=90?'#16A34A':pct>=70?'#D97706':'#DC2626';
     rows += `<tr onclick="_a_drillToSup('${s.id}')" style="cursor:pointer">
       <td><div class="agent-row-name">${s.name}</div><div class="agent-row-id">${s.id}</div></td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px">${s.entrada||'—'}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px">${s.salida||'—'}</td>
+      <td>${_a_agentBadge(s.status, s.falta)}</td>
       <td><span class="pill pill-gray">${s.camp}</span></td>
       <td style="font-family:'DM Mono',monospace">${s.agents}</td>
       <td style="font-family:'DM Mono',monospace;color:#16A34A">${s.onTime}</td>
@@ -4942,8 +4945,8 @@ function _a_renderMgrDetail(mgrId) {
   <div class="card">
     <div class="card-title">Equipo directo de ${mgr.name} · ${mgr.directos} personas</div>
     <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:560px">
-      <thead><tr><th>Persona</th><th>Campaña</th><th>Agentes</th><th>A tiempo</th><th>Retardos</th><th>Faltas</th><th>Puntualidad</th></tr></thead>
-      <tbody>${rows||'<tr><td colspan="7" style="text-align:center;color:#94A3B8;padding:20px">Sin reportes directos registrados</td></tr>'}</tbody>
+      <thead><tr><th>Supervisor</th><th>Entrada</th><th>Salida</th><th>Status</th><th>Campaña</th><th>Agentes</th><th>A tiempo</th><th>Retardos</th><th>Faltas</th><th>Puntualidad</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="10" style="text-align:center;color:#94A3B8;padding:20px">Sin reportes directos registrados</td></tr>'}</tbody>
     </table></div></div>
     <div style="margin-top:8px;font-size:11px;color:#94A3B8">Click en un supervisor para ver su equipo de agentes</div>
   </div>`;
