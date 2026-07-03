@@ -4333,11 +4333,16 @@ function _a_renderHeadPeople(){
   const hayFiltro = _a_filtros.supervisores.length || _a_filtros.campana;
   const supsFiltrados = _a_filtrarSups(_a_SUPS_REAL);
   let totAgents, totOnTime, totLate, totAbsent, totNoOut;
-  if (hayFiltro && supsFiltrados.length > 0) {
-    // KPIs del subconjunto filtrado — contar solo agentes de la campaña seleccionada
-    totAgents = _a_filtros.campana
-      ? supsFiltrados.reduce((s,x) => s + _a_agentesEnCampaña(x), 0)
-      : supsFiltrados.reduce((s,x)=>s+x.agents,0);
+  if (_a_filtros.campana && _a_CAMP_REAL[_a_filtros.campana]) {
+    // Campaña exacta seleccionada — usar _a_CAMP_REAL que tiene el conteo real
+    const d = _a_CAMP_REAL[_a_filtros.campana];
+    totAgents = d.total;
+    totOnTime = d.onTime;
+    totLate   = d.late;
+    totAbsent = d.absent;
+    totNoOut  = 0;
+  } else if (hayFiltro && supsFiltrados.length > 0) {
+    totAgents = supsFiltrados.reduce((s,x)=>s+x.agents,0);
     totOnTime = supsFiltrados.reduce((s,x)=>s+x.onTime,0);
     totLate   = supsFiltrados.reduce((s,x)=>s+x.late,0);
     totAbsent = supsFiltrados.reduce((s,x)=>s+x.absent,0);
