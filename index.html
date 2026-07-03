@@ -1926,7 +1926,6 @@ function closeModal(e){
 }
 function updateSidebarUser(){const ro=ROLES[currentRole];document.getElementById('sbAv').textContent=ro.av;document.getElementById('sbName').textContent=ro.name;document.getElementById('sbRole').textContent=ro.label;}
 function switchModule(mod){
-  if(mod !== 'asistencia' && typeof _a_stopLiveFeed === 'function') _a_stopLiveFeed();
   activeModule=mod;
   document.querySelectorAll('.sb-item').forEach(el=>el.classList.toggle('active',el.dataset.mod===mod));
   document.getElementById('tbIcon').textContent=MODULE_INFO[mod].icon;
@@ -2125,38 +2124,7 @@ let _a_CAMP_REAL  = {};  // { campaign_id: {total,onTime,late,absent} }
 // Carga _a_QDAYS para un rango arbitrario de fechas (lo usa la carga inicial
 // y también los presets/nav del filtro de fechas, para que el rango mostrado
 // siempre tenga datos reales detrás, no solo los últimos 15 días fijos).
-let _a_PUNCHES_HOY  = [];  // últimas marcas del día para el feed en vivo
-let _a_TEAM_ALL     = [];  // todos los empleados (para resolver nombres en el feed)
-let _a_liveFeedTimer = null;
-
-async function _a_refreshFeed() {
-  const hoy = ymd(NOW);
-  const { data } = await _a_sb
-    .from('attendance_punches')
-    .select('employee_id, punch_time, punch_type')
-    .eq('punch_date', hoy)
-    .order('punch_time', { ascending: false })
-    .limit(15);
-  if (!data) return;
-  _a_PUNCHES_HOY = data;
-  const list = document.getElementById('live-feed-list');
-  if (!list) return;
-  list.innerHTML = (_a_PUNCHES_HOY).map(p=>{
-    const emp = (_a_TEAM_ALL||[]).find(e=>e.id===p.employee_id)||{full_name:p.employee_id,campaign_id:'—'};
-    const hora = (p.punch_time||'').slice(0,5);
-    const tipo = p.punch_type==='entrada';
-    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:#F8FAFC;font-size:12px">
-      <span style="font-size:14px">${tipo?'🟢':'🔴'}</span>
-      <span style="font-weight:600;color:#0F172A;flex:1">${emp.full_name}</span>
-      <span style="color:#64748B">${emp.campaign_id||'—'}</span>
-      <span style="font-family:'DM Mono',monospace;font-weight:700;color:${tipo?'#16A34A':'#64748B'}">${hora}</span>
-      <span style="font-size:10px;color:#94A3B8;text-transform:uppercase">${tipo?'entrada':'salida'}</span>
-    </div>`;
-  }).join('')||'<div style="text-align:center;padding:24px;color:#94A3B8;font-size:13px">Sin actividad hoy todavía</div>';
-}
-
-function _a_startLiveFeed(){ if(_a_liveFeedTimer)clearInterval(_a_liveFeedTimer); _a_liveFeedTimer=setInterval(_a_refreshFeed,30000); }
-function _a_stopLiveFeed(){ if(_a_liveFeedTimer){clearInterval(_a_liveFeedTimer);_a_liveFeedTimer=null;} }
+let _a_PUNCHES_HOY  = [];  // ya no se usa (feed eliminado)
 
 async function _a_cargarQDAYS(empId, from, to) {
   // Cargar days_off del empleado para marcar días de descanso en el histórico
@@ -2236,7 +2204,7 @@ async function _a_cargarDatos() {
     if (['supervisor','manager','people','head_people','workforce'].includes(currentRole)) {
       const { data: emps } = await _a_sb
         .from('employees')
-        .select('id, full_name, campaign_id, shift_start, shift_end, shift_hours, supervisor_id')
+        .select('id, full_name, campaign_id, shift_start, shift_end, shift_hours, supervisor_id, days_off')
         .eq('status','active')
         .eq(currentRole === 'supervisor' ? 'supervisor_id' : 'status', currentRole === 'supervisor' ? ro.id : 'active');
 
@@ -2315,15 +2283,6 @@ async function _a_cargarDatos() {
       const allIds = (allEmps||[]).map(e=>e.id);
       const total = allIds.length;
       _a_TEAM_ALL = allEmps || [];
-
-      // Punches de hoy para el feed en vivo (últimas 15 marcas, ordenadas)
-      const { data: punchesHoy } = await _a_sb
-        .from('attendance_punches')
-        .select('employee_id, punch_time, punch_type, punch_date')
-        .eq('punch_date', hoy)
-        .order('punch_time', { ascending: false })
-        .limit(15);
-      _a_PUNCHES_HOY = punchesHoy || [];
 
       // Campañas únicas de los empleados
       _a_CAMPS_REAL = [...new Set((allEmps||[])
@@ -4626,36 +4585,6 @@ function _a_renderHeadPeople(){
     })()}
   </div>
 
-  <!-- D: Feed de actividad en vivo -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <div>
-        <div class="card-title" style="margin-bottom:2px">⚡ Actividad en vivo · últimas marcas</div>
-        <div style="font-size:11px;color:#94A3B8">Se actualiza cada 30 segundos</div>
-      </div>
-      <div id="live-feed-dot" style="width:8px;height:8px;border-radius:50%;background:#16A34A;animation:pulse 2s infinite"></div>
-    </div>
-    <div id="live-feed-list" style="display:flex;flex-direction:column;gap:6px">
-      ${(()=>{
-        const punches = (_a_PUNCHES_HOY||[]).slice(0,15).map(p=>{
-          const emp = _a_TEAM_ALL?.find(e=>e.id===p.employee_id) || {full_name:p.employee_id, campaign_id:'—'};
-          const hora = (p.punch_time||'').slice(0,5);
-          const tipo = p.punch_type === 'entrada';
-          const color = tipo ? '#16A34A' : '#64748B';
-          const icon = tipo ? '🟢' : '🔴';
-          return `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:#F8FAFC;font-size:12px">
-            <span style="font-size:14px">${icon}</span>
-            <span style="font-weight:600;color:#0F172A;flex:1">${emp.full_name}</span>
-            <span style="color:#64748B">${emp.campaign_id||'—'}</span>
-            <span style="font-family:'DM Mono',monospace;font-weight:700;color:${color}">${hora}</span>
-            <span style="font-size:10px;color:#94A3B8;text-transform:uppercase">${tipo?'entrada':'salida'}</span>
-          </div>`;
-        }).join('');
-        return punches || '<div style="text-align:center;padding:24px;color:#94A3B8;font-size:13px">Sin actividad registrada hoy todavía</div>';
-      })()}
-    </div>
-  </div>
-
   <!-- Top 10 riesgo de baja -->
   <div class="card">
     <div class="card-title">⚠️ Top 10 agentes en riesgo de baja · ventana 30 días</div>
@@ -5917,7 +5846,6 @@ window['_init_asistencia']=function(){
     _a_cargando=false; _a_render();
     if(ok){
       _a_checkAutoRetardos(); _a_checkAutoFaltas();
-      if(['people','head_people','ceo','manager'].includes(currentRole)) _a_startLiveFeed();
     }
   });
 };
