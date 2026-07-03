@@ -3753,14 +3753,31 @@ let _a_CAMP_DATA=[];
 // ─────────────────────────────────────────────
 // VISTA PEOPLE
 // ─────────────────────────────────────────────
-function _a_renderPeople(){
-  const totAgents=_a_KPI_GLOBAL.total||0, totOnTime=_a_KPI_GLOBAL.onTime||0,
-        totLate=_a_KPI_GLOBAL.late||0, totAbsent=_a_KPI_GLOBAL.absent||0;
-  const pctGlobal=Math.round((totOnTime/totAgents)*100);
+function _a_renderManager(){
+  const ro = ROLES[currentRole];
+  // Supervisores que reportan a este manager (directos e indirectos)
+  const mgr = _a_MANAGERS_REAL.find(m => m.id === ro.id);
+  const misSupsIds = mgr ? mgr._directosIds.filter(id =>
+    _a_SUPS_REAL.find(s => s.id === id)
+  ) : [];
+  const misSups = _a_SUPS_REAL.filter(s => misSupsIds.includes(s.id));
+  return _a_renderPeople(misSups);
+}
+
+function _a_renderPeople(supsOverride) {
+  const sups = supsOverride || _a_filtrarSups(_a_SUPS_REAL);
+  const esManager = !!supsOverride;
+
+  // KPIs — si es manager, calcular desde su subset; si no, desde _a_KPI_GLOBAL
+  const totAgents  = esManager ? sups.reduce((s,x)=>s+x.agents,0) : (_a_KPI_GLOBAL.total||0);
+  const totOnTime  = esManager ? sups.reduce((s,x)=>s+x.onTime,0) : (_a_KPI_GLOBAL.onTime||0);
+  const totLate    = esManager ? sups.reduce((s,x)=>s+x.late,0)   : (_a_KPI_GLOBAL.late||0);
+  const totAbsent  = esManager ? sups.reduce((s,x)=>s+x.absent,0) : (_a_KPI_GLOBAL.absent||0);
+  const pctGlobal  = totAgents ? Math.round((totOnTime/totAgents)*100) : 0;
   const pendComp=_a_FALTAS_LOG.filter(f=>f.estado==='pendiente_comprobante').length;
 
   let supRows='';
-  _a_filtrarSups(_a_SUPS_REAL).forEach(s=>{
+  sups.forEach(s=>{
     const pct=Math.round((s.onTime/s.agents)*100);
     supRows+=`<tr onclick="_a_drillToSup('${s.id}')">
       <td><div class="agent-row-name">${s.name}</div><div class="agent-row-id">${s.id}</div></td>
