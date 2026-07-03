@@ -3331,7 +3331,7 @@ function _a_quincenaTable(){
 // VISTA AGENTE
 // ─────────────────────────────────────────────
 function _a_renderAgent(){
-  const {rows,tw,tl,tr,pct}=_a_quincenaTable();
+  const {rows,tw,tl,tr,te,pct}=_a_quincenaTable();
   const {entrada:en, salida:sa} = _a_getPunch();
   return`${_a_roleSwitcherHTML()}
   <div class="card">
@@ -3944,7 +3944,7 @@ function _a_renderCEO(){
   // Nivel 3: agente
   if(_a_ceoDrillAg){
     const a=_a_TEAM.find(x=>x.id===_a_ceoDrillAg)||_a_TEAM[0];
-    const {rows,tw,tl,tr,pct}=_a_quincenaTable();
+    const {rows,tw,tl,tr,te,pct}=_a_quincenaTable();
     const sup=_a_SUPS_REAL.find(s=>s.id===_a_ceoDrillSup)||_a_SUPS_REAL[0];
     const camp=_a_CAMP_DATA.find(c=>c.key===_a_ceoDrillCamp)||_a_CAMP_DATA[0];
     return`${_a_roleSwitcherHTML()}
@@ -4737,7 +4737,7 @@ function _a_renderHeadPeople(){
 // ─────────────────────────────────────────────
 function _a_renderAgentDetail(agentId){
   const a=_a_TEAM.find(x=>x.id===agentId)||_a_TEAM[0];
-  const {rows,tw,tl,tr,pct}=_a_quincenaTable();
+  const {rows,tw,tl,tr,te,pct}=_a_quincenaTable();
   return`${_a_roleSwitcherHTML()}
   <div class="drilldown-header">
     <button class="back-btn" onclick="_a_backToTeam()">← Volver</button>
