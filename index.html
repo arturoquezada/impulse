@@ -4256,7 +4256,7 @@ function _a_filterBarHTML() {
     "<option value=\"\">Todas las campañas</option>" +
     camps.map(c=>"<option value=\""+c+"\" "+(_a_filtros.campana===c?"selected":"")+">"+( campMap[c.toLowerCase()]||c.charAt(0).toUpperCase()+c.slice(1))+"</option>").join("") +
     "</select>" +
-    (_a_filtros.campana ? "<button id=\"filtroLimpiarBtn\" onclick=\"_a_filtros={campana:''};_a_render()\" style=\"border:1px solid #FCA5A5;border-radius:8px;padding:6px 10px;font-size:12px;font-family:var(--f);color:#DC2626;background:#FEF2F2;cursor:pointer\">✕ Limpiar</button>" : "") +
+    (_a_filtros.campana ? "<button id=\"filtroLimpiarBtn\" onclick=\"_a_filtros.campana='';var s=document.getElementById('filtroCamp');if(s)s.value='';_a_render()\" style=\"border:1px solid #FCA5A5;border-radius:8px;padding:6px 10px;font-size:12px;font-family:var(--f);color:#DC2626;background:#FEF2F2;cursor:pointer\">✕ Limpiar</button>" : "") +
     "</div>";
 }
 
