@@ -1676,7 +1676,7 @@ async function _startApp(user) {
 
   currentRole = role;
   ROLES[role] = { ...ROLES[role], name: nombre, id: empId, camp: camp || ROLES[role]?.camp,
-    campSec, av: initials(nombre), label: ROLES[role]?.label || role };
+    campSec, email: user.email, av: initials(nombre), label: ROLES[role]?.label || role };
 
   sessionStorage.setItem('impulse_user', JSON.stringify({
     email: user.email, empId, role, nombre, camp, campSec, sessionStart: Date.now()
@@ -1871,7 +1871,7 @@ async function _initImpulse() {
 
           currentRole = role;
           ROLES[role] = { ...ROLES[role], name: nombre, id: u.empId, camp, campSec,
-            av: initials(nombre) };
+            email: session.user?.email || u.email, av: initials(nombre) };
           sessionStorage.setItem('impulse_user', JSON.stringify({ ...u, role, nombre, camp, campSec }));
           _auth_sessionStart = u.sessionStart;
           window._auth_loggedIn = true;
@@ -2364,9 +2364,11 @@ async function _a_cargarDatos() {
         const status = !s ? 'sin_punch' :
           (s.attendance_status==='Falta injustificada' ? 'falta' :
            lateMin > 0 ? 'late' : 'on_time');
-        // Equipo de este supervisor
+        // Equipo de este supervisor — excluir los que descansan hoy
         const myTeam = (allEmps||[]).filter(a => a.supervisor_id === e.id);
-        const teamToday = myTeam.map(a => todayAll.find(x=>x.employee_id===a.id)).filter(Boolean);
+        const HOY_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
+        const myTeamActivo = myTeam.filter(a => !(a.days_off||[]).includes(HOY_SLUG));
+        const teamToday = myTeamActivo.map(a => todayAll.find(x=>x.employee_id===a.id)).filter(Boolean);
         return {
           id:    e.id,
           name:  e.full_name,
@@ -2379,7 +2381,7 @@ async function _a_cargarDatos() {
           })(),
           shift: e.shift_start ? e.shift_start.slice(0,5) : '—',
           shiftEnd: e.shift_end ? e.shift_end.slice(0,5) : '—',
-          agents: myTeam.length,
+          agents: myTeamActivo.length,  // solo los que trabajan hoy
           onTime: teamToday.filter(s=>s.attendance_status==='on_time'||(s.time_in&&(s.minutes_late||0)===0)).length,
           late:   teamToday.filter(s=>(s.minutes_late||0)>0||s.attendance_status==='late'||s.attendance_status==='no_show').length,
           absent: teamToday.filter(s=>s.attendance_status==='absent'||s.attendance_status==='excused_absence').length,
@@ -2387,13 +2389,13 @@ async function _a_cargarDatos() {
           entrada: s?.time_in?.slice(0,5) || null,
           salida:  s?.time_out?.slice(0,5) || null,
           avgQA: 0, retardos30: 0, faltas30: 0,
-          hoursContracted: myTeam.length * 8,
+          hoursContracted: myTeamActivo.length * 8,
           hoursWorked: Math.round(teamToday.reduce((sum,s)=>sum+(s.hours_worked||0),0)),
           bonusRisk: 0, costAusentismo: 0,
           noOut: teamToday.filter(s=>s.time_in&&!s.time_out).length,
           falta: status==='falta' ? {categoria:'falta_injustificada',estado:'falta_injustificada',motivo:'Sin registro',marcadaPor:'sistema',hora:'—'} : null,
-          _teamIds:     myTeam.map(a=>a.id),
-          _teamCamps:   [...new Set(myTeam.map(a=>a.campaign_id).filter(Boolean))],
+          _teamIds:     myTeamActivo.map(a=>a.id),
+          _teamCamps:   [...new Set(myTeamActivo.map(a=>a.campaign_id).filter(Boolean))],
           faltasTotal:  teamToday.filter(s=>s.attendance_status==='Falta injustificada').length,
           faltasPorSup: 0,
           faltasPorSistema: teamToday.filter(s=>s.attendance_status==='Falta injustificada').length,
@@ -7238,6 +7240,8 @@ function _e_renderPerfil(empId) {
       ${!esMiPropioPerfil?`<button onclick="_e_perfilAbierto=null;_e_render()" style="border:1px solid #E2E8F0;border-radius:8px;padding:7px 14px;background:#fff;cursor:pointer;font-size:12px;font-weight:600">← Volver</button>`:'<div></div>'}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${canManage?`<button onclick="_e_abrirEditar('${e.id}')" style="padding:7px 14px;background:#F0F9FF;color:#0369A1;border:1px solid #7DD3FC;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">✏️ Editar datos</button>`:''}
+        ${esMiPropioPerfil?`<button onclick="_e_abrirCambiarPassword()" style="padding:7px 14px;background:#F5F3FF;color:#6D28D9;border:1px solid #DDD6FE;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🔑 Cambiar contraseña</button>`:''}
+        ${canManage&&!esMiPropioPerfil&&e.status==='active'?`<button onclick="_e_resetearPassword('${e.id}','${e.full_name}')" style="padding:7px 14px;background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🔄 Resetear contraseña</button>`:''}
         ${canBaja?`<button onclick="_e_abrirBaja('${e.id}')" style="padding:7px 14px;background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🔴 Dar de baja</button>`:''}
         ${canEditBaja?`<button onclick="_e_abrirBaja('${e.id}',true)" style="padding:7px 14px;background:#FFF7ED;color:#9A3412;border:1px solid #FDBA74;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">✏️ Editar motivo de baja</button>`:''}
         ${canEditBaja?`<button onclick="_e_abrirReingreso('${e.id}')" style="padding:7px 14px;background:#EFF6FF;color:#1D4ED8;border:1px solid #93C5FD;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🔄 Reingresar</button>`:''}
@@ -7633,6 +7637,126 @@ function _e_abrirReingreso(empId) {
 
     _e_checkReingreso();
   }, 70);
+}
+
+// ── CAMBIAR CONTRASEÑA PROPIA ────────────────────────────────
+function _e_abrirCambiarPassword() {
+  document.getElementById('modalTitle').textContent = '🔑 Cambiar contraseña';
+  document.getElementById('modalSub').textContent = 'Elige una contraseña segura y que recuerdes';
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <label class="modal-label">CONTRASEÑA ACTUAL</label>
+      <input type="password" id="cp-actual" placeholder="Tu contraseña actual"
+        style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+    </div>
+    <div class="modal-section">
+      <label class="modal-label">NUEVA CONTRASEÑA</label>
+      <input type="password" id="cp-nueva" placeholder="Mínimo 8 caracteres"
+        style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"
+        oninput="_e_pwStrength(this.value)"/>
+      <div id="cp-bar" style="height:4px;border-radius:2px;background:#E2E8F0;margin-top:6px;transition:all .3s"><div id="cp-bar-fill" style="height:100%;border-radius:2px;width:0%;transition:all .3s"></div></div>
+      <div id="cp-bar-label" style="font-size:10px;color:#94A3B8;margin-top:3px;height:14px"></div>
+    </div>
+    <div class="modal-section">
+      <label class="modal-label">CONFIRMAR CONTRASEÑA</label>
+      <input type="password" id="cp-confirma" placeholder="Repite tu nueva contraseña"
+        style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+    </div>
+    <div id="cp-err" style="display:none;background:#FEE2E2;color:#991B1B;border-radius:8px;padding:10px 12px;font-size:12px;font-weight:600;margin-top:8px"></div>`;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn-primary" id="cp-btn" onclick="_e_guardarPassword()">Guardar contraseña</button>`;
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+function _e_pwStrength(pw) {
+  const bar = document.getElementById('cp-bar-fill');
+  const lbl = document.getElementById('cp-bar-label');
+  if (!bar || !lbl) return;
+  let score = 0;
+  if (pw.length >= 8) score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  const levels = [{w:'20%',c:'#DC2626',t:'Muy débil'},{w:'40%',c:'#D97706',t:'Débil'},
+    {w:'60%',c:'#CA8A04',t:'Regular'},{w:'80%',c:'#16A34A',t:'Fuerte'},{w:'100%',c:'#15803D',t:'Muy fuerte'}];
+  const l = levels[Math.min(score, 4)];
+  bar.style.width = pw ? l.w : '0%';
+  bar.style.background = l.c;
+  lbl.textContent = pw ? l.t : '';
+  lbl.style.color = l.c;
+}
+
+async function _e_guardarPassword() {
+  const actual  = document.getElementById('cp-actual')?.value;
+  const nueva   = document.getElementById('cp-nueva')?.value;
+  const confirma = document.getElementById('cp-confirma')?.value;
+  const err = document.getElementById('cp-err');
+  const btn = document.getElementById('cp-btn');
+  const showErr = msg => { err.textContent = msg; err.style.display = 'block'; };
+
+  err.style.display = 'none';
+  if (!actual) return showErr('Ingresa tu contraseña actual');
+  if (!nueva || nueva.length < 8) return showErr('La nueva contraseña debe tener al menos 8 caracteres');
+  if (nueva === '0000') return showErr('No puedes usar la contraseña temporal');
+  if (nueva !== confirma) return showErr('Las contraseñas no coinciden');
+
+  // Verificar contraseña actual re-autenticando
+  const ro = ROLES[currentRole];
+  btn.disabled = true; btn.textContent = 'Verificando…';
+  const { error: signInErr } = await _e_sb.auth.signInWithPassword({
+    email: ROLES[currentRole].email || '',
+    password: actual
+  });
+  if (signInErr) {
+    btn.disabled = false; btn.textContent = 'Guardar contraseña';
+    return showErr('La contraseña actual no es correcta');
+  }
+
+  btn.textContent = 'Guardando…';
+  const { error } = await _e_sb.auth.updateUser({
+    password: nueva,
+    data: { must_change_password: false }
+  });
+
+  if (error) {
+    btn.disabled = false; btn.textContent = 'Guardar contraseña';
+    return showErr('Error al guardar: ' + error.message);
+  }
+
+  closeModal();
+  alert('✅ Contraseña actualizada correctamente');
+}
+
+// ── RESETEAR CONTRASEÑA (People sobre otro usuario) ──────────
+async function _e_resetearPassword(empId, nombre) {
+  if (!confirm(`¿Resetear la contraseña de ${nombre}?\n\nSe le asignará la contraseña temporal 0000 y se le pedirá cambiarla en su próximo login.`)) return;
+
+  // Buscar el auth_user_id del empleado
+  const { data: emp } = await _e_sb.from('employees').select('auth_user_id').eq('id', empId).maybeSingle();
+  if (!emp?.auth_user_id) {
+    alert('❌ Este empleado no tiene una cuenta de acceso vinculada. Contacta soporte.');
+    return;
+  }
+
+  // Llamar al endpoint de admin via Edge Function para resetear
+  const { data: session } = await _e_sb.auth.getSession();
+  const resp = await fetch('https://kpuqabxmpavxgbzxzlng.supabase.co/functions/v1/reset-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + session.session.access_token
+    },
+    body: JSON.stringify({ user_id: emp.auth_user_id })
+  });
+
+  const result = await resp.json();
+  if (!resp.ok || result.error) {
+    alert('❌ No se pudo resetear: ' + (result.error || 'Error desconocido'));
+    return;
+  }
+  alert(`✅ Contraseña de ${nombre} reseteada a 0000.\nSe le pedirá cambiarla en su próximo login.`);
 }
 
 async function _e_abrirEditar(empId) {
