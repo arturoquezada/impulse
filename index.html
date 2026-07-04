@@ -2245,6 +2245,7 @@ async function _a_cargarDatos() {
       // Calcular el día de la semana desde la fecha LOCAL ya cargada (hoy = 'YYYY-MM-DD')
       // usando T12:00:00 para evitar desfases de UTC vs hora México
       const HOY_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
+      console.log('[DEBUG] hoy=', hoy, 'HOY_DIA_SLUG=', HOY_DIA_SLUG);
 
       // Cargar excepciones de hoy del equipo (para saber si la falta es del bot o del supervisor)
       let excepcionesHoy = [];
@@ -2262,6 +2263,7 @@ async function _a_cargarDatos() {
         const lateMin = s ? (s.minutes_late || 0) : 0;
         const descansaHoy = (e.days_off || []).includes(HOY_DIA_SLUG);
         const exHoy = excepcionesHoy.find(x => x.employee_id === e.id);
+        if (descansaHoy) console.log('[DEBUG descanso]', e.id, e.full_name, 'days_off=', e.days_off, 'HOY_DIA_SLUG=', HOY_DIA_SLUG, 'exHoy=', exHoy);
         let status = descansaHoy ? 'descanso' : 'sin_punch';
         if (!descansaHoy && s) {
           const ast = s.attendance_status;
