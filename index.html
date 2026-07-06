@@ -3180,27 +3180,8 @@ function _a_validarIncapacidad(agentId, fecha, accion){
 
 // Auto-marca falta por sistema
 function _a_checkAutoFaltas(){
-  _a_TEAM.forEach(a=>{
-    if(!a.entrada && !a.falta && !a.skipAuto){
-      a.status = 'falta';
-      a.falta  = {
-        categoria:  'falta_injustificada',
-        estado:     'falta_injustificada',
-        motivo:     'No avisó',
-        marcadaPor: 'sistema',
-        hora:       (()=>{const[h,m]=a.shift.split(':');return`${String(+h+3).padStart(2,'0')}:${m}`})(),
-        nota:       'Marcada automáticamente — 3 horas sin punch de entrada',
-        descuenta_nomina: true,
-      };
-      _a_FALTAS_LOG.unshift({
-        agentId: a.id, agentName: a.name,
-        fecha: ymd(NOW), categoria:'falta_injustificada',
-        motivo:'No avisó', marcadaPor:'sistema',
-        supId:'CX00501', hora: a.falta.hora,
-        estado:'falta_injustificada',
-      });
-    }
-  });
+  // Desactivado — el bot de faltas corre en el servidor via Edge Function (auto-falta)
+  // para evitar doble marcado y falsos positivos en agentes con turno tarde.
 }
 
 // Supervisores (para manager/head)
