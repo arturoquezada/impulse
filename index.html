@@ -2064,7 +2064,7 @@ function _a_rangeDays(){
 
 // Filtrar los días de quincena según el rango activo
 function _a_filteredDays(){
-  return _a_QDAYS.filter(d => d.fecha >= _a_dateFilter.from && d.fecha <= _a_dateFilter.to);
+  return _a_QDAYS.filter(d => !d.weekend && d.fecha >= _a_dateFilter.from && d.fecha <= _a_dateFilter.to);
 }
 
 // HTML del filtro (se inserta en cada vista)
