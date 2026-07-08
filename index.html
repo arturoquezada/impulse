@@ -6997,11 +6997,13 @@ function _v_renderPeople() {
   </div>`;
 }
 
+let _v_solicitudDaysOff = [];
+
 function _v_abrirSolicitud() {
   const ro = ROLES[currentRole];
   const emp = _v_AGENTES.find(a => a.id === ro.id);
   const bal = _v_getBalance(ro.id, emp?.hire_date);
-  const daysOff = emp?.days_off || [];
+  _v_solicitudDaysOff = emp?.days_off || [];
 
   document.getElementById('modalTitle').textContent = '🏖️ Solicitar vacaciones';
   document.getElementById('modalSub').textContent = `Días disponibles: ${bal.available}`;
@@ -7021,8 +7023,7 @@ function _v_abrirSolicitud() {
     <div class="modal-section">
       <label class="modal-label">NOTA (opcional)</label>
       <textarea id="v-notas" rows="2" placeholder="Ej: Viaje familiar planeado desde hace meses..." style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"></textarea>
-    </div>
-    <input type="hidden" id="v-daysoff" value="${JSON.stringify(daysOff)}"/>`;
+    </div>`;
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
     <button class="btn-primary" id="v-btn-solicitar" onclick="_v_crearSolicitud(${bal.available})">Enviar solicitud</button>`;
@@ -7032,11 +7033,9 @@ function _v_abrirSolicitud() {
 function _v_calcDias() {
   const inicio = document.getElementById('v-inicio')?.value;
   const fin = document.getElementById('v-fin')?.value;
-  const daysOffRaw = document.getElementById('v-daysoff')?.value;
-  const daysOff = daysOffRaw ? JSON.parse(daysOffRaw) : [];
   const el = document.getElementById('v-dias-calc');
   if (!inicio || !fin || fin < inicio) { if(el) el.textContent = '—'; return; }
-  const dias = _v_calcDiasLaborables(inicio, fin, daysOff);
+  const dias = _v_calcDiasLaborables(inicio, fin, _v_solicitudDaysOff);
   if (el) el.textContent = `${dias} día${dias!==1?'s':''} laborables`;
 }
 
@@ -7044,12 +7043,10 @@ async function _v_crearSolicitud(diasDisponibles) {
   const inicio = document.getElementById('v-inicio')?.value;
   const fin    = document.getElementById('v-fin')?.value;
   const notas  = document.getElementById('v-notas')?.value?.trim() || null;
-  const daysOffRaw = document.getElementById('v-daysoff')?.value;
-  const daysOff = daysOffRaw ? JSON.parse(daysOffRaw) : [];
 
   if (!inicio || !fin) { alert('Selecciona las fechas'); return; }
   if (fin < inicio) { alert('La fecha fin debe ser posterior al inicio'); return; }
-  const dias = _v_calcDiasLaborables(inicio, fin, daysOff);
+  const dias = _v_calcDiasLaborables(inicio, fin, _v_solicitudDaysOff);
   if (dias <= 0) { alert('No hay días laborables en ese rango'); return; }
   if (dias > diasDisponibles) { alert(`Solo tienes ${diasDisponibles} días disponibles y estás solicitando ${dias}`); return; }
 
