@@ -2014,6 +2014,7 @@ async function _a_setPreset(mode){
   // Cargar datos del empleado que se está viendo actualmente, no siempre el logueado
   const empId = _a_QDAYS_EMPLEADO_ID || ROLES[currentRole].id;
   await _a_cargarQDAYS(empId, _a_dateFilter.from, _a_dateFilter.to);
+  await _a_cargarOTRecords();
   _a_render();
 }
 
@@ -2033,6 +2034,7 @@ async function _a_navDate(direction, empId){
   if(fi) fi.value = newFrom;
   if(ti) ti.value = newTo;
   await _a_cargarQDAYS(id, newFrom, newTo);
+  await _a_cargarOTRecords();
   _a_render();
 }
 function addDaysDate(d, n){ const r = new Date(d); r.setDate(r.getDate()+n); return r; }
@@ -2488,11 +2490,84 @@ async function _a_punchSB(tipo) {
   return true;
 }
 
-const _a_OT_LIMITE_DOBLE_SEMANAL = 9 * 60; // 540 minutos
-
-
-// ── OT RECORDS (se conectará a Supabase en siguiente iteración) ──
+// ── OT RECORDS — conectado a Supabase ────────────────────────────────────────
 let _a_OT_RECORDS = [];
+
+async function _a_cargarOTRecords() {
+  const ro = ROLES[currentRole];
+  const { data, error } = await _a_sb
+    .from('overtime_records')
+    .select('*, employees!overtime_records_employee_id_fkey(full_name, campaign_id)')
+    .gte('work_date', _a_dateFilter.from)
+    .lte('work_date', _a_dateFilter.to)
+    .order('work_date', { ascending: false });
+  if (error) { console.error('Error cargando OT:', error); return; }
+  _a_OT_RECORDS = (data || []).map(r => ({
+    ...r,
+    agent_name: r.employees?.full_name || r.employee_id,
+    agent_camp: r.employees?.campaign_id || '—',
+  }));
+}
+
+// Detectar tiempo extra nuevo desde _a_QDAYS y crear registros pending si no existen
+async function _a_sincronizarOT(empId) {
+  const dias = _a_QDAYS.filter(d => !d.weekend && !d.esDescanso && d.tiempoExtraMin > 0);
+  if (!dias.length) return;
+  const upserts = dias.map(d => ({
+    employee_id: empId,
+    work_date: d.fecha,
+    minutes_extra: d.tiempoExtraMin,
+    status: 'pending',
+  }));
+  await _a_sb.from('overtime_records')
+    .upsert(upserts, { onConflict: 'employee_id,work_date', ignoreDuplicates: true });
+}
+
+async function _a_revisarOT(id, accion) {
+  const r = _a_OT_RECORDS.find(x => x.id === id);
+  if (!r) return;
+  const agente = r.agent_name;
+  const fecha = r.work_date;
+  const mins = r.minutes_extra;
+
+  document.getElementById('modalTitle').textContent = accion === 'approved' ? '✅ Aprobar tiempo extra' : '❌ Declinar tiempo extra';
+  document.getElementById('modalSub').textContent = `${agente} · ${fmtDate(fecha)} · ${_a_otMinsToStr(mins)}`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section" style="background:${accion==='approved'?'#F0FDF4':'#FEF2F2'};border-color:${accion==='approved'?'#BBF7D0':'#FECACA'}">
+      <div class="kv"><span class="k">Agente</span><span class="v">${agente}</span></div>
+      <div class="kv"><span class="k">Fecha</span><span class="v">${fmtDate(fecha)}</span></div>
+      <div class="kv"><span class="k">Tiempo extra</span><span class="v" style="font-weight:700;color:#6366F1">${_a_otMinsToStr(mins)}</span></div>
+    </div>
+    <div class="modal-section">
+      <label class="modal-label">JUSTIFICACIÓN <span style="color:#EF4444">*</span></label>
+      <textarea id="ot-notes" rows="3" placeholder="${accion==='approved'?'Ej: Cliente solicitó soporte extendido, autorizado por operaciones...':'Ej: No hubo autorización previa, el agente salió tarde sin aviso...'}"
+        style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f);resize:vertical"></textarea>
+    </div>`;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn-primary" style="background:${accion==='approved'?'#16A34A':'#DC2626'}" 
+      id="ot-btn" onclick="_a_confirmarOT('${id}','${accion}')">
+      ${accion==='approved'?'✅ Aprobar':'❌ Declinar'}
+    </button>`;
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+async function _a_confirmarOT(id, accion) {
+  const notes = document.getElementById('ot-notes')?.value?.trim();
+  if (!notes) { alert('La justificación es obligatoria'); return; }
+  const btn = document.getElementById('ot-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+  const { error } = await _a_sb.from('overtime_records').update({
+    status: accion,
+    notes,
+    reviewed_by: ROLES[currentRole].id,
+    reviewed_at: new Date().toISOString(),
+  }).eq('id', id);
+  if (error) { alert('Error: ' + error.message); if(btn){btn.disabled=false;btn.textContent=accion==='approved'?'✅ Aprobar':'❌ Declinar';} return; }
+  closeModal();
+  await _a_cargarOTRecords();
+  _a_render();
+}
 
 
 // ── FALTAS / RETARDOS LOG — datos en el módulo original ──
@@ -2528,11 +2603,9 @@ function _a_calcOTPago(ot_mins, ot_semana_prev_mins, salary_monthly){
 
 function _a_otStatusLabel(status){
   return {
-    pending:            {label:'Pendiente sup',   pill:'pill-amber', icon:'⏳'},
-    approved:           {label:'Aprobado',         pill:'pill-green', icon:'✅'},
-    rejected:           {label:'Rechazado',        pill:'pill-red',   icon:'❌'},
-    escalated_manager:  {label:'Escalado gerente', pill:'pill-purple',icon:'⬆️'},
-    escalated_ceo:      {label:'Escalado CEO',     pill:'pill-red',   icon:'🔴'},
+    pending:  {label:'Pendiente',  pill:'pill-amber', icon:'⏳'},
+    approved: {label:'Aprobado',   pill:'pill-green', icon:'✅'},
+    declined: {label:'Declinado',  pill:'pill-red',   icon:'❌'},
   }[status] || {label:status, pill:'pill-gray', icon:'?'};
 }
 
@@ -2540,6 +2613,57 @@ function _a_otMinsToStr(mins){
   const h = Math.floor(mins/60);
   const m = mins % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function _a_renderOTSection(rol){
+  if (!_a_OT_RECORDS.length) return `
+    <div class="card">
+      <div class="card-title">⏱️ Tiempo extra · LFT México</div>
+      <div style="text-align:center;padding:24px;color:#94A3B8;font-size:13px">Sin registros de tiempo extra en el período seleccionado</div>
+    </div>`;
+
+  const pendientes = _a_OT_RECORDS.filter(r=>r.status==='pending').length;
+  const aprobados  = _a_OT_RECORDS.filter(r=>r.status==='approved');
+  const totalAprobMin = aprobados.reduce((s,r)=>s+r.minutes_extra,0);
+  const canReview = ['supervisor','manager'].includes(rol);
+
+  let rows = '';
+  _a_OT_RECORDS.forEach(r => {
+    const st = _a_otStatusLabel(r.status);
+    const isPending = r.status === 'pending';
+    rows += `<tr>
+      <td><div class="agent-row-name">${r.agent_name}</div><div class="agent-row-id">${r.employee_id}</div></td>
+      <td>${fmtDate(r.work_date)}</td>
+      <td><span class="pill pill-gray">${r.agent_camp}</span></td>
+      <td style="font-family:'DM Mono',monospace;color:#6366F1;font-weight:700">${_a_otMinsToStr(r.minutes_extra)}</td>
+      <td><span class="pill ${st.pill}">${st.icon} ${st.label}</span></td>
+      <td style="font-size:11px;color:#64748B;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes||'—'}</td>
+      <td>
+        ${canReview && isPending ? `
+          <div style="display:flex;gap:6px">
+            <button onclick="_a_revisarOT('${r.id}','approved')" style="padding:4px 10px;background:#DCFCE7;color:#16A34A;border:1px solid #BBF7D0;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer">✅ Aprobar</button>
+            <button onclick="_a_revisarOT('${r.id}','declined')" style="padding:4px 10px;background:#FEE2E2;color:#DC2626;border:1px solid #FECACA;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer">❌ Declinar</button>
+          </div>` : `<span style="font-size:11px;color:#94A3B8">${r.reviewed_by ? 'Revisado' : '—'}</span>`}
+      </td>
+    </tr>`;
+  });
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div>
+        <div class="card-title" style="margin-bottom:2px">⏱️ Tiempo extra · LFT México</div>
+        <div style="font-size:11px;color:#94A3B8">${_a_dateFilter.label} · ${_a_OT_RECORDS.length} registros</div>
+      </div>
+      <div style="display:flex;gap:12px">
+        ${pendientes > 0 ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:8px 14px;text-align:center"><div style="font-size:18px;font-weight:800;color:#D97706">${pendientes}</div><div style="font-size:10px;color:#92400E">Pendientes</div></div>` : ''}
+        <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:8px 14px;text-align:center"><div style="font-size:18px;font-weight:800;color:#16A34A">${_a_otMinsToStr(totalAprobMin)}</div><div style="font-size:10px;color:#166534">Total aprobado</div></div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:700px">
+      <thead><tr><th>Agente</th><th>Fecha</th><th>Campaña</th><th>T. Extra</th><th>Status</th><th>Justificación</th><th>Acción</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div></div>
+  </div>`;
 }
 
 // ── OVERTIME MODULE — compartido entre vistas ────────────────────────────────
@@ -6045,6 +6169,7 @@ window['_init_asistencia']=function(){
     _a_cargando=false; _a_render();
     if(ok){
       _a_checkAutoRetardos(); _a_checkAutoFaltas();
+      if(['supervisor','manager','people','head_people'].includes(currentRole)) _a_cargarOTRecords();
     }
   });
 };
