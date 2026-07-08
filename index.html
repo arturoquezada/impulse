@@ -2064,7 +2064,7 @@ function _a_rangeDays(){
 
 // Filtrar los días de quincena según el rango activo
 function _a_filteredDays(){
-  return _a_QDAYS.filter(d => !d.weekend && d.fecha >= _a_dateFilter.from && d.fecha <= _a_dateFilter.to);
+  return _a_QDAYS.filter(d => d.fecha >= _a_dateFilter.from && d.fecha <= _a_dateFilter.to);
 }
 
 // HTML del filtro (se inserta en cada vista)
@@ -2165,11 +2165,14 @@ async function _a_cargarQDAYS(empId, from, to) {
       const esDescanso = daysOff.includes(diaSemana);
 
       // Tiempo extra: minutos trabajados - minutos contratados del turno
+      // Usa shift_start/shift_end de la vista (no shift_hours que es null)
       let tiempoExtraMin = 0;
-      if (s && s.time_in && s.time_out && s.shift_hours) {
+      if (s && s.time_in && s.time_out && s.shift_start && s.shift_end) {
         const trabajadoMin = Math.round((s.hours_worked || 0) * 60);
-        const contratadoMin = Math.round(s.shift_hours * 60);
-        tiempoExtraMin = Math.max(0, trabajadoMin - contratadoMin);
+        const [shH, shM] = s.shift_start.split(':').map(Number);
+        const [ehH, ehM] = s.shift_end.split(':').map(Number);
+        const contratadoMin = (ehH * 60 + ehM) - (shH * 60 + shM);
+        if (contratadoMin > 0) tiempoExtraMin = Math.max(0, trabajadoMin - contratadoMin);
       }
 
       dias.push({
@@ -3285,7 +3288,7 @@ function _a_miniTrend(vals){
 // ── QUINCENA TABLE SHARED ──
 function _a_quincenaTable(){
   const todos=_a_filteredDays();
-  // KPIs solo con días hábiles (excluye fines de semana)
+  // KPIs: excluir fines de semana Y días de descanso
   const validos=todos.filter(d=>!d.weekend&&!d.esDescanso);
   const tw=validos.reduce((s,d)=>s+(d.segundos_trabajados||0),0);
   const tl=validos.reduce((s,d)=>s+(d.segundos_tarde||0),0);
@@ -3295,10 +3298,9 @@ function _a_quincenaTable(){
   let rows='';
   todos.forEach((d)=>{
     if(d.weekend){
-      rows+=`<tr style="opacity:.45">
+      rows+=`<tr style="opacity:.4;pointer-events:none">
         <td>${fmtDate(d.fecha)}</td>
-        <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
-        <td><span class="pill" style="background:#F1F5F9;color:#94A3B8;font-size:11px">Fin de semana</span></td>
+        <td colspan="6" style="color:#94A3B8;font-size:11px;font-style:italic">Fin de semana</td>
         <td>—</td>
       </tr>`;
       return;
