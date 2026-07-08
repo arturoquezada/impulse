@@ -7055,7 +7055,7 @@ async function _v_crearSolicitud(diasDisponibles) {
   const ro = ROLES[currentRole];
   const { error } = await _v_sb.from('vacation_requests').insert({
     employee_id: ro.id, start_date: inicio, end_date: fin,
-    days_requested: dias, status: 'pending', notes: notas,
+    days_requested: Math.round(dias), status: 'pending', notes: notas,
   });
   if (error) { alert('Error: ' + error.message); if(btn){btn.disabled=false;btn.textContent='Enviar solicitud';} return; }
   closeModal();
