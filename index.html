@@ -6696,46 +6696,147 @@ const _v_sb = supabase.createClient(_v_SB_URL, _v_SB_KEY);
 
 let _v_AGENTES = [];
 let _v_SOLICITUDES = [];
-let _v_ENTITLEMENTS = [];
+let _v_BALANCES = {};  // { employee_id: { days_earned, days_used, days_pending } }
 let _v_cargando = false;
+let _v_calMes = new Date(ymd(NOW) + 'T12:00:00'); // mes actual del calendario
 
 async function _v_cargarDatos() {
   try {
-    const { data: emps, error: e1 } = await _v_sb.from('employees')
-      .select('id,full_name,hire_date,campaign_id,supervisor_id').eq('status','active').order('full_name');
-    if (e1) throw e1;
+    const ro = ROLES[currentRole];
+    const { data: emps } = await _v_sb.from('employees')
+      .select('id,full_name,hire_date,campaign_id,supervisor_id,days_off,system_role')
+      .eq('status','active').order('full_name');
     _v_AGENTES = emps || [];
-    const { data: sols, error: e2 } = await _v_sb.from('vacation_requests')
-      .select('*').order('created_at', {ascending:false});
-    if (e2) throw e2;
+
+    const { data: sols } = await _v_sb.from('vacation_requests')
+      .select('*').order('created_at',{ascending:false});
     _v_SOLICITUDES = sols || [];
-    const { data: ent } = await _v_sb.from('v_vacation_entitlement').select('*');
-    _v_ENTITLEMENTS = ent || [];
+
+    // Cargar balances
+    const { data: bals } = await _v_sb.from('vacation_balances').select('*');
+    _v_BALANCES = {};
+    (bals||[]).forEach(b => { _v_BALANCES[b.employee_id] = b; });
+
+    // Sincronizar balances para empleados sin registro
+    await _v_sincronizarBalances();
     return true;
   } catch(e) { console.error('Error vacaciones:', e); return false; }
 }
 
+// Calcular días LFT 2024+ por año de antigüedad
 function _v_diasPorAnio(anio) {
   if (anio <= 0) return 0;
   if (anio === 1) return 12; if (anio === 2) return 14;
   if (anio === 3) return 16; if (anio === 4) return 18;
-  if (anio <= 9)  return 20; if (anio <= 14) return 22;
+  if (anio <= 9) return 20; if (anio <= 14) return 22;
   if (anio <= 19) return 24; if (anio <= 24) return 26;
   return 28;
 }
 
-function _v_calcVacaciones(ingreso) {
-  if (!ingreso) return { aniosCompletos:0, periodos:[] };
-  const hoy = ymd(NOW);
-  const aniosCompletos = Math.floor(diffDays(ingreso, hoy) / 365);
-  if (aniosCompletos < 1) return { aniosCompletos:0, periodos:[] };
-  const periodos = [];
-  for (let y = 1; y <= aniosCompletos; y++) {
-    const aniversario = addYears(ingreso, y);
-    const vence = addMonths(aniversario, 6);
-    periodos.push({ anio:y, inicio:addYears(ingreso,y-1), aniversario, vence, dias:_v_diasPorAnio(y) });
+function _v_calcAnios(hire_date) {
+  if (!hire_date) return 0;
+  const hoy = new Date(ymd(NOW) + 'T12:00:00');
+  const ing = new Date(hire_date + 'T12:00:00');
+  return Math.floor((hoy - ing) / (365.25 * 24 * 60 * 60 * 1000));
+}
+
+function _v_diasGanados(hire_date) {
+  return _v_diasPorAnio(_v_calcAnios(hire_date));
+}
+
+// Calcular días laborables entre dos fechas según los days_off del agente
+function _v_calcDiasLaborables(start, end, daysOff = []) {
+  let count = 0;
+  let cur = new Date(start + 'T12:00:00');
+  const fin = new Date(end + 'T12:00:00');
+  const DIAS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  while (cur <= fin) {
+    const slug = DIAS[cur.getDay()];
+    if (!daysOff.includes(slug)) count++;
+    cur.setDate(cur.getDate() + 1);
   }
-  return { aniosCompletos, periodos };
+  return count;
+}
+
+function _v_getBalance(empId, hire_date) {
+  const b = _v_BALANCES[empId];
+  const earned = b?.days_earned ?? _v_diasGanados(hire_date);
+  const used   = b?.days_used ?? _v_SOLICITUDES.filter(s=>s.employee_id===empId&&s.status==='approved').reduce((s,x)=>s+(x.days_requested||0),0);
+  const pending = b?.days_pending ?? _v_SOLICITUDES.filter(s=>s.employee_id===empId&&s.status==='pending').reduce((s,x)=>s+(x.days_requested||0),0);
+  return { earned, used, pending, available: Math.max(0, earned - used - pending) };
+}
+
+async function _v_sincronizarBalances() {
+  const upserts = _v_AGENTES.filter(a=>!_v_BALANCES[a.id]).map(a => ({
+    employee_id: a.id,
+    days_earned: _v_diasGanados(a.hire_date),
+    days_used: _v_SOLICITUDES.filter(s=>s.employee_id===a.id&&s.status==='approved').reduce((s,x)=>s+(x.days_requested||0),0),
+    days_pending: _v_SOLICITUDES.filter(s=>s.employee_id===a.id&&s.status==='pending').reduce((s,x)=>s+(x.days_requested||0),0),
+  }));
+  if (upserts.length > 0) {
+    await _v_sb.from('vacation_balances').upsert(upserts, { onConflict: 'employee_id' });
+    const { data: bals } = await _v_sb.from('vacation_balances').select('*');
+    _v_BALANCES = {};
+    (bals||[]).forEach(b => { _v_BALANCES[b.employee_id] = b; });
+  }
+}
+
+// Calendario visual — muestra un mes con días de vacaciones marcados
+function _v_renderCalendario(solicitudesAprobadas, titulo) {
+  const año = _v_calMes.getFullYear();
+  const mes = _v_calMes.getMonth();
+  const primerDia = new Date(año, mes, 1).getDay();
+  const diasEnMes = new Date(año, mes + 1, 0).getDate();
+  const nombreMes = _v_calMes.toLocaleDateString('es-MX', {month:'long',year:'numeric'});
+
+  // Mapear qué empleados están de vacaciones cada día
+  const diasVac = {};
+  solicitudesAprobadas.forEach(s => {
+    let cur = new Date(s.start_date + 'T12:00:00');
+    const fin = new Date(s.end_date + 'T12:00:00');
+    const emp = _v_AGENTES.find(a => a.id === s.employee_id);
+    const nombre = emp?.full_name?.split(' ')[0] || s.employee_id;
+    while (cur <= fin) {
+      const d = cur.getDate();
+      const m = cur.getMonth();
+      const y = cur.getFullYear();
+      if (m === mes && y === año) {
+        if (!diasVac[d]) diasVac[d] = [];
+        diasVac[d].push(nombre);
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+  });
+
+  let cells = '';
+  for (let i = 0; i < (primerDia === 0 ? 6 : primerDia - 1); i++) cells += '<div></div>';
+  for (let d = 1; d <= diasEnMes; d++) {
+    const fecha = `${año}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dow = new Date(fecha + 'T12:00:00').getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    const vacs = diasVac[d] || [];
+    const isHoy = fecha === ymd(NOW);
+    cells += `<div style="border-radius:8px;padding:4px;min-height:52px;background:${isHoy?'#EFF6FF':isWeekend?'#F8FAFC':'#fff'};border:1px solid ${isHoy?'#BFDBFE':'#F1F5F9'}">
+      <div style="font-size:11px;font-weight:${isHoy?'800':'600'};color:${isHoy?'#1D4ED8':isWeekend?'#94A3B8':'#0F172A'};margin-bottom:2px">${d}</div>
+      ${vacs.slice(0,2).map(n=>`<div style="font-size:9px;background:#DBEAFE;color:#1E40AF;border-radius:3px;padding:1px 4px;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n}</div>`).join('')}
+      ${vacs.length>2?`<div style="font-size:9px;color:#64748B">+${vacs.length-2}</div>`:''}
+    </div>`;
+  }
+
+  return `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div class="card-title">${titulo||'📅 Calendario de vacaciones'}</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <button onclick="_v_calMes=new Date(_v_calMes.getFullYear(),_v_calMes.getMonth()-1,1);_v_render()" style="border:1px solid #E2E8F0;background:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px">←</button>
+        <span style="font-size:13px;font-weight:600;text-transform:capitalize">${nombreMes}</span>
+        <button onclick="_v_calMes=new Date(_v_calMes.getFullYear(),_v_calMes.getMonth()+1,1);_v_render()" style="border:1px solid #E2E8F0;background:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px">→</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px">
+      ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d=>`<div style="text-align:center;font-size:10px;font-weight:700;color:#64748B;padding:4px">${d}</div>`).join('')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cells}</div>
+  </div>`;
 }
 
 function _v_render() {
@@ -6745,166 +6846,221 @@ function _v_render() {
     c.innerHTML = '<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:32px;height:32px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando vacaciones...</div>';
     return;
   }
-  if (_v_AGENTES.length === 0) {
+  if (!_v_AGENTES.length) {
     c.innerHTML = '<div style="text-align:center;padding:60px;color:#DC2626"><div style="font-size:32px;margin-bottom:12px">⚠️</div><p style="font-weight:600">No se pudieron cargar los datos</p><button onclick="_v_cargarDatos().then(()=>_v_render())" style="margin-top:16px;padding:10px 20px;background:#0F172A;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">🔄 Reintentar</button></div>';
     return;
   }
-  if (['people','head_people'].includes(currentRole)) c.innerHTML = _v_renderPeople();
+  if (['people','head_people','manager'].includes(currentRole)) c.innerHTML = _v_renderPeople();
+  else if (currentRole === 'supervisor') c.innerHTML = _v_renderSupervisor();
   else c.innerHTML = _v_renderAgent();
 }
 
 function _v_renderAgent() {
   const ro = ROLES[currentRole];
-  const empReal = _v_AGENTES.find(a => a.id === ro.id);
-  const ingreso = empReal?.hire_date || '';
-  const { aniosCompletos, periodos } = _v_calcVacaciones(ingreso);
+  const emp = _v_AGENTES.find(a => a.id === ro.id);
+  const bal = _v_getBalance(ro.id, emp?.hire_date);
+  const anios = _v_calcAnios(emp?.hire_date);
   const misSols = _v_SOLICITUDES.filter(s => s.employee_id === ro.id);
-  const entit = _v_ENTITLEMENTS.find(e => e.employee_id === ro.id);
-  const diasTotal = entit?.vacation_days_total || periodos.reduce((s,p)=>s+p.dias,0);
-  const diasUsados = entit?.vacation_days_used || misSols.filter(s=>s.status==='approved').reduce((s,sol)=>s+(sol.days_requested||0),0);
-  const diasDisp = entit?.vacation_days_available ?? Math.max(0, diasTotal - diasUsados);
+  const aprobadas = misSols.filter(s => s.status === 'approved');
 
-  let solRows = misSols.slice(0,20).map(s => {
-    const color = s.status==='approved'?'#16A34A':s.status==='rejected'?'#DC2626':'#D97706';
-    return `<tr style="border-top:1px solid #F1F5F9">
-      <td style="padding:9px 14px;font-size:13px">${s.start_date||'—'}</td>
-      <td style="padding:9px 14px;font-size:13px">${s.end_date||'—'}</td>
-      <td style="padding:9px 14px;font-size:13px">${s.days_requested||'—'} días</td>
-      <td style="padding:9px 14px;font-size:12px;font-weight:600;color:${color}">${s.status}</td>
+  const statusLabel = {pending:'⏳ Pendiente', approved:'✅ Aprobada', rejected:'❌ Rechazada', cancelled:'🚫 Cancelada'};
+  const statusColor = {pending:'#D97706', approved:'#16A34A', rejected:'#DC2626', cancelled:'#64748B'};
+
+  let rows = misSols.map(s => `<tr>
+    <td>${fmtDate(s.start_date)}</td>
+    <td>${fmtDate(s.end_date)}</td>
+    <td style="font-family:'DM Mono',monospace;text-align:center">${s.days_requested}</td>
+    <td><span style="font-size:12px;font-weight:600;color:${statusColor[s.status]||'#64748B'}">${statusLabel[s.status]||s.status}</span></td>
+    <td style="font-size:11px;color:#64748B;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.notes_employee||'—'}</td>
+    ${s.status==='pending'?`<td><button onclick="_v_cancelar('${s.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #FECACA;border-radius:6px;background:#FEF2F2;color:#DC2626;cursor:pointer">Cancelar</button></td>`:'<td>—</td>'}
+  </tr>`).join('');
+
+  return `<div style="max-width:860px;margin:0 auto">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      <div class="kpi-box"><div class="kpi-val">${bal.earned}</div><div class="kpi-lbl">Días del periodo</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${bal.used}</div><div class="kpi-lbl">Días tomados</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${bal.pending}</div><div class="kpi-lbl">En solicitud</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${bal.available}</div><div class="kpi-lbl">Disponibles</div></div>
+    </div>
+    <div style="font-size:11px;color:#94A3B8;margin-bottom:16px;text-align:center">Antigüedad: ${anios} año${anios!==1?'s':''} · Ingreso: ${emp?.hire_date||'—'} · LFT 2024+</div>
+
+    ${_v_renderCalendario(aprobadas, '📅 Mis vacaciones aprobadas')}
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div class="card-title">Mis solicitudes</div>
+        ${bal.available > 0 ? `<button onclick="_v_abrirSolicitud()" style="padding:8px 16px;background:#0F172A;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">+ Solicitar vacaciones</button>` : '<span style="font-size:12px;color:#94A3B8">Sin días disponibles</span>'}
+      </div>
+      ${misSols.length ? `<div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:560px">
+        <thead><tr><th>Inicio</th><th>Fin</th><th>Días</th><th>Status</th><th>Nota</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div></div>` : '<div style="text-align:center;padding:30px;color:#94A3B8">Sin solicitudes registradas — usa el botón para pedir tus vacaciones</div>'}
+    </div>
+  </div>`;
+}
+
+function _v_renderSupervisor() {
+  const ro = ROLES[currentRole];
+  const miEquipo = _v_AGENTES.filter(a => a.supervisor_id === ro.id);
+  const idsEquipo = miEquipo.map(a => a.id);
+  const solsEquipo = _v_SOLICITUDES.filter(s => idsEquipo.includes(s.employee_id));
+  const aprobadas = solsEquipo.filter(s => s.status === 'approved');
+
+  let rows = miEquipo.map(a => {
+    const bal = _v_getBalance(a.id, a.hire_date);
+    const solsAg = solsEquipo.filter(s=>s.employee_id===a.id);
+    return `<tr>
+      <td><div class="agent-row-name">${a.full_name}</div><div class="agent-row-id">${a.id}</div></td>
+      <td style="text-align:center;font-family:'DM Mono',monospace">${bal.earned}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626">${bal.used}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace;color:#D97706">${bal.pending}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace;color:#16A34A;font-weight:700">${bal.available}</td>
+      <td style="text-align:center">${solsAg.filter(s=>s.status==='pending').length > 0 ? `<span style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700">⏳ ${solsAg.filter(s=>s.status==='pending').length} pendiente${solsAg.filter(s=>s.status==='pending').length>1?'s':''}</span>` : '—'}</td>
     </tr>`;
   }).join('');
 
-  return `<div style="max-width:800px;margin:0 auto">
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #E2E8F0">
-        <div style="font-size:28px;font-weight:800;color:#0F172A">${diasTotal}</div>
-        <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-top:4px">Días correspondientes</div>
-      </div>
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #E2E8F0">
-        <div style="font-size:28px;font-weight:800;color:#DC2626">${diasUsados}</div>
-        <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-top:4px">Días usados</div>
-      </div>
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #E2E8F0">
-        <div style="font-size:28px;font-weight:800;color:#16A34A">${diasDisp}</div>
-        <div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-top:4px">Disponibles</div>
-      </div>
+  return `<div style="max-width:1000px;margin:0 auto">
+    ${_v_renderCalendario(aprobadas, '📅 Vacaciones del equipo')}
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px">Banco de días · ${miEquipo.length} agentes</div>
+      <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:600px">
+        <thead><tr><th>Agente</th><th style="text-align:center">Ganados</th><th style="text-align:center">Usados</th><th style="text-align:center">En solicitud</th><th style="text-align:center">Disponibles</th><th style="text-align:center">Estado</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div></div>
     </div>
-    <div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="font-weight:700;font-size:13px">Mis solicitudes</div>
-        <button onclick="_v_abrirSolicitud()" style="padding:7px 14px;background:#0F172A;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">+ Solicitar vacaciones</button>
-      </div>
-      ${misSols.length?`<table style="width:100%;border-collapse:collapse">
-        <thead style="background:#F8FAFC"><tr>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Inicio</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Fin</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Días</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Status</th>
-        </tr></thead><tbody>${solRows}</tbody>
-      </table>`:'<div style="text-align:center;padding:30px;color:#94A3B8">Sin solicitudes registradas</div>'}
-    </div>
-    <div style="text-align:center;font-size:12px;color:#94A3B8;margin-top:12px">Antigüedad: ${aniosCompletos} año${aniosCompletos!==1?'s':''} · Ingreso: ${ingreso||'—'}</div>
   </div>`;
 }
 
 function _v_renderPeople() {
   const pendientes = _v_SOLICITUDES.filter(s => s.status === 'pending');
+  const aprobadas  = _v_SOLICITUDES.filter(s => s.status === 'approved');
+  const statusColor = {pending:'#D97706',approved:'#16A34A',rejected:'#DC2626',cancelled:'#64748B'};
+  const statusLabel = {pending:'⏳ Pendiente',approved:'✅ Aprobada',rejected:'❌ Rechazada',cancelled:'🚫 Cancelada'};
+
   let pendRows = pendientes.map(s => {
-    const emp = _v_AGENTES.find(a => a.id === s.employee_id);
-    return `<tr style="border-top:1px solid #F1F5F9">
-      <td style="padding:10px 14px"><div style="font-size:13px;font-weight:600">${emp?emp.full_name:s.employee_id}</div></td>
-      <td style="padding:10px 14px;font-size:13px">${s.start_date||'—'}</td>
-      <td style="padding:10px 14px;font-size:13px">${s.end_date||'—'}</td>
-      <td style="padding:10px 14px;font-size:13px">${s.days_requested||'—'} días</td>
-      <td style="padding:10px 14px">
-        <button onclick="_v_aprobar('${s.id}')" style="font-size:11px;padding:4px 10px;border:none;border-radius:6px;background:#DCFCE7;color:#166534;cursor:pointer;font-weight:600;margin-right:6px">✅ Aprobar</button>
-        <button onclick="_v_rechazar('${s.id}')" style="font-size:11px;padding:4px 10px;border:none;border-radius:6px;background:#FEE2E2;color:#991B1B;cursor:pointer;font-weight:600">❌ Rechazar</button>
+    const emp = _v_AGENTES.find(a=>a.id===s.employee_id);
+    const bal = _v_getBalance(s.employee_id, emp?.hire_date);
+    return `<tr>
+      <td><div class="agent-row-name">${emp?.full_name||s.employee_id}</div><div class="agent-row-id">${s.employee_id}</div></td>
+      <td>${fmtDate(s.start_date)}</td>
+      <td>${fmtDate(s.end_date)}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace;font-weight:700">${s.days_requested}</td>
+      <td style="text-align:center;font-size:12px;color:${bal.available >= s.days_requested ? '#16A34A':'#DC2626'}">${bal.available} disp.</td>
+      <td style="font-size:11px;color:#64748B">${s.notes_employee||'—'}</td>
+      <td>
+        <div style="display:flex;gap:6px">
+          <button onclick="_v_aprobar('${s.id}')" style="padding:4px 10px;background:#DCFCE7;color:#166534;border:1px solid #BBF7D0;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer">✅ Aprobar</button>
+          <button onclick="_v_rechazar('${s.id}')" style="padding:4px 10px;background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer">❌ Rechazar</button>
+        </div>
       </td>
     </tr>`;
   }).join('');
 
-  let agRows = _v_AGENTES.map(a => {
-    const { aniosCompletos } = _v_calcVacaciones(a.hire_date);
-    const diasTotal = _v_diasPorAnio(aniosCompletos);
-    const entit = _v_ENTITLEMENTS.find(e => e.employee_id === a.id);
-    const usados = entit?.vacation_days_used ||
-      _v_SOLICITUDES.filter(s=>s.employee_id===a.id&&s.status==='approved').reduce((s,x)=>s+(x.days_requested||0),0);
-    const dispon = entit?.vacation_days_available ?? Math.max(0, diasTotal - usados);
-    return `<tr style="border-top:1px solid #F1F5F9">
-      <td style="padding:10px 14px"><div style="font-size:13px;font-weight:600">${a.full_name}</div><div style="font-size:11px;color:#94A3B8">${a.id}</div></td>
-      <td style="padding:10px 14px;font-size:13px;color:#64748B">${a.hire_date||'—'}</td>
-      <td style="padding:10px 14px;font-size:13px">${aniosCompletos} años</td>
-      <td style="padding:10px 14px;font-size:13px;font-weight:600">${diasTotal}</td>
-      <td style="padding:10px 14px;font-size:13px;color:#DC2626">${usados}</td>
-      <td style="padding:10px 14px;font-size:13px;color:#16A34A;font-weight:700">${dispon}</td>
+  let agRows = _v_AGENTES.filter(a=>a.system_role==='agent').map(a => {
+    const bal = _v_getBalance(a.id, a.hire_date);
+    const anios = _v_calcAnios(a.hire_date);
+    return `<tr>
+      <td><div class="agent-row-name">${a.full_name}</div><div class="agent-row-id">${a.id}</div></td>
+      <td style="font-size:12px;color:#64748B">${a.hire_date||'—'}</td>
+      <td style="text-align:center">${anios} año${anios!==1?'s':''}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace">${bal.earned}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626">${bal.used}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace;color:#D97706">${bal.pending}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace;color:#16A34A;font-weight:700">${bal.available}</td>
     </tr>`;
   }).join('');
 
-  return `<div style="max-width:1000px;margin:0 auto">
-    ${pendientes.length?`<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:20px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:12px">⏳ Pendientes de aprobación (${pendientes.length})</div>
-      <table style="width:100%;border-collapse:collapse">
-        <thead style="background:#F8FAFC"><tr>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Empleado</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Inicio</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Fin</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Días</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Acción</th>
-        </tr></thead><tbody>${pendRows}</tbody>
-      </table>
-    </div>`:''}
-    <div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:12px">Equipo · ${_v_AGENTES.length} empleados</div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:700px">
-        <thead style="background:#F8FAFC"><tr>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Empleado</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Ingreso</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Antigüedad</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Días totales</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Usados</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Disponibles</th>
-        </tr></thead><tbody>${agRows}</tbody>
-      </table></div>
+  return `<div style="max-width:1100px;margin:0 auto">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+      <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${pendientes.length}</div><div class="kpi-lbl">Pendientes de aprobación</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${aprobadas.length}</div><div class="kpi-lbl">Aprobadas este año</div></div>
+      <div class="kpi-box"><div class="kpi-val">${_v_AGENTES.filter(a=>a.system_role==='agent').length}</div><div class="kpi-lbl">Agentes activos</div></div>
+    </div>
+
+    ${pendientes.length ? `<div class="card">
+      <div class="card-title" style="margin-bottom:14px">⏳ Pendientes de aprobación (${pendientes.length})</div>
+      <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:760px">
+        <thead><tr><th>Empleado</th><th>Inicio</th><th>Fin</th><th style="text-align:center">Días</th><th style="text-align:center">Disponibles</th><th>Nota del agente</th><th>Acción</th></tr></thead>
+        <tbody>${pendRows}</tbody>
+      </table></div></div>
+    </div>` : ''}
+
+    ${_v_renderCalendario(aprobadas, '📅 Vacaciones aprobadas · todo el equipo')}
+
+    <div class="card">
+      <div class="card-title" style="margin-bottom:14px">Banco de días · equipo completo</div>
+      <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:700px">
+        <thead><tr><th>Agente</th><th>Ingreso</th><th style="text-align:center">Antigüedad</th><th style="text-align:center">Ganados</th><th style="text-align:center">Usados</th><th style="text-align:center">En solicitud</th><th style="text-align:center">Disponibles</th></tr></thead>
+        <tbody>${agRows}</tbody>
+      </table></div></div>
     </div>
   </div>`;
 }
 
 function _v_abrirSolicitud() {
-  document.getElementById('modalTitle').textContent = 'Solicitar Vacaciones';
-  document.getElementById('modalSub').textContent = '';
+  const ro = ROLES[currentRole];
+  const emp = _v_AGENTES.find(a => a.id === ro.id);
+  const bal = _v_getBalance(ro.id, emp?.hire_date);
+  const daysOff = emp?.days_off || [];
+
+  document.getElementById('modalTitle').textContent = '🏖️ Solicitar vacaciones';
+  document.getElementById('modalSub').textContent = `Días disponibles: ${bal.available}`;
   document.getElementById('modalBody').innerHTML = `
-    <div class="modal-section">
-      <label class="modal-label">FECHA INICIO</label>
-      <input type="date" id="v-inicio" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+    <div class="modal-section" style="background:#F0FDF4;border-color:#BBF7D0">
+      <div class="kv"><span class="k">Días disponibles</span><span class="v" style="color:#16A34A;font-weight:700;font-size:16px">${bal.available}</span></div>
+      <div class="kv"><span class="k">Días solicitados</span><span class="v" id="v-dias-calc" style="color:#6366F1;font-weight:700">—</span></div>
     </div>
     <div class="modal-section">
-      <label class="modal-label">FECHA FIN</label>
-      <input type="date" id="v-fin" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+      <label class="modal-label">FECHA DE INICIO <span style="color:#EF4444">*</span></label>
+      <input type="date" id="v-inicio" min="${ymd(NOW)}" onchange="_v_calcDias()" style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
     </div>
     <div class="modal-section">
-      <label class="modal-label">NOTAS (opcional)</label>
-      <textarea id="v-notas" rows="2" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"></textarea>
-    </div>`;
+      <label class="modal-label">FECHA DE FIN <span style="color:#EF4444">*</span></label>
+      <input type="date" id="v-fin" min="${ymd(NOW)}" onchange="_v_calcDias()" style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+    </div>
+    <div class="modal-section">
+      <label class="modal-label">NOTA (opcional)</label>
+      <textarea id="v-notas" rows="2" placeholder="Ej: Viaje familiar planeado desde hace meses..." style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"></textarea>
+    </div>
+    <input type="hidden" id="v-daysoff" value="${JSON.stringify(daysOff)}"/>`;
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-primary" onclick="_v_crearSolicitud()">Solicitar</button>`;
+    <button class="btn-primary" id="v-btn-solicitar" onclick="_v_crearSolicitud(${bal.available})">Enviar solicitud</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
 }
 
-async function _v_crearSolicitud() {
+function _v_calcDias() {
+  const inicio = document.getElementById('v-inicio')?.value;
+  const fin = document.getElementById('v-fin')?.value;
+  const daysOffRaw = document.getElementById('v-daysoff')?.value;
+  const daysOff = daysOffRaw ? JSON.parse(daysOffRaw) : [];
+  const el = document.getElementById('v-dias-calc');
+  if (!inicio || !fin || fin < inicio) { if(el) el.textContent = '—'; return; }
+  const dias = _v_calcDiasLaborables(inicio, fin, daysOff);
+  if (el) el.textContent = `${dias} día${dias!==1?'s':''} laborables`;
+}
+
+async function _v_crearSolicitud(diasDisponibles) {
   const inicio = document.getElementById('v-inicio')?.value;
   const fin    = document.getElementById('v-fin')?.value;
-  const notas  = document.getElementById('v-notas')?.value || '';
+  const notas  = document.getElementById('v-notas')?.value?.trim() || null;
+  const daysOffRaw = document.getElementById('v-daysoff')?.value;
+  const daysOff = daysOffRaw ? JSON.parse(daysOffRaw) : [];
+
   if (!inicio || !fin) { alert('Selecciona las fechas'); return; }
   if (fin < inicio) { alert('La fecha fin debe ser posterior al inicio'); return; }
-  const days = Math.ceil((new Date(fin) - new Date(inicio)) / 86400000) + 1;
+  const dias = _v_calcDiasLaborables(inicio, fin, daysOff);
+  if (dias <= 0) { alert('No hay días laborables en ese rango'); return; }
+  if (dias > diasDisponibles) { alert(`Solo tienes ${diasDisponibles} días disponibles y estás solicitando ${dias}`); return; }
+
+  const btn = document.getElementById('v-btn-solicitar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
   const ro = ROLES[currentRole];
   const { error } = await _v_sb.from('vacation_requests').insert({
-    id: crypto.randomUUID(), employee_id: ro.id,
-    start_date: inicio, end_date: fin, days_requested: days,
-    status: 'pending', notes: notas || null,
+    employee_id: ro.id, start_date: inicio, end_date: fin,
+    days_requested: dias, status: 'pending', notes_employee: notas,
   });
-  if (error) { alert('Error: ' + error.message); return; }
+  if (error) { alert('Error: ' + error.message); if(btn){btn.disabled=false;btn.textContent='Enviar solicitud';} return; }
   closeModal();
   _v_cargando = true; _v_render();
   await _v_cargarDatos();
@@ -6912,13 +7068,82 @@ async function _v_crearSolicitud() {
 }
 
 async function _v_aprobar(id) {
-  const ro = ROLES[currentRole];
-  await _v_sb.from('vacation_requests').update({status:'approved', approved_by:ro.id}).eq('id',id);
-  await _v_cargarDatos(); _v_render();
+  const s = _v_SOLICITUDES.find(x=>x.id===id);
+  const emp = _v_AGENTES.find(a=>a.id===s?.employee_id);
+  document.getElementById('modalTitle').textContent = '✅ Aprobar vacaciones';
+  document.getElementById('modalSub').textContent = `${emp?.full_name||''} · ${fmtDate(s?.start_date)} → ${fmtDate(s?.end_date)} · ${s?.days_requested} días`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <label class="modal-label">NOTA DE APROBACIÓN <span style="color:#EF4444">*</span></label>
+      <textarea id="v-nota-rev" rows="3" placeholder="Ej: Vacaciones aprobadas, cobertura asignada a..." style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"></textarea>
+    </div>`;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn-primary" style="background:#16A34A" onclick="_v_confirmarRevision('${id}','approved')">✅ Confirmar aprobación</button>`;
+  document.getElementById('modalBackdrop').style.display = 'flex';
 }
+
 async function _v_rechazar(id) {
-  await _v_sb.from('vacation_requests').update({status:'rejected'}).eq('id',id);
-  await _v_cargarDatos(); _v_render();
+  const s = _v_SOLICITUDES.find(x=>x.id===id);
+  const emp = _v_AGENTES.find(a=>a.id===s?.employee_id);
+  document.getElementById('modalTitle').textContent = '❌ Rechazar vacaciones';
+  document.getElementById('modalSub').textContent = `${emp?.full_name||''} · ${s?.days_requested} días`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <label class="modal-label">MOTIVO DE RECHAZO <span style="color:#EF4444">*</span></label>
+      <textarea id="v-nota-rev" rows="3" placeholder="Ej: Operaciones no permite vacaciones en ese periodo por alta demanda..." style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"></textarea>
+    </div>`;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn-primary" style="background:#DC2626" onclick="_v_confirmarRevision('${id}','rejected')">❌ Confirmar rechazo</button>`;
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+async function _v_confirmarRevision(id, accion) {
+  const nota = document.getElementById('v-nota-rev')?.value?.trim();
+  if (!nota) { alert('La nota es obligatoria'); return; }
+  const ro = ROLES[currentRole];
+  const { error } = await _v_sb.from('vacation_requests').update({
+    status: accion, notes_reviewer: nota,
+    reviewed_by: ro.id, reviewed_at: new Date().toISOString(),
+  }).eq('id', id);
+  if (error) { alert('Error: ' + error.message); return; }
+
+  // Si se aprueba, actualizar el balance
+  if (accion === 'approved') {
+    const s = _v_SOLICITUDES.find(x=>x.id===id);
+    if (s) {
+      const bal = _v_BALANCES[s.employee_id];
+      if (bal) {
+        await _v_sb.from('vacation_balances').update({
+          days_used: (bal.days_used||0) + (s.days_requested||0),
+          days_pending: Math.max(0, (bal.days_pending||0) - (s.days_requested||0)),
+        }).eq('employee_id', s.employee_id);
+      }
+      // Insertar en attendance_exceptions para que aparezca en Asistencia
+      let cur = new Date(s.start_date + 'T12:00:00');
+      const fin = new Date(s.end_date + 'T12:00:00');
+      const excps = [];
+      while (cur <= fin) {
+        excps.push({ employee_id: s.employee_id, exception_date: ymd(cur), type: 'vacaciones', status: 'approved' });
+        cur.setDate(cur.getDate() + 1);
+      }
+      if (excps.length) await _v_sb.from('attendance_exceptions').upsert(excps, { onConflict: 'employee_id,exception_date' });
+    }
+  }
+
+  closeModal();
+  _v_cargando = true; _v_render();
+  await _v_cargarDatos();
+  _v_cargando = false; _v_render();
+}
+
+async function _v_cancelar(id) {
+  if (!confirm('¿Cancelar esta solicitud?')) return;
+  await _v_sb.from('vacation_requests').update({ status: 'cancelled' }).eq('id', id);
+  _v_cargando = true; _v_render();
+  await _v_cargarDatos();
+  _v_cargando = false; _v_render();
 }
 
 // ══ DISCIPLINARIO ═══════════════════════════════════════════════════
