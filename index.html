@@ -7151,11 +7151,393 @@ function _v_renderSupervisor() {
   </div>`;
 }
 
+let _v_peopleTab = 'gestion';
+
+function _v_setTabVacaciones(tab) {
+  _v_peopleTab = tab;
+  _v_render();
+}
+
+function _v_puedeVerReportesVacaciones() {
+  return ['people', 'head_people', 'ceo'].includes(currentRole);
+}
+
+function _v_renderTabsVacaciones() {
+  if (!_v_puedeVerReportesVacaciones()) return '';
+
+  return `
+    <div class="tabs" style="margin-bottom:18px">
+      <button 
+        class="tab ${_v_peopleTab === 'gestion' ? 'on' : ''}" 
+        onclick="_v_setTabVacaciones('gestion')"
+      >
+        Gestión
+      </button>
+      <button 
+        class="tab ${_v_peopleTab === 'reportes' ? 'on' : ''}" 
+        onclick="_v_setTabVacaciones('reportes')"
+      >
+        Reportes
+      </button>
+    </div>
+  `;
+}
+
+function _v_overlapFechas(startA, endA, startB, endB) {
+  return startA <= endB && endA >= startB;
+}
+
+function _v_maxFecha(a, b) {
+  return a > b ? a : b;
+}
+
+function _v_minFecha(a, b) {
+  return a < b ? a : b;
+}
+
+function _v_diasSolicitudEnRango(sol, desde, hasta) {
+  if (!_v_overlapFechas(sol.start_date, sol.end_date, desde, hasta)) return 0;
+
+  const emp = _v_AGENTES.find(a => a.id === sol.employee_id);
+  const inicio = _v_maxFecha(sol.start_date, desde);
+  const fin = _v_minFecha(sol.end_date, hasta);
+
+  return _v_calcDiasLaborables(inicio, fin, emp?.days_off || []);
+}
+
+function _v_renderReportesVacaciones() {
+  const hoy = ymd(NOW);
+
+  const inicioMes = `${NOW.getFullYear()}-${String(NOW.getMonth() + 1).padStart(2, '0')}-01`;
+  const finMesDate = new Date(NOW.getFullYear(), NOW.getMonth() + 1, 0);
+  const finMes = ymd(finMesDate);
+
+  const inicioAnio = `${NOW.getFullYear()}-01-01`;
+  const finAnio = `${NOW.getFullYear()}-12-31`;
+
+  const en30 = new Date(NOW);
+  en30.setDate(en30.getDate() + 30);
+  const fin30 = ymd(en30);
+
+  const solicitudes = _v_SOLICITUDES || [];
+  const empleados = _v_AGENTES || [];
+
+  const aprobadas = solicitudes.filter(s => s.status === 'approved');
+  const pendientes = solicitudes.filter(s => s.status === 'pending');
+  const rechazadas = solicitudes.filter(s => s.status === 'rejected');
+  const canceladas = solicitudes.filter(s => s.status === 'cancelled');
+
+  const aprobadasMes = aprobadas.filter(s => _v_overlapFechas(s.start_date, s.end_date, inicioMes, finMes));
+  const aprobadasAnio = aprobadas.filter(s => _v_overlapFechas(s.start_date, s.end_date, inicioAnio, finAnio));
+  const proximas30 = aprobadas
+    .filter(s => _v_overlapFechas(s.start_date, s.end_date, hoy, fin30))
+    .sort((a, b) => a.start_date.localeCompare(b.start_date));
+
+  const personasHoy = aprobadas.filter(s => s.start_date <= hoy && s.end_date >= hoy);
+
+  const diasMes = aprobadasMes.reduce((sum, s) => sum + _v_diasSolicitudEnRango(s, inicioMes, finMes), 0);
+  const diasAnio = aprobadasAnio.reduce((sum, s) => sum + _v_diasSolicitudEnRango(s, inicioAnio, finAnio), 0);
+  const diasPendientes = pendientes.reduce((sum, s) => sum + (Number(s.days_requested) || 0), 0);
+
+  const totalEmpleados = empleados.length;
+  const empleadosConVacacionesAnio = new Set(aprobadasAnio.map(s => s.employee_id)).size;
+
+  const tasaUso = totalEmpleados
+    ? Math.round((empleadosConVacacionesAnio / totalEmpleados) * 100)
+    : 0;
+
+  const promedioDiasAprobados = aprobadasAnio.length
+    ? Math.round((diasAnio / aprobadasAnio.length) * 10) / 10
+    : 0;
+
+  const porCampana = {};
+
+  empleados.forEach(emp => {
+    const camp = emp.campaign_id || 'Sin campaña';
+
+    if (!porCampana[camp]) {
+      porCampana[camp] = {
+        camp,
+        hc: 0,
+        aprobadas: 0,
+        pendientes: 0,
+        diasAprobados: 0,
+        diasPendientes: 0,
+        personas: new Set(),
+        disponibles: 0
+      };
+    }
+
+    porCampana[camp].hc++;
+
+    const bal = _v_getBalance(emp.id, emp.hire_date);
+    porCampana[camp].disponibles += Number(bal.available) || 0;
+  });
+
+  solicitudes.forEach(sol => {
+    const emp = empleados.find(a => a.id === sol.employee_id);
+    const camp = emp?.campaign_id || 'Sin campaña';
+
+    if (!porCampana[camp]) {
+      porCampana[camp] = {
+        camp,
+        hc: 0,
+        aprobadas: 0,
+        pendientes: 0,
+        diasAprobados: 0,
+        diasPendientes: 0,
+        personas: new Set(),
+        disponibles: 0
+      };
+    }
+
+    if (sol.status === 'approved' && _v_overlapFechas(sol.start_date, sol.end_date, inicioAnio, finAnio)) {
+      porCampana[camp].aprobadas++;
+      porCampana[camp].diasAprobados += _v_diasSolicitudEnRango(sol, inicioAnio, finAnio);
+      porCampana[camp].personas.add(sol.employee_id);
+    }
+
+    if (sol.status === 'pending') {
+      porCampana[camp].pendientes++;
+      porCampana[camp].diasPendientes += Number(sol.days_requested) || 0;
+    }
+  });
+
+  const rowsCampana = Object.values(porCampana)
+    .sort((a, b) => b.diasAprobados - a.diasAprobados)
+    .map(r => {
+      const disponibleProm = r.hc ? Math.round((r.disponibles / r.hc) * 10) / 10 : 0;
+
+      return `
+        <tr>
+          <td>
+            <div class="agent-row-name">${r.camp}</div>
+            <div class="agent-row-id">${r.hc} persona${r.hc !== 1 ? 's' : ''}</div>
+          </td>
+          <td style="text-align:center;font-family:'DM Mono',monospace">${r.aprobadas}</td>
+          <td style="text-align:center;font-family:'DM Mono',monospace;color:#16A34A;font-weight:700">${r.diasAprobados}</td>
+          <td style="text-align:center;font-family:'DM Mono',monospace;color:#D97706">${r.pendientes}</td>
+          <td style="text-align:center;font-family:'DM Mono',monospace;color:#D97706">${r.diasPendientes}</td>
+          <td style="text-align:center;font-family:'DM Mono',monospace">${r.personas.size}</td>
+          <td style="text-align:center;font-family:'DM Mono',monospace">${disponibleProm}</td>
+        </tr>
+      `;
+    }).join('');
+
+  const porAprobador = {};
+
+  aprobadasAnio.forEach(sol => {
+    const aprobador = empleados.find(a => a.id === sol.approved_by);
+    const nombre = aprobador?.full_name || sol.approved_by || 'Sin aprobador';
+
+    if (!porAprobador[nombre]) {
+      porAprobador[nombre] = {
+        nombre,
+        aprobadas: 0,
+        dias: 0
+      };
+    }
+
+    porAprobador[nombre].aprobadas++;
+    porAprobador[nombre].dias += _v_diasSolicitudEnRango(sol, inicioAnio, finAnio);
+  });
+
+  const rowsAprobador = Object.values(porAprobador)
+    .sort((a, b) => b.aprobadas - a.aprobadas)
+    .map(r => `
+      <tr>
+        <td><div class="agent-row-name">${r.nombre}</div></td>
+        <td style="text-align:center;font-family:'DM Mono',monospace">${r.aprobadas}</td>
+        <td style="text-align:center;font-family:'DM Mono',monospace;color:#16A34A;font-weight:700">${r.dias}</td>
+      </tr>
+    `).join('');
+
+  const rowsProximas = proximas30.slice(0, 12).map(sol => {
+    const emp = empleados.find(a => a.id === sol.employee_id);
+    const aprobador = empleados.find(a => a.id === sol.approved_by);
+
+    return `
+      <tr>
+        <td>
+          <div class="agent-row-name">${emp?.full_name || sol.employee_id}</div>
+          <div class="agent-row-id">${emp?.campaign_id || '—'}</div>
+        </td>
+        <td>${fmtDate(sol.start_date)}</td>
+        <td>${fmtDate(sol.end_date)}</td>
+        <td style="text-align:center;font-family:'DM Mono',monospace">${sol.days_requested}</td>
+        <td>${aprobador?.full_name || sol.approved_by || '—'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const rowsPendientes = pendientes.slice(0, 10).map(sol => {
+    const emp = empleados.find(a => a.id === sol.employee_id);
+    const bal = _v_getBalance(sol.employee_id, emp?.hire_date);
+
+    return `
+      <tr>
+        <td>
+          <div class="agent-row-name">${emp?.full_name || sol.employee_id}</div>
+          <div class="agent-row-id">${emp?.campaign_id || '—'}</div>
+        </td>
+        <td>${fmtDate(sol.start_date)} → ${fmtDate(sol.end_date)}</td>
+        <td style="text-align:center;font-family:'DM Mono',monospace">${sol.days_requested}</td>
+        <td style="text-align:center;font-family:'DM Mono',monospace;color:#16A34A;font-weight:700">${bal.available}</td>
+        <td style="font-size:11px;color:#64748B">${sol.notes || '—'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#16A34A">${diasMes}</div>
+        <div class="kpi-lbl">Días aprobados este mes</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#0F172A">${personasHoy.length}</div>
+        <div class="kpi-lbl">Personas de vacaciones hoy</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#D97706">${pendientes.length}</div>
+        <div class="kpi-lbl">Solicitudes pendientes</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#1D4ED8">${tasaUso}%</div>
+        <div class="kpi-lbl">Uso de vacaciones YTD</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      <div class="kpi-box">
+        <div class="kpi-val">${aprobadas.length}</div>
+        <div class="kpi-lbl">Solicitudes aprobadas total</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#DC2626">${rechazadas.length}</div>
+        <div class="kpi-lbl">Rechazadas total</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#64748B">${canceladas.length}</div>
+        <div class="kpi-lbl">Canceladas total</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-val">${promedioDiasAprobados}</div>
+        <div class="kpi-lbl">Promedio días por solicitud YTD</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 Reporte por campaña</div>
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:760px">
+            <thead>
+              <tr>
+                <th>Campaña</th>
+                <th style="text-align:center">Solicitudes aprobadas YTD</th>
+                <th style="text-align:center">Días aprobados YTD</th>
+                <th style="text-align:center">Pendientes</th>
+                <th style="text-align:center">Días pendientes</th>
+                <th style="text-align:center">Personas con vacaciones</th>
+                <th style="text-align:center">Prom. disponibles</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsCampana || '<tr><td colspan="7" style="text-align:center;color:#94A3B8;padding:20px">Sin información para mostrar</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.2fr .8fr;gap:14px">
+      <div class="card">
+        <div class="card-title">🗓️ Próximas vacaciones · 30 días</div>
+        <div class="tbl-wrap">
+          <div style="overflow-x:auto">
+            <table style="min-width:640px">
+              <thead>
+                <tr>
+                  <th>Empleado</th>
+                  <th>Inicio</th>
+                  <th>Fin</th>
+                  <th style="text-align:center">Días</th>
+                  <th>Aprobó</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsProximas || '<tr><td colspan="5" style="text-align:center;color:#94A3B8;padding:20px">No hay vacaciones aprobadas en los próximos 30 días</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">✅ Aprobaciones por persona</div>
+        <div class="tbl-wrap">
+          <div style="overflow-x:auto">
+            <table style="min-width:360px">
+              <thead>
+                <tr>
+                  <th>Aprobador</th>
+                  <th style="text-align:center">Solicitudes</th>
+                  <th style="text-align:center">Días</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsAprobador || '<tr><td colspan="3" style="text-align:center;color:#94A3B8;padding:20px">Sin aprobaciones registradas</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">⏳ Solicitudes pendientes</div>
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:760px">
+            <thead>
+              <tr>
+                <th>Empleado</th>
+                <th>Periodo</th>
+                <th style="text-align:center">Días solicitados</th>
+                <th style="text-align:center">Días disponibles</th>
+                <th>Nota</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsPendientes || '<tr><td colspan="5" style="text-align:center;color:#94A3B8;padding:20px">No hay solicitudes pendientes</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function _v_renderPeople() {
   const pendientes = _v_SOLICITUDES.filter(s => s.status === 'pending');
   const aprobadas  = _v_SOLICITUDES.filter(s => s.status === 'approved');
   const statusColor = {pending:'#D97706',approved:'#16A34A',rejected:'#DC2626',cancelled:'#64748B'};
   const statusLabel = {pending:'⏳ Pendiente',approved:'✅ Aprobada',rejected:'❌ Rechazada',cancelled:'🚫 Cancelada'};
+  const puedeVerReportes = _v_puedeVerReportesVacaciones();
+
+if (!puedeVerReportes && _v_peopleTab === 'reportes') {
+  _v_peopleTab = 'gestion';
+}
+
+if (puedeVerReportes && _v_peopleTab === 'reportes') {
+  return `
+    <div style="max-width:1100px;margin:0 auto">
+      ${_v_renderTabsVacaciones()}
+      ${_v_renderReportesVacaciones()}
+    </div>
+  `;
+}
   const ro = ROLES[currentRole];
 const miEmp = _v_AGENTES.find(a => a.id === ro.id);
 const miBal = _v_getBalance(ro.id, miEmp?.hire_date);
@@ -7257,6 +7639,7 @@ const miPanelVacaciones = `
   }).join('');
 
   return `<div style="max-width:1100px;margin:0 auto">
+  ${_v_renderTabsVacaciones()}
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
     <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${pendientes.length}</div><div class="kpi-lbl">Pendientes de aprobación</div></div>
     <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${aprobadas.length}</div><div class="kpi-lbl">Aprobadas este año</div></div>
