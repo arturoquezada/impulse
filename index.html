@@ -6838,8 +6838,13 @@ function _v_renderCalendario(solicitudesAprobadas, titulo) {
         if (!diasVac[d]) diasVac[d] = [];
         if (!diasVacIds[d]) diasVacIds[d] = [];
         diasVac[d].push(nombre);
-        diasVacIds[d].push(s.employee_id);
-        _v_calDiaMap[fecha] = diasVacIds[d];
+diasVacIds[d].push(s.employee_id);
+
+const fecha = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+if (!_v_calDiaMap[fecha]) _v_calDiaMap[fecha] = [];
+if (!_v_calDiaMap[fecha].includes(s.employee_id)) {
+  _v_calDiaMap[fecha].push(s.employee_id);
+}
       }
       cur.setDate(cur.getDate() + 1);
     }
