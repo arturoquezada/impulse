@@ -2182,6 +2182,14 @@ function _a_esFaltaType(type) {
   ].includes(t);
 }
 
+function _a_esPermutaDescanso(type) {
+  return String(type || '').trim().toLowerCase() === 'permuta_descanso';
+}
+
+function _a_esPermutaTrabajo(type) {
+  return String(type || '').trim().toLowerCase() === 'permuta_trabajo';
+}
+
 // ── CARGAR DATOS ─────────────────────────────────────────────
 
 // ── STATE HEAD/PEOPLE — datos reales Supabase ─────────────────
@@ -2252,14 +2260,24 @@ async function _a_cargarQDAYS(empId, from, to) {
 
     const s = summary.find(x => x.punch_date === fecha);
     const n = notesData.find(x => x.punch_date === fecha);
-    const ex = excep.find(x => x.exception_date === fecha);
+    const exListDia = excep.filter(x => x.exception_date === fecha && (x.status === 'approved' || !x.status));
+const ex = exListDia.find(x => !_a_esPermutaTrabajo(x.type) && !_a_esPermutaDescanso(x.type)) || exListDia[0];
 
-    const vac = vacaciones.find(v =>
-      v.start_date <= fecha && v.end_date >= fecha
-    );
+const exPermutaTrabajo = exListDia.find(x => _a_esPermutaTrabajo(x.type));
+const exPermutaDescanso = exListDia.find(x => _a_esPermutaDescanso(x.type));
 
-    const esDescanso = _a_esDescansoFecha(daysOff, fecha);
-    const esVacacion = !!vac || _a_esVacacionesType(ex?.type);
+const vac = vacaciones.find(v =>
+  v.start_date <= fecha && v.end_date >= fecha
+);
+
+const descansoBase = _a_esDescansoFecha(daysOff, fecha);
+
+// Si hay permuta_trabajo, aunque sea su descanso normal, ese día debe trabajar.
+// Si hay permuta_descanso, aunque sea día laboral normal, ese día descansa.
+const esDescanso = exPermutaTrabajo ? false : exPermutaDescanso ? true : descansoBase;
+
+// Si hay permuta_trabajo, no debe tratarse como vacaciones aunque hubiera otra marca rara.
+const esVacacion = exPermutaTrabajo ? false : (!!vac || _a_esVacacionesType(ex?.type));
 
     let tiempoExtraMin = 0;
 
@@ -2280,13 +2298,21 @@ async function _a_cargarQDAYS(empId, from, to) {
     }
 
     const tipoFalta = esVacacion
-      ? 'vacaciones'
+  ? 'vacaciones'
+  : exPermutaDescanso
+    ? 'permuta_descanso'
+    : exPermutaTrabajo
+      ? 'permuta_trabajo'
       : esDescanso
         ? null
         : ex?.type || s?.exception_type || null;
 
-    const estatus = esVacacion
-      ? 'Vacaciones'
+const estatus = esVacacion
+  ? 'Vacaciones'
+  : exPermutaDescanso
+    ? 'Descanso por permuta'
+    : exPermutaTrabajo
+      ? (s?.attendance_status || (s ? 'Normal' : 'Sin registro'))
       : esDescanso
         ? 'Descanso'
         : s?.attendance_status || (s ? 'Normal' : 'Sin registro');
@@ -2336,7 +2362,13 @@ async function _a_cargarQDAYS(empId, from, to) {
 
       estatus,
       tipo_falta: tipoFalta,
-      motivo_falta: esVacacion ? 'Vacaciones aprobadas' : ex?.notes || null,
+      motivo_falta: esVacacion
+  ? 'Vacaciones aprobadas'
+  : exPermutaDescanso
+    ? 'Descanso por permuta'
+    : exPermutaTrabajo
+      ? 'Trabajo por permuta'
+      : ex?.notes || null,
       motivo_retardo: esDescanso || esVacacion ? null : n?.notes || null
     });
 
@@ -3548,6 +3580,13 @@ function _a_roleSwitcherHTML(){
 
 // ── HELPERS ──
 function _a_statusBadge(d) {
+  if (_a_esPermutaDescanso(d.tipo_falta)) {
+  return `<span class="pill pill-purple"><span class="dot"></span>Descanso por permuta</span>`;
+}
+
+if (_a_esPermutaTrabajo(d.tipo_falta)) {
+  return `<span class="pill pill-cyan"><span class="dot"></span>Trabajo por permuta</span>`;
+}
   if (d.esVacacion || _a_esVacacionesType(d.tipo_falta)) {
     return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
   }
@@ -3582,6 +3621,8 @@ function _a_statusBadge(d) {
 
   return `<span class="pill pill-gray"><span class="dot"></span>Sin registro</span>`;
 }
+
+
 function _a_agentBadge(status, falta) {
   if (status === 'vacaciones') {
     return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
@@ -7492,186 +7533,642 @@ const _p_sb = supabase.createClient(_p_SB_URL, _p_SB_KEY);
 let _p_SWAPS = [];
 let _p_EMPLEADOS = [];
 let _p_cargando = false;
+let _p_vista = 'mis';
+
+function _p_esc(v) {
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function _p_fmtDate(f) {
+  if (!f) return '—';
+  return new Date(f + 'T12:00:00').toLocaleDateString('es-MX', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+}
+
+function _p_emp(id) {
+  return _p_EMPLEADOS.find(e => e.id === id);
+}
+
+function _p_nombre(id) {
+  return _p_emp(id)?.full_name || id || '—';
+}
+
+function _p_nombreCorto(id) {
+  const n = _p_nombre(id);
+  return n === id ? id : n.split(' ').slice(0, 2).join(' ');
+}
+
+function _p_campaign(id) {
+  return _p_emp(id)?.campaign_id || '—';
+}
+
+function _p_roleCanApprove() {
+  return ['supervisor', 'manager', 'people', 'head_people', 'ceo'].includes(currentRole);
+}
+
+function _p_roleCanReport() {
+  return ['manager', 'people', 'head_people', 'ceo'].includes(currentRole);
+}
+
+function _p_isAgent() {
+  return currentRole === 'agent';
+}
+
+function _p_statusBadge(s, peerStatus) {
+  const cfg = {
+    pending: {
+      bg: '#FEF3C7',
+      color: '#92400E',
+      label: 'Esperando compañero'
+    },
+    pending_approval: {
+      bg: '#DBEAFE',
+      color: '#1D4ED8',
+      label: 'Pendiente aprobación'
+    },
+    approved: {
+      bg: '#DCFCE7',
+      color: '#166534',
+      label: 'Aprobada'
+    },
+    rejected: {
+      bg: '#FEE2E2',
+      color: '#991B1B',
+      label: 'Rechazada'
+    },
+    cancelled: {
+      bg: '#F1F5F9',
+      color: '#475569',
+      label: 'Cancelada'
+    }
+  };
+
+  const c = cfg[s] || { bg:'#F1F5F9', color:'#475569', label:s || '—' };
+
+  return `<span class="pill" style="background:${c.bg};color:${c.color}">
+    <span class="dot"></span>${c.label}
+  </span>`;
+}
+
+function _p_peerBadge(s) {
+  const cfg = {
+    pending:  { bg:'#FEF3C7', color:'#92400E', label:'Sin responder' },
+    accepted: { bg:'#DCFCE7', color:'#166534', label:'Aceptó' },
+    rejected: { bg:'#FEE2E2', color:'#991B1B', label:'Rechazó' }
+  };
+
+  const c = cfg[s || 'pending'] || cfg.pending;
+
+  return `<span class="pill" style="background:${c.bg};color:${c.color}">
+    <span class="dot"></span>${c.label}
+  </span>`;
+}
+
+function _p_diaLabel(fecha) {
+  if (!fecha) return '—';
+  return new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', {
+    weekday: 'long'
+  });
+}
 
 async function _p_cargarDatos() {
   try {
-    const { data: swaps, error: e1 } = await _p_sb.from('swaps').select('*').order('created_at', {ascending:false});
+    const ro = ROLES[currentRole];
+
+    let query = _p_sb
+      .from('swaps')
+      .select('*')
+      .order('created_at', { ascending:false });
+
+    const { data: swaps, error: e1 } = await query;
     if (e1) throw e1;
+
     _p_SWAPS = swaps || [];
-    const { data: emps, error: e2 } = await _p_sb.from('employees')
-      .select('id,full_name,campaign_id,shift_start,shift_end,system_role,status,supervisor_id').eq('status','active').order('full_name');
+
+    const { data: emps, error: e2 } = await _p_sb
+      .from('employees')
+      .select('id,full_name,campaign_id,shift_start,shift_end,system_role,status,supervisor_id,days_off')
+      .eq('status','active')
+      .order('full_name');
+
     if (e2) throw e2;
+
     _p_EMPLEADOS = emps || [];
+
     return true;
-  } catch(e) { console.error('Error permutas:', e); return false; }
+  } catch(e) {
+    console.error('Error permutas:', e);
+    return false;
+  }
 }
 
-function _p_statusBadge(s) {
-  const cfg = {
-    pending:  {bg:'#FEF9C3',color:'#854D0E',label:'Pendiente'},
-    approved: {bg:'#DCFCE7',color:'#166534',label:'Aprobado'},
-    rejected: {bg:'#FEE2E2',color:'#991B1B',label:'Rechazado'},
-    cancelled:{bg:'#F1F5F9',color:'#475569',label:'Cancelado'},
-  };
-  const c = cfg[s] || {bg:'#F1F5F9',color:'#475569',label:s};
-  return `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:${c.bg};color:${c.color};font-weight:600">${c.label}</span>`;
+function _p_setVista(v) {
+  _p_vista = v;
+  _p_render();
+}
+
+function _p_swapsMis() {
+  const ro = ROLES[currentRole];
+  return _p_SWAPS.filter(s => s.requester_id === ro.id || s.swap_with_id === ro.id);
+}
+
+function _p_swapsParaMi() {
+  const ro = ROLES[currentRole];
+  return _p_SWAPS.filter(s => s.swap_with_id === ro.id && s.status === 'pending');
+}
+
+function _p_swapsPendientesAprobacion() {
+  const ro = ROLES[currentRole];
+
+  let lista = _p_SWAPS.filter(s => s.status === 'pending_approval');
+
+  if (currentRole === 'supervisor') {
+    lista = lista.filter(s => _p_emp(s.requester_id)?.supervisor_id === ro.id);
+  }
+
+  return lista;
+}
+
+function _p_renderTabs() {
+  const paraMi = _p_swapsParaMi().length;
+  const pendientes = _p_swapsPendientesAprobacion().length;
+
+  return `
+    <div class="tabs" style="margin-bottom:18px">
+      <button class="tab ${_p_vista === 'mis' ? 'on' : ''}" onclick="_p_setVista('mis')">
+        Mis permutas
+      </button>
+
+      <button class="tab ${_p_vista === 'para_mi' ? 'on' : ''}" onclick="_p_setVista('para_mi')">
+        Para mí ${paraMi ? `(${paraMi})` : ''}
+      </button>
+
+      ${_p_roleCanApprove() ? `
+        <button class="tab ${_p_vista === 'aprobacion' ? 'on' : ''}" onclick="_p_setVista('aprobacion')">
+          Aprobación ${pendientes ? `(${pendientes})` : ''}
+        </button>
+      ` : ''}
+
+      ${_p_roleCanReport() ? `
+        <button class="tab ${_p_vista === 'reportes' ? 'on' : ''}" onclick="_p_setVista('reportes')">
+          Reportes
+        </button>
+      ` : ''}
+    </div>
+  `;
+}
+
+function _p_card(s) {
+  const req = _p_emp(s.requester_id);
+  const peer = _p_emp(s.swap_with_id);
+
+  const puedeResponder = s.swap_with_id === ROLES[currentRole].id && s.status === 'pending';
+  const puedeCancelar = s.requester_id === ROLES[currentRole].id && ['pending','pending_approval'].includes(s.status);
+  const puedeAprobar = _p_roleCanApprove() && s.status === 'pending_approval';
+
+  return `
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+        <div>
+          <div style="font-size:14px;font-weight:800;color:#0F172A">
+            ${_p_esc(_p_nombre(s.requester_id))} ↔ ${_p_esc(_p_nombre(s.swap_with_id))}
+          </div>
+          <div style="font-size:11px;color:#64748B;margin-top:2px">
+            ${_p_esc(req?.campaign_id || '—')} · Creada ${s.created_at ? _p_fmtDate(s.created_at.slice(0,10)) : '—'}
+          </div>
+        </div>
+
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${_p_statusBadge(s.status, s.peer_status)}
+          ${_p_peerBadge(s.peer_status)}
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">
+          <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
+            ${_p_esc(_p_nombreCorto(s.requester_id))}
+          </div>
+          <div style="font-size:12px;color:#334155">
+            Trabaja: <b>${_p_fmtDate(s.work_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.work_date)})</span>
+          </div>
+          <div style="font-size:12px;color:#334155;margin-top:3px">
+            Descansa: <b>${_p_fmtDate(s.rest_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.rest_date)})</span>
+          </div>
+        </div>
+
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">
+          <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
+            ${_p_esc(_p_nombreCorto(s.swap_with_id))}
+          </div>
+          <div style="font-size:12px;color:#334155">
+            Descansa: <b>${_p_fmtDate(s.work_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.work_date)})</span>
+          </div>
+          <div style="font-size:12px;color:#334155;margin-top:3px">
+            Trabaja: <b>${_p_fmtDate(s.rest_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.rest_date)})</span>
+          </div>
+        </div>
+      </div>
+
+      ${s.notes ? `
+        <div style="font-size:12px;color:#64748B;background:#F8FAFC;border-radius:8px;padding:9px 11px;margin-bottom:12px">
+          ${_p_esc(s.notes)}
+        </div>
+      ` : ''}
+
+      ${s.rejection_reason ? `
+        <div class="alert alert-red" style="margin-bottom:12px">
+          Rechazo/cancelación: ${_p_esc(s.rejection_reason)}
+        </div>
+      ` : ''}
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+        ${puedeResponder ? `
+          <button class="btn-green" onclick="_p_responder('${s.id}', true)">Aceptar</button>
+          <button class="btn-red" onclick="_p_responder('${s.id}', false)">Rechazar</button>
+        ` : ''}
+
+        ${puedeAprobar ? `
+          <button class="btn-green" onclick="_p_aprobar('${s.id}', true)">Aprobar y aplicar</button>
+          <button class="btn-red" onclick="_p_aprobar('${s.id}', false)">Rechazar</button>
+        ` : ''}
+
+        ${puedeCancelar ? `
+          <button class="btn-ghost" onclick="_p_cancelar('${s.id}')">Cancelar</button>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function _p_renderLista(lista, emptyMsg) {
+  if (!lista.length) {
+    return `<div style="text-align:center;padding:46px;color:#94A3B8;background:#fff;border:1px solid #E2E8F0;border-radius:14px">
+      ${emptyMsg}
+    </div>`;
+  }
+
+  return lista.map(_p_card).join('');
+}
+
+function _p_renderMis() {
+  const lista = _p_swapsMis();
+
+  return `
+    <div style="max-width:1000px;margin:0 auto">
+      ${_p_renderTabs()}
+
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="font-size:13px;color:#64748B">
+          ${lista.length} permuta${lista.length !== 1 ? 's' : ''}
+        </div>
+
+        ${_p_isAgent() ? `
+          <button class="btn-primary" onclick="_p_abrirNueva()">+ Nueva permuta</button>
+        ` : ''}
+      </div>
+
+      ${_p_renderLista(lista, 'Aún no tienes permutas registradas.')}
+    </div>
+  `;
+}
+
+function _p_renderParaMi() {
+  const lista = _p_swapsParaMi();
+
+  return `
+    <div style="max-width:1000px;margin:0 auto">
+      ${_p_renderTabs()}
+      ${_p_renderLista(lista, 'No tienes permutas pendientes de respuesta.')}
+    </div>
+  `;
+}
+
+function _p_renderAprobacion() {
+  const lista = _p_swapsPendientesAprobacion();
+
+  return `
+    <div style="max-width:1000px;margin:0 auto">
+      ${_p_renderTabs()}
+      ${_p_renderLista(lista, 'No hay permutas pendientes de aprobación.')}
+    </div>
+  `;
+}
+
+function _p_group(lista, fn) {
+  const map = {};
+  lista.forEach(s => {
+    const key = fn(s) || '—';
+    if (!map[key]) map[key] = { key, total:0, pending:0, pending_approval:0, approved:0, rejected:0, cancelled:0 };
+    map[key].total++;
+    map[key][s.status] = (map[key][s.status] || 0) + 1;
+  });
+  return Object.values(map).sort((a,b) => b.total - a.total);
+}
+
+function _p_reportTable(title, rows, label) {
+  return `
+    <div class="card">
+      <div class="card-title">${title}</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>${label}</th>
+              <th style="text-align:center">Total</th>
+              <th style="text-align:center">Pend. compañero</th>
+              <th style="text-align:center">Pend. aprobación</th>
+              <th style="text-align:center">Aprobadas</th>
+              <th style="text-align:center">Rechazadas</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.length ? rows.map(r => `
+              <tr>
+                <td><div class="agent-row-name">${_p_esc(r.key)}</div></td>
+                <td style="text-align:center;font-family:'DM Mono',monospace">${r.total}</td>
+                <td style="text-align:center;font-family:'DM Mono',monospace;color:#D97706">${r.pending || 0}</td>
+                <td style="text-align:center;font-family:'DM Mono',monospace;color:#1D4ED8">${r.pending_approval || 0}</td>
+                <td style="text-align:center;font-family:'DM Mono',monospace;color:#16A34A">${r.approved || 0}</td>
+                <td style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626">${r.rejected || 0}</td>
+              </tr>
+            `).join('') : `
+              <tr><td colspan="6" style="text-align:center;color:#94A3B8;padding:20px">Sin información</td></tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function _p_renderReportes() {
+  const total = _p_SWAPS.length;
+  const pendComp = _p_SWAPS.filter(s => s.status === 'pending').length;
+  const pendAprob = _p_SWAPS.filter(s => s.status === 'pending_approval').length;
+  const aprobadas = _p_SWAPS.filter(s => s.status === 'approved').length;
+  const rechazadas = _p_SWAPS.filter(s => s.status === 'rejected').length;
+
+  const porCampana = _p_group(_p_SWAPS, s => _p_campaign(s.requester_id));
+  const porSupervisor = _p_group(_p_SWAPS, s => _p_nombre(_p_emp(s.requester_id)?.supervisor_id));
+  const porSolicitante = _p_group(_p_SWAPS, s => _p_nombre(s.requester_id));
+
+  return `
+    <div style="max-width:1100px;margin:0 auto">
+      ${_p_renderTabs()}
+
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+        <div class="kpi-box"><div class="kpi-val">${total}</div><div class="kpi-lbl">Total permutas</div></div>
+        <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${pendComp}</div><div class="kpi-lbl">Pend. compañero</div></div>
+        <div class="kpi-box"><div class="kpi-val" style="color:#1D4ED8">${pendAprob}</div><div class="kpi-lbl">Pend. aprobación</div></div>
+        <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${aprobadas}</div><div class="kpi-lbl">Aprobadas</div></div>
+        <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${rechazadas}</div><div class="kpi-lbl">Rechazadas</div></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        ${_p_reportTable('🏢 Permutas por campaña', porCampana, 'Campaña')}
+        ${_p_reportTable('👥 Permutas por supervisor', porSupervisor, 'Supervisor')}
+      </div>
+
+      ${_p_reportTable('🙋 Top solicitantes', porSolicitante, 'Solicitante')}
+    </div>
+  `;
 }
 
 function _p_render() {
   updateSidebarUser();
   const c = document.getElementById('content');
+
   if (_p_cargando) {
-    c.innerHTML = '<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:32px;height:32px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando permutas...</div>';
+    c.innerHTML = `
+      <div style="text-align:center;padding:60px;color:#94A3B8">
+        <div style="width:32px;height:32px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
+        Cargando permutas...
+      </div>
+    `;
     return;
   }
-  const ro = ROLES[currentRole];
-  const isSup = ['supervisor','manager','people','head_people'].includes(currentRole);
-  const misSwaps = _p_SWAPS.filter(s => s.requester_id === ro.id || s.swap_with_id === ro.id);
-  let pendApproval = [];
-  if (currentRole === 'supervisor') {
-    const miEquipo = _p_EMPLEADOS.filter(e => e.supervisor_id === ro.id).map(e => e.id);
-    pendApproval = _p_SWAPS.filter(s => s.status === 'pending' && miEquipo.includes(s.requester_id));
-  } else if (isSup) {
-    pendApproval = _p_SWAPS.filter(s => s.status === 'pending');
+
+  if (!_p_roleCanApprove() && _p_vista === 'aprobacion') _p_vista = 'mis';
+  if (!_p_roleCanReport() && _p_vista === 'reportes') _p_vista = 'mis';
+
+  if (_p_vista === 'para_mi') {
+    c.innerHTML = _p_renderParaMi();
+    return;
   }
 
-  let pendRows = '';
-  pendApproval.forEach(s => {
-    const req  = _p_EMPLEADOS.find(e => e.id === s.requester_id);
-    const with_ = _p_EMPLEADOS.find(e => e.id === s.swap_with_id);
-    pendRows += `<tr>
-      <td style="padding:10px 14px;font-size:13px;font-weight:600">${req?req.full_name:s.requester_id}</td>
-      <td style="padding:10px 14px;font-size:13px;color:#64748B">↔ ${with_?with_.full_name:s.swap_with_id}</td>
-      <td style="padding:10px 14px;font-size:13px">${s.work_date||'—'}</td>
-      <td style="padding:10px 14px;font-size:13px">${s.swap_type==='descanso'?'🔄 Descanso':'📅 Turno'}</td>
-      <td style="padding:10px 14px">
-        <button onclick="_p_aprobar('${s.id}')" style="font-size:11px;padding:4px 10px;border:none;border-radius:6px;background:#DCFCE7;color:#166534;cursor:pointer;font-weight:600;margin-right:6px">✅ Aprobar</button>
-        <button onclick="_p_rechazar('${s.id}')" style="font-size:11px;padding:4px 10px;border:none;border-radius:6px;background:#FEE2E2;color:#991B1B;cursor:pointer;font-weight:600">❌ Rechazar</button>
-      </td>
-    </tr>`;
-  });
+  if (_p_vista === 'aprobacion') {
+    c.innerHTML = _p_renderAprobacion();
+    return;
+  }
 
-  let rows = '';
-  misSwaps.forEach(s => {
-    const esReq = s.requester_id === ro.id;
-    const other = _p_EMPLEADOS.find(e => e.id === (esReq ? s.swap_with_id : s.requester_id));
-    const resolvedBy = _p_EMPLEADOS.find(e => e.id === s.approved_by);
-    const resolvedLabel = s.status === 'approved' ? `Aprobó: ${resolvedBy?resolvedBy.full_name:'—'}`
-                         : s.status === 'rejected' ? `Rechazó: ${resolvedBy?resolvedBy.full_name:'—'}` : '—';
-    rows += `<tr>
-      <td style="padding:10px 14px;font-size:13px">${other?other.full_name:'—'}</td>
-      <td style="padding:10px 14px;font-size:13px">${s.swap_type==='descanso'?'🔄 Descanso':'📅 Turno'}</td>
-      <td style="padding:10px 14px;font-size:13px">${s.work_date||'—'}</td>
-      <td style="padding:10px 14px;font-size:13px">${s.rest_date||'—'}</td>
-      <td style="padding:10px 14px">${_p_statusBadge(s.status)}</td>
-      <td style="padding:10px 14px;font-size:12px;color:#64748B">${resolvedLabel}</td>
-      ${esReq && s.status==='pending'?`<td style="padding:10px 14px"><button onclick="_p_cancelar('${s.id}')" style="font-size:11px;padding:4px 10px;border:1px solid #FCA5A5;border-radius:6px;background:#FEF2F2;color:#DC2626;cursor:pointer">Cancelar</button></td>`:'<td></td>'}
-    </tr>`;
-  });
+  if (_p_vista === 'reportes') {
+    c.innerHTML = _p_renderReportes();
+    return;
+  }
 
-  c.innerHTML = `<div style="max-width:900px;margin:0 auto">
-    ${pendApproval.length?`<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin-bottom:20px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:12px">⏳ Pendientes de aprobación (${pendApproval.length})</div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:600px">
-        <thead style="background:#F8FAFC"><tr>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Solicitante</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Con</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Fecha trabajo</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Tipo</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Acción</th>
-        </tr></thead><tbody>${pendRows}</tbody>
-      </table></div>
-    </div>`:''}
-    <div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="font-weight:700;font-size:13px">Mis permutas</div>
-        ${currentRole==='agent'?`<button onclick="_p_abrirNueva()" style="padding:7px 14px;background:#0F172A;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">+ Solicitar permuta</button>`:''}
-      </div>
-      ${misSwaps.length?`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:600px">
-        <thead style="background:#F8FAFC"><tr>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Compañero</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Tipo</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Fecha trabajo</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Fecha descanso</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Status</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Autorizó</th>
-          <th></th>
-        </tr></thead><tbody>${rows}</tbody>
-      </table></div>`:'<div style="text-align:center;padding:30px;color:#94A3B8">Sin permutas registradas</div>'}
-    </div>
-  </div>`;
+  c.innerHTML = _p_renderMis();
+}
+
+function _p_companerosMismaCampania() {
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+  const camp = me?.campaign_id || ro.camp;
+
+  return _p_EMPLEADOS
+    .filter(e =>
+      e.id !== ro.id &&
+      e.status === 'active' &&
+      e.system_role === 'agent' &&
+      e.campaign_id === camp
+    )
+    .sort((a,b) => a.full_name.localeCompare(b.full_name));
 }
 
 function _p_abrirNueva() {
-  if (currentRole !== 'agent') { alert('Solo agentes pueden solicitar permutas.'); return; }
   const ro = ROLES[currentRole];
-  const opts = _p_EMPLEADOS
-    .filter(e => e.system_role === 'agent' && e.status === 'active' && e.id !== ro.id)
-    .map(e => `<option value="${e.id}">${e.full_name}${e.campaign_id?' ('+e.campaign_id+')':''}</option>`).join('');
-  document.getElementById('modalTitle').textContent = 'Solicitar Permuta';
-  document.getElementById('modalSub').textContent = '';
+  const me = _p_emp(ro.id);
+  const compas = _p_companerosMismaCampania();
+
+  document.getElementById('modalTitle').textContent = '🔁 Nueva permuta';
+  document.getElementById('modalSub').textContent = 'Solo puedes solicitar permutas con agentes de tu misma campaña';
+
   document.getElementById('modalBody').innerHTML = `
+    <div class="alert alert-blue">
+      La permuta funciona así: tú trabajarás en uno de tus días de descanso y tomarás como descanso un día que normalmente trabaja tu compañero.
+    </div>
+
     <div class="modal-section">
-      <label class="modal-label">COMPAÑERO</label>
-      <select id="p-with" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-        <option value="">Selecciona un compañero...</option>${opts}
+      <div class="ms-title">Tu información</div>
+      <div class="kv"><span class="k">Nombre</span><span class="v">${_p_esc(me?.full_name || ro.name)}</span></div>
+      <div class="kv"><span class="k">Campaña</span><span class="v">${_p_esc(me?.campaign_id || ro.camp || '—')}</span></div>
+      <div class="kv"><span class="k">Descansos</span><span class="v">${(me?.days_off || []).join(', ') || '—'}</span></div>
+    </div>
+
+    <div class="form-row">
+      <label>Compañero</label>
+      <select id="p-swap-with">
+        <option value="">Selecciona...</option>
+        ${compas.map(e => `
+          <option value="${e.id}">
+            ${_p_esc(e.full_name)} · ${_p_esc(e.campaign_id || '—')} · Descansa: ${(e.days_off || []).join(', ')}
+          </option>
+        `).join('')}
       </select>
     </div>
-    <div class="modal-section">
-      <label class="modal-label">TIPO DE PERMUTA</label>
-      <select id="p-type" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-        <option value="descanso">Intercambio de descanso</option>
-        <option value="turno">Intercambio de turno</option>
-      </select>
+
+    <div class="form-row">
+      <label>Día que tú vas a trabajar</label>
+      <input type="date" id="p-work-date" min="${ymd(NOW)}">
+      <div style="font-size:11px;color:#64748B;margin-top:4px">
+        Debe ser uno de tus días de descanso.
+      </div>
     </div>
-    <div class="modal-section">
-      <label class="modal-label">MI FECHA DE TRABAJO</label>
-      <input type="date" id="p-work" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+
+    <div class="form-row">
+      <label>Día que tú quieres descansar</label>
+      <input type="date" id="p-rest-date" min="${ymd(NOW)}">
+      <div style="font-size:11px;color:#64748B;margin-top:4px">
+        Debe ser día de descanso del compañero.
+      </div>
     </div>
-    <div class="modal-section">
-      <label class="modal-label">MI FECHA DE DESCANSO (opcional)</label>
-      <input type="date" id="p-rest" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-    </div>`;
+
+    <div class="form-row">
+      <label>Motivo / comentario opcional</label>
+      <textarea id="p-notes" placeholder="Ej. Tengo un tema personal ese día..."></textarea>
+    </div>
+  `;
+
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-primary" onclick="_p_crearPermuta()">Solicitar</button>`;
+    <button class="btn-primary" onclick="_p_crearSolicitud()">Enviar solicitud</button>
+  `;
+
   document.getElementById('modalBackdrop').style.display = 'flex';
 }
 
-async function _p_crearPermuta() {
-  if (currentRole !== 'agent') { alert('Solo agentes pueden solicitar permutas.'); return; }
-  const withId = document.getElementById('p-with')?.value;
-  const type   = document.getElementById('p-type')?.value;
-  const work   = document.getElementById('p-work')?.value;
-  const rest   = document.getElementById('p-rest')?.value;
-  if (!withId || !work) { alert('Selecciona compañero y fecha de trabajo'); return; }
-  const ro = ROLES[currentRole];
-  const { error } = await _p_sb.from('swaps').insert({
-    id: crypto.randomUUID(), requester_id: ro.id, swap_with_id: withId,
-    swap_type: type, work_date: work, rest_date: rest||null, status: 'pending',
+async function _p_crearSolicitud() {
+  const swapWithId = document.getElementById('p-swap-with')?.value;
+  const workDate = document.getElementById('p-work-date')?.value;
+  const restDate = document.getElementById('p-rest-date')?.value;
+  const notes = document.getElementById('p-notes')?.value?.trim() || null;
+
+  if (!swapWithId) {
+    alert('Selecciona un compañero.');
+    return;
+  }
+
+  if (!workDate || !restDate) {
+    alert('Selecciona ambas fechas.');
+    return;
+  }
+
+  const { error } = await _p_sb.rpc('create_day_off_swap', {
+    p_swap_with_id: swapWithId,
+    p_work_date: workDate,
+    p_rest_date: restDate,
+    p_notes: notes
   });
-  if (error) { alert('Error: ' + error.message); return; }
+
+  if (error) {
+    alert(error.message || 'No se pudo crear la permuta.');
+    return;
+  }
+
   closeModal();
-  _p_cargando = true; _p_render();
+  _p_cargando = true;
+  _p_render();
   await _p_cargarDatos();
-  _p_cargando = false; _p_render();
+  _p_cargando = false;
+  _p_render();
 }
 
-async function _p_aprobar(id) {
-  const ro = ROLES[currentRole];
-  await _p_sb.from('swaps').update({status:'approved', approved_by:ro.id, approved_at:new Date().toISOString()}).eq('id',id);
-  await _p_cargarDatos(); _p_render();
+async function _p_responder(id, accept) {
+  let reason = null;
+
+  if (!accept) {
+    reason = prompt('Motivo de rechazo:') || '';
+    if (!reason.trim()) return;
+  }
+
+  const { error } = await _p_sb.rpc('respond_day_off_swap', {
+    p_swap_id: id,
+    p_accept: accept,
+    p_reason: reason
+  });
+
+  if (error) {
+    alert(error.message || 'No se pudo responder la permuta.');
+    return;
+  }
+
+  _p_cargando = true;
+  _p_render();
+  await _p_cargarDatos();
+  _p_cargando = false;
+  _p_render();
 }
-async function _p_rechazar(id) {
-  const ro = ROLES[currentRole];
-  await _p_sb.from('swaps').update({status:'rejected', approved_by:ro.id, approved_at:new Date().toISOString()}).eq('id',id);
-  await _p_cargarDatos(); _p_render();
+
+async function _p_aprobar(id, approve) {
+  let reason = null;
+
+  if (!approve) {
+    reason = prompt('Motivo de rechazo:') || '';
+    if (!reason.trim()) return;
+  } else {
+    if (!confirm('¿Seguro que quieres aprobar y aplicar esta permuta en Asistencia?')) return;
+  }
+
+  const { error } = await _p_sb.rpc('review_day_off_swap', {
+    p_swap_id: id,
+    p_approve: approve,
+    p_reason: reason
+  });
+
+  if (error) {
+    alert(error.message || 'No se pudo revisar la permuta.');
+    return;
+  }
+
+  _p_cargando = true;
+  _p_render();
+  await _p_cargarDatos();
+
+  if (typeof _a_cargarDatos === 'function') {
+    try { await _a_cargarDatos(); } catch(e) { console.warn('No se pudo refrescar asistencia:', e); }
+  }
+
+  _p_cargando = false;
+  _p_render();
 }
+
 async function _p_cancelar(id) {
-  await _p_sb.from('swaps').update({status:'cancelled'}).eq('id',id);
-  await _p_cargarDatos(); _p_render();
-}
+  const reason = prompt('Motivo de cancelación opcional:') || null;
 
+  const { error } = await _p_sb.rpc('cancel_day_off_swap', {
+    p_swap_id: id,
+    p_reason: reason
+  });
+
+  if (error) {
+    alert(error.message || 'No se pudo cancelar la permuta.');
+    return;
+  }
+
+  _p_cargando = true;
+  _p_render();
+  await _p_cargarDatos();
+  _p_cargando = false;
+  _p_render();
+}
 // ══ VACACIONES ══════════════════════════════════════════════════════
 const _v_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _v_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
@@ -10663,10 +11160,18 @@ window['_init_tickets']=function(){
 window['_rerender_tickets']=function(){ if(typeof _t_render==='function')_t_render(); };
 
 window['_init_permutas']=function(){
-  _p_cargando=true; _p_render();
-  _p_cargarDatos().then(ok=>{ _p_cargando=false; _p_render(); });
+  _p_cargando = true;
+  _p_vista = 'mis';
+  _p_render();
+  _p_cargarDatos().then(ok => {
+    _p_cargando = false;
+    _p_render();
+  });
 };
-window['_rerender_permutas']=function(){ if(typeof _p_render==='function')_p_render(); };
+
+window['_rerender_permutas']=function(){
+  if(typeof _p_render === 'function') _p_render();
+};
 
 window['_init_vacaciones']=function(){
   _v_cargando=true; _v_render();
