@@ -6748,6 +6748,12 @@ let _t_filtros = {
   search: ''
 };
 
+let _t_reporteFechas = {
+  preset: 'mes',
+  from: ymd(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+  to: ymd(new Date())
+};
+
 function _t_puedeGestionar() {
   return ['people', 'head_people', 'ceo'].includes(currentRole);
 }
@@ -6843,6 +6849,124 @@ function _t_setVista(vista) {
 function _t_setFiltro(k, v) {
   _t_filtros[k] = v;
   _t_render();
+}
+function _t_setReportePreset(preset) {
+  const hoy = new Date();
+  let from = '';
+  let to = ymd(hoy);
+
+  if (preset === 'hoy') {
+    from = ymd(hoy);
+  }
+
+  if (preset === '7d') {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    from = ymd(d);
+  }
+
+  if (preset === '30d') {
+    const d = new Date();
+    d.setDate(d.getDate() - 29);
+    from = ymd(d);
+  }
+
+  if (preset === 'mes') {
+    from = ymd(new Date(hoy.getFullYear(), hoy.getMonth(), 1));
+  }
+
+  if (preset === 'anio') {
+    from = `${hoy.getFullYear()}-01-01`;
+  }
+
+  if (preset === 'all') {
+    from = '';
+    to = '';
+  }
+
+  _t_reporteFechas = { preset, from, to };
+  _t_render();
+}
+
+function _t_setReporteFecha(campo, valor) {
+  _t_reporteFechas[campo] = valor;
+  _t_reporteFechas.preset = 'custom';
+  _t_render();
+}
+
+function _t_ticketEnRangoReporte(t) {
+  if (_t_reporteFechas.preset === 'all') return true;
+
+  const fecha = (t.created_at || '').slice(0, 10);
+  if (!fecha) return false;
+
+  if (_t_reporteFechas.from && fecha < _t_reporteFechas.from) return false;
+  if (_t_reporteFechas.to && fecha > _t_reporteFechas.to) return false;
+
+  return true;
+}
+
+function _t_labelRangoReporte() {
+  if (_t_reporteFechas.preset === 'all') return 'Todo el histórico';
+
+  const from = _t_reporteFechas.from ? fmtDateShort(_t_reporteFechas.from) : 'Inicio';
+  const to = _t_reporteFechas.to ? fmtDateShort(_t_reporteFechas.to) : 'Hoy';
+
+  return `${from} → ${to}`;
+}
+
+function _t_renderFiltroFechasReportes() {
+  return `
+    <div class="date-filter-bar">
+      <span class="df-label">Periodo del reporte</span>
+
+      <button class="df-preset ${_t_reporteFechas.preset === 'hoy' ? 'active' : ''}" onclick="_t_setReportePreset('hoy')">
+        Hoy
+      </button>
+
+      <button class="df-preset ${_t_reporteFechas.preset === '7d' ? 'active' : ''}" onclick="_t_setReportePreset('7d')">
+        7 días
+      </button>
+
+      <button class="df-preset ${_t_reporteFechas.preset === '30d' ? 'active' : ''}" onclick="_t_setReportePreset('30d')">
+        30 días
+      </button>
+
+      <button class="df-preset ${_t_reporteFechas.preset === 'mes' ? 'active' : ''}" onclick="_t_setReportePreset('mes')">
+        Mes actual
+      </button>
+
+      <button class="df-preset ${_t_reporteFechas.preset === 'anio' ? 'active' : ''}" onclick="_t_setReportePreset('anio')">
+        Año
+      </button>
+
+      <button class="df-preset ${_t_reporteFechas.preset === 'all' ? 'active' : ''}" onclick="_t_setReportePreset('all')">
+        Todo
+      </button>
+
+      <span class="df-sep">|</span>
+
+      <input 
+        type="date" 
+        class="df-input" 
+        value="${_t_reporteFechas.from || ''}" 
+        onchange="_t_setReporteFecha('from', this.value)"
+      />
+
+      <span class="df-sep">a</span>
+
+      <input 
+        type="date" 
+        class="df-input" 
+        value="${_t_reporteFechas.to || ''}" 
+        onchange="_t_setReporteFecha('to', this.value)"
+      />
+
+      <span class="df-chip">
+        ${_t_labelRangoReporte()}
+      </span>
+    </div>
+  `;
 }
 
 function _t_filtrarTickets(lista) {
@@ -6949,12 +7073,12 @@ function _t_renderFiltros() {
   `;
 }
 
-function _t_renderKpisTickets() {
-  const abiertos = _t_TICKETS.filter(_t_esAbierto);
+function _t_renderKpisTickets(baseLista = _t_TICKETS) {
+  const abiertos = baseLista.filter(_t_esAbierto);
   const vencidos = abiertos.filter(t => _t_slaInfo(t).state === 'overdue');
   const vencenHoy = abiertos.filter(t => _t_slaInfo(t).state === 'today');
   const sinAsignar = abiertos.filter(t => !t.assigned_to);
-  const resueltos = _t_TICKETS.filter(t => t.status === 'resolved');
+  const resueltos = baseLista.filter(t => t.status === 'resolved');
 
   const slaOk = resueltos.filter(t => {
     if (!t.due_at || !t.resolved_at) return false;
@@ -6969,18 +7093,22 @@ function _t_renderKpisTickets() {
         <div class="kpi-val">${abiertos.length}</div>
         <div class="kpi-lbl">Abiertos</div>
       </div>
+
       <div class="kpi-box">
         <div class="kpi-val" style="color:#DC2626">${vencidos.length}</div>
         <div class="kpi-lbl">Vencidos</div>
       </div>
+
       <div class="kpi-box">
         <div class="kpi-val" style="color:#D97706">${vencenHoy.length}</div>
         <div class="kpi-lbl">Por vencer</div>
       </div>
+
       <div class="kpi-box">
         <div class="kpi-val" style="color:#64748B">${sinAsignar.length}</div>
         <div class="kpi-lbl">Sin responsable</div>
       </div>
+
       <div class="kpi-box">
         <div class="kpi-val" style="color:#16A34A">${slaPct}%</div>
         <div class="kpi-lbl">SLA cumplimiento</div>
@@ -7128,15 +7256,24 @@ function _t_reportTable(title, rows, labelHeader) {
 }
 
 function _t_renderReportes() {
-  const porCategoria = _t_groupCount(_t_TICKETS, t => _t_categoriaLabel(t.type));
-  const porCampana = _t_groupCount(_t_TICKETS, t => _t_campaignEmpleado(t.employee_id));
-  const porSupervisor = _t_groupCount(_t_TICKETS, t => _t_supervisorNombre(t.employee_id));
-  const porResponsable = _t_groupCount(_t_TICKETS, t => t.assigned_to ? _t_nombreCorto(t.assigned_to) : 'Sin asignar');
+  const ticketsReporte = _t_TICKETS.filter(_t_ticketEnRangoReporte);
+
+  const porCategoria = _t_groupCount(ticketsReporte, t => _t_categoriaLabel(t.type));
+  const porCampana = _t_groupCount(ticketsReporte, t => _t_campaignEmpleado(t.employee_id));
+  const porSupervisor = _t_groupCount(ticketsReporte, t => _t_supervisorNombre(t.employee_id));
+  const porResponsable = _t_groupCount(ticketsReporte, t => t.assigned_to ? _t_nombreCorto(t.assigned_to) : 'Sin asignar');
 
   return `
     <div style="max-width:1100px;margin:0 auto">
       ${_t_renderTabs()}
-      ${_t_renderKpisTickets()}
+
+      ${_t_renderFiltroFechasReportes()}
+
+      <div style="font-size:12px;color:#64748B;margin:-6px 0 14px">
+        Mostrando <b>${ticketsReporte.length}</b> ticket${ticketsReporte.length !== 1 ? 's' : ''} creados en el periodo seleccionado.
+      </div>
+
+      ${_t_renderKpisTickets(ticketsReporte)}
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         ${_t_reportTable('📌 Tickets por categoría', porCategoria, 'Categoría')}
