@@ -8441,10 +8441,18 @@ async function _p_crearSolicitud() {
   });
 
   if (error) {
-    alert(error.message || 'No se pudo crear la permuta.');
-    return;
-  }
+  console.error('Error completo al crear permuta:', error);
 
+  alert(
+    'No se pudo crear la permuta:\n\n' +
+    (error.message || 'Error desconocido') +
+    (error.details ? '\n\nDetalle: ' + error.details : '') +
+    (error.hint ? '\n\nHint: ' + error.hint : '') +
+    (error.code ? '\n\nCódigo: ' + error.code : '')
+  );
+
+  return;
+}
   closeModal();
 
   _p_cargando = true;
