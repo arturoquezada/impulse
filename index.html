@@ -2117,6 +2117,71 @@ const _a_punchState = {
 };
 function _a_getPunch(){ return _a_punchState[currentRole] || _a_punchState.agent; }
 
+// ── HELPERS ASISTENCIA · DESCANSOS / VACACIONES ───────────────
+const _a_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+
+const _a_DIA_MAP = {
+  sunday: 'sunday',
+  domingo: 'sunday',
+  dom: 'sunday',
+
+  monday: 'monday',
+  lunes: 'monday',
+  lun: 'monday',
+
+  tuesday: 'tuesday',
+  martes: 'tuesday',
+  mar: 'tuesday',
+
+  wednesday: 'wednesday',
+  miercoles: 'wednesday',
+  miércoles: 'wednesday',
+  mie: 'wednesday',
+  mié: 'wednesday',
+
+  thursday: 'thursday',
+  jueves: 'thursday',
+  jue: 'thursday',
+
+  friday: 'friday',
+  viernes: 'friday',
+  vie: 'friday',
+
+  saturday: 'saturday',
+  sabado: 'saturday',
+  sábado: 'saturday',
+  sab: 'saturday',
+  sáb: 'saturday'
+};
+
+function _a_normDia(v) {
+  return _a_DIA_MAP[String(v || '').trim().toLowerCase()] || String(v || '').trim().toLowerCase();
+}
+
+function _a_slugFecha(fecha) {
+  return _a_DIA_SLUG[new Date(fecha + 'T12:00:00').getDay()];
+}
+
+function _a_esDescansoFecha(daysOff, fecha) {
+  const dia = _a_slugFecha(fecha);
+  return (daysOff || []).map(_a_normDia).includes(dia);
+}
+
+function _a_esVacacionesType(type) {
+  return String(type || '').trim().toLowerCase() === 'vacaciones';
+}
+
+function _a_esFaltaType(type) {
+  const t = String(type || '').trim().toLowerCase();
+
+  return [
+    'falta_injustificada',
+    'falta_justificada',
+    'incapacidad',
+    'permiso'
+  ].includes(t);
+}
+
 // ── CARGAR DATOS ─────────────────────────────────────────────
 
 // ── STATE HEAD/PEOPLE — datos reales Supabase ─────────────────
@@ -2133,67 +2198,151 @@ let _a_CAMP_REAL  = {};  // { campaign_id: {total,onTime,late,absent} }
 let _a_PUNCHES_HOY  = [];  // ya no se usa (feed eliminado)
 
 async function _a_cargarQDAYS(empId, from, to) {
-  // Cargar days_off del empleado para marcar días de descanso en el histórico
-  const { data: empData } = await _a_sb.from('employees').select('days_off').eq('id', empId).maybeSingle();
-  const daysOff = empData?.days_off || [];
-  const DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const [empRes, summaryRes, notesRes, excepRes, vacRes] = await Promise.all([
+    _a_sb
+      .from('employees')
+      .select('days_off')
+      .eq('id', empId)
+      .maybeSingle(),
 
-  const [summaryRes, notesRes, excepRes] = await Promise.all([
-    _a_sb.from('attendance_daily_summary').select('*').eq('employee_id', empId).gte('punch_date', from).lte('punch_date', to).order('punch_date'),
-    _a_sb.from('attendance_punches').select('punch_date, notes').eq('employee_id', empId).eq('punch_type','entrada').gte('punch_date', from).lte('punch_date', to),
-    _a_sb.from('attendance_exceptions').select('exception_date, type, notes, status').eq('employee_id', empId).gte('exception_date', from).lte('exception_date', to),
+    _a_sb
+      .from('attendance_daily_summary')
+      .select('*')
+      .eq('employee_id', empId)
+      .gte('punch_date', from)
+      .lte('punch_date', to)
+      .order('punch_date'),
+
+    _a_sb
+      .from('attendance_punches')
+      .select('punch_date, notes')
+      .eq('employee_id', empId)
+      .eq('punch_type', 'entrada')
+      .gte('punch_date', from)
+      .lte('punch_date', to),
+
+    _a_sb
+      .from('attendance_exceptions')
+      .select('exception_date, type, notes, status')
+      .eq('employee_id', empId)
+      .gte('exception_date', from)
+      .lte('exception_date', to),
+
+    _a_sb
+      .from('vacation_requests')
+      .select('id, employee_id, start_date, end_date, status, approved_by, approved_at')
+      .eq('employee_id', empId)
+      .eq('status', 'approved')
+      .lte('start_date', to)
+      .gte('end_date', from)
   ]);
 
-  const summary  = summaryRes.data  || [];
-  const notesData = notesRes.data   || [];
-  const excep    = excepRes.data    || [];
+  const daysOff = empRes.data?.days_off || [];
+  const summary = summaryRes.data || [];
+  const notesData = notesRes.data || [];
+  const excep = excepRes.data || [];
+  const vacaciones = vacRes.data || [];
 
   const dias = [];
   let cur = new Date(from + 'T12:00:00');
   const end = new Date(to + 'T12:00:00');
+
   while (cur <= end) {
     const fecha = ymd(cur);
-    const dow = cur.getDay();
-    if (dow === 0 || dow === 6) {
-      dias.push({ fecha, weekend: true, esDescanso: false, tiempoExtraMin: 0,
-        entrada_at: null, salida_at: null, segundos_trabajados: 0,
-        segundos_tarde: 0, es_retardo: false, estatus: 'Fin de semana',
-        tipo_falta: null, motivo_falta: null, motivo_retardo: null });
-    } else {
-      const s = summary.find(x => x.punch_date === fecha);
-      const n = notesData.find(x => x.punch_date === fecha);
-      const ex = excep.find(x => x.exception_date === fecha);
-      const diaSemana = DIA_SLUG[new Date(fecha + 'T12:00:00').getDay()];
-      const esDescanso = daysOff.includes(diaSemana);
 
-      // Tiempo extra: minutos trabajados - minutos contratados del turno
-      // Usa shift_start/shift_end de la vista (no shift_hours que es null)
-      let tiempoExtraMin = 0;
-      if (s && s.time_in && s.time_out && s.shift_start && s.shift_end) {
-        const trabajadoMin = Math.round((s.hours_worked || 0) * 60);
-        const [shH, shM] = s.shift_start.split(':').map(Number);
-        const [ehH, ehM] = s.shift_end.split(':').map(Number);
-        const contratadoMin = (ehH * 60 + ehM) - (shH * 60 + shM);
-        if (contratadoMin > 0) tiempoExtraMin = Math.max(0, trabajadoMin - contratadoMin);
+    const s = summary.find(x => x.punch_date === fecha);
+    const n = notesData.find(x => x.punch_date === fecha);
+    const ex = excep.find(x => x.exception_date === fecha);
+
+    const vac = vacaciones.find(v =>
+      v.start_date <= fecha && v.end_date >= fecha
+    );
+
+    const esDescanso = _a_esDescansoFecha(daysOff, fecha);
+    const esVacacion = !!vac || _a_esVacacionesType(ex?.type);
+
+    let tiempoExtraMin = 0;
+
+    if (!esDescanso && !esVacacion && s && s.time_in && s.time_out && s.shift_start && s.shift_end) {
+      const trabajadoMin = Math.round((s.hours_worked || 0) * 60);
+
+      const [shH, shM] = s.shift_start.split(':').map(Number);
+      const [ehH, ehM] = s.shift_end.split(':').map(Number);
+
+      let contratadoMin = (ehH * 60 + ehM) - (shH * 60 + shM);
+
+      // Por si el turno cruza medianoche
+      if (contratadoMin < 0) contratadoMin += 24 * 60;
+
+      if (contratadoMin > 0) {
+        tiempoExtraMin = Math.max(0, trabajadoMin - contratadoMin);
       }
-
-      dias.push({
-        fecha,
-        esDescanso,
-        tiempoExtraMin,
-        entrada_at:          s?.time_in    ? `${fecha}T${s.time_in}-06:00`  : null,
-        salida_at:           s?.time_out   ? `${fecha}T${s.time_out}-06:00` : null,
-        segundos_trabajados: s ? Math.round((s.hours_worked||0) * 3600) : 0,
-        segundos_tarde:      s ? (s.minutes_late||0) * 60 : 0,
-        es_retardo:          s ? (s.minutes_late||0) > 0 : false,
-        estatus:             s?.attendance_status || (s ? 'Normal' : 'Sin registro'),
-        tipo_falta:          ex?.type || s?.exception_type || null,
-        motivo_falta:        ex?.notes || null,
-        motivo_retardo:      n?.notes || null,
-      });
     }
+
+    const tipoFalta = esVacacion
+      ? 'vacaciones'
+      : esDescanso
+        ? null
+        : ex?.type || s?.exception_type || null;
+
+    const estatus = esVacacion
+      ? 'Vacaciones'
+      : esDescanso
+        ? 'Descanso'
+        : s?.attendance_status || (s ? 'Normal' : 'Sin registro');
+
+    dias.push({
+      fecha,
+
+      // Ya no usamos sábado/domingo como descanso automático.
+      // Se queda en false para no bloquear sábados/domingos trabajados.
+      weekend: false,
+
+      esDescanso,
+      esVacacion,
+      vacation_request_id: vac?.id || null,
+
+      tiempoExtraMin,
+
+      entrada_at: esDescanso || esVacacion
+        ? null
+        : s?.time_in
+          ? `${fecha}T${s.time_in}-06:00`
+          : null,
+
+      salida_at: esDescanso || esVacacion
+        ? null
+        : s?.time_out
+          ? `${fecha}T${s.time_out}-06:00`
+          : null,
+
+      segundos_trabajados: esDescanso || esVacacion
+        ? 0
+        : s
+          ? Math.round((s.hours_worked || 0) * 3600)
+          : 0,
+
+      segundos_tarde: esDescanso || esVacacion
+        ? 0
+        : s
+          ? (s.minutes_late || 0) * 60
+          : 0,
+
+      es_retardo: esDescanso || esVacacion
+        ? false
+        : s
+          ? (s.minutes_late || 0) > 0
+          : false,
+
+      estatus,
+      tipo_falta: tipoFalta,
+      motivo_falta: esVacacion ? 'Vacaciones aprobadas' : ex?.notes || null,
+      motivo_retardo: esDescanso || esVacacion ? null : n?.notes || null
+    });
+
     cur.setDate(cur.getDate() + 1);
   }
+
   _a_QDAYS = dias;
   _a_QDAYS_EMPLEADO_ID = empId;
 }
@@ -2223,7 +2372,7 @@ async function _a_cargarDatos() {
     await _a_cargarQDAYS(ro.id, _a_dateFilter.from, _a_dateFilter.to);
 
     // 3. Equipo del supervisor (hoy)
-    if (['supervisor','manager','people','head_people','workforce'].includes(currentRole)) {
+    if (['supervisor','manager','people','head_people','workforce','ceo'].includes(currentRole)) {
       const { data: emps } = await _a_sb
         .from('employees')
         .select('id, full_name, campaign_id, shift_start, shift_end, shift_hours, supervisor_id, days_off')
@@ -2261,23 +2410,40 @@ async function _a_cargarDatos() {
           .in('employee_id', empIds);
         excepcionesHoy = ex || [];
       }
+      let vacacionesHoy = [];
 
+if (empIds.length > 0) {
+  const { data: vac } = await _a_sb
+    .from('vacation_requests')
+    .select('employee_id, start_date, end_date, status')
+    .eq('status', 'approved')
+    .lte('start_date', hoy)
+    .gte('end_date', hoy)
+    .in('employee_id', empIds);
+
+  vacacionesHoy = vac || [];
+}
       _a_TEAM = empList.map(e => {
         const s = todaySummary.find(x => x.employee_id === e.id);
         const lateMin = s ? (s.minutes_late || 0) : 0;
-        const descansaHoy = (e.days_off || []).includes(HOY_DIA_SLUG);
+        const descansaHoy = _a_esDescansoFecha(e.days_off, hoy);
         const exHoy = excepcionesHoy.find(x => x.employee_id === e.id);
+        const vacHoy = vacacionesHoy.find(x => x.employee_id === e.id);
+const esVacacionHoy = !!vacHoy || _a_esVacacionesType(exHoy?.type);
         let status = descansaHoy ? 'descanso' : 'sin_punch';
-        if (!descansaHoy && s) {
-          const ast = s.attendance_status;
-          if (ast === 'absent' || ast === 'excused_absence') status = 'falta';
-          else if (ast === 'missing_checkout') status = 'on_time';
-          else if (ast === 'no_show' || ast === 'late' || lateMin > 0) status = 'late';
-          else if (ast === 'on_time' || s.time_in) status = 'on_time';
-        } else if (!descansaHoy && !s && exHoy) {
-          // Sin punch pero con excepción registrada (ej. falta del bot)
-          status = 'falta';
-        }
+
+        if (!descansaHoy && esVacacionHoy) {
+  status = 'vacaciones';
+} else if (!descansaHoy && s) {
+  const ast = s.attendance_status;
+
+  if (ast === 'absent' || ast === 'excused_absence') status = 'falta';
+  else if (ast === 'missing_checkout') status = 'on_time';
+  else if (ast === 'no_show' || ast === 'late' || lateMin > 0) status = 'late';
+  else if (ast === 'on_time' || s.time_in) status = 'on_time';
+} else if (!descansaHoy && !s && exHoy) {
+  status = _a_esVacacionesType(exHoy.type) ? 'vacaciones' : 'falta';
+}
         return {
           id:         e.id,
           name:       e.full_name,
@@ -2313,16 +2479,17 @@ async function _a_cargarDatos() {
     }
 
     // 4. KPIs globales para Head of People / People / Manager
-    if (['people','head_people','manager'].includes(currentRole)) {
+    if (['people','head_people','manager','workforce','ceo'].includes(currentRole)) {
       // Todos los empleados activos
       const { data: allEmps } = await _a_sb
         .from('employees')
         .select('id, full_name, campaign_id, supervisor_id, system_role, shift_start, shift_end, position_title, days_off')
         .eq('status','active');
 
-      const allIds = (allEmps||[]).map(e=>e.id);
-      const total = allIds.length;
-      _a_TEAM_ALL = allEmps || [];
+        const allAgents = (allEmps || []).filter(e => e.system_role === 'agent');
+const allIds = allAgents.map(e => e.id);
+const total = allIds.length;
+_a_TEAM_ALL = allEmps || [];
 
       // Campañas únicas de los empleados
       _a_CAMPS_REAL = [...new Set((allEmps||[])
@@ -2366,6 +2533,24 @@ async function _a_cargarDatos() {
         }
       });
 
+      _a_CAMP_DATA = Object.entries(_a_CAMP_REAL).map(([key, d]) => {
+  const pct = d.total ? Math.round((d.onTime / d.total) * 100) : 0;
+  const salarioDiarioPromedio = 14800 / 30;
+
+  return {
+    key,
+    name: key,
+    agents: d.total,
+    onTime: d.onTime,
+    late: d.late,
+    absent: d.absent,
+    pct,
+    trend: [d.late],
+    costAus: Math.round(d.absent * salarioDiarioPromedio),
+    costRet: Math.round(d.late * 12 * salarioDiarioPromedio / 60 / 8)
+  };
+});
+
       // Supervisores con asistencia de hoy — solo Operations Supervisor y Trainer
       const PUESTOS_SUP = ['Operations Supervisor', 'Trainer'];
       const sups = (allEmps||[]).filter(e =>
@@ -2381,7 +2566,7 @@ async function _a_cargarDatos() {
         // Equipo de este supervisor — excluir los que descansan hoy
         const myTeam = (allEmps||[]).filter(a => a.supervisor_id === e.id);
         const HOY_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
-        const myTeamActivo = myTeam.filter(a => !(a.days_off||[]).includes(HOY_SLUG));
+        const myTeamActivo = myTeam.filter(a => !_a_esDescansoFecha(a.days_off, hoy));
         const teamToday = myTeamActivo.map(a => todayAll.find(x=>x.employee_id===a.id)).filter(Boolean);
         return {
           id:    e.id,
@@ -2428,7 +2613,7 @@ async function _a_cargarDatos() {
           const sup = (allEmps||[]).find(s => s.id === e.supervisor_id);
           return e.supervisor_id === mgr.id || (sup && sup.supervisor_id === mgr.id);
         });
-        const activosHoy = todosAgentes.filter(a => !(a.days_off||[]).includes(HOY_SLUG_M));
+        const activosHoy = todosAgentes.filter(a => !_a_esDescansoFecha(a.days_off, hoy));
         const teamToday  = activosHoy.map(a => todayAll.find(x=>x.employee_id===a.id)).filter(Boolean);
         return {
           id:       mgr.id,
@@ -2511,7 +2696,7 @@ async function _a_cargarOTRecords() {
 
 // Detectar tiempo extra nuevo desde _a_QDAYS y crear registros pending si no existen
 async function _a_sincronizarOT(empId) {
-  const dias = _a_QDAYS.filter(d => !d.weekend && !d.esDescanso && d.tiempoExtraMin > 0);
+  const dias = _a_QDAYS.filter(d => !d.esDescanso && !d.esVacacion && d.tiempoExtraMin > 0);
   if (!dias.length) return;
   const upserts = dias.map(d => ({
     employee_id: empId,
@@ -2680,8 +2865,8 @@ function _a_renderOTSection(rol){
 
   const pendientes     = _a_OT_RECORDS.filter(r=>r.status==='pending').length;
   const porRevisar     = _a_OT_RECORDS.filter(r=>['pending','escalated_manager','escalated_ceo'].includes(r.status));
-  const porRevisarMins = porRevisar.reduce((s,r)=>s+r.ot_mins,0);
-  const aprobadoMins   = _a_OT_RECORDS.filter(r=>r.status==='approved').reduce((s,r)=>s+r.ot_mins,0);
+  const porRevisarMins = porRevisar.reduce((s,r)=>s + Number(r.minutes_extra || r.ot_mins || 0), 0);
+  const aprobadoMins   = _a_OT_RECORDS.filter(r=>r.status==='approved').reduce((s,r)=>s + Number(r.minutes_extra || r.ot_mins || 0), 0);
   const sinGestionar   = escalados;
 
   const canApprove = (r) => {
@@ -3362,26 +3547,73 @@ function _a_roleSwitcherHTML(){
 }
 
 // ── HELPERS ──
-function _a_statusBadge(d){
-  if(d.esDescanso) return`<span class="pill" style="background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0">🌙 Descanso</span>`;
-  if(d.tipo_falta) return`<span class="pill pill-red"><span class="dot"></span>Falta inj.</span>`;
-  if(d.es_retardo) return`<span class="pill pill-amber"><span class="dot"></span>Retardo</span>`;
-  if(d.entrada_at && !d.salida_at) return`<span class="pill pill-blue"><span class="dot"></span>Sin salida</span>`;
-  if(!d.entrada_at) return`<span class="pill pill-gray">—</span>`;
-  return`<span class="pill pill-green"><span class="dot"></span>A tiempo</span>`;
-}
-function _a_agentBadge(status,falta){
-  if(status==='descanso') return`<span class="pill" style="background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0">🌙 Descanso</span>`;
-  if(status==='falta'&&falta){
-    const cfg=_a_CATEGORIA_CONFIG[falta.categoria]||_a_CATEGORIA_CONFIG.falta_injustificada;
-    const por=falta.marcadaPor==='sistema'?' 🤖':' 👤';
-    const pend=falta.estado==='pendiente_comprobante'?' ⏳':'';
-    return`<span class="pill" style="background:${cfg.bg};color:${cfg.color};border:1px solid ${cfg.border}"><span class="dot"></span>${cfg.label}${pend}${por}</span>`;
+function _a_statusBadge(d) {
+  if (d.esVacacion || _a_esVacacionesType(d.tipo_falta)) {
+    return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
   }
-  if(status==='falta') return`<span class="pill pill-red"><span class="dot"></span>Falta 🤖</span>`;
-  if(status==='sin_punch') return`<span class="pill pill-amber" style="animation:pulse 1.5s infinite"><span class="dot"></span>Sin punch ⏳</span>`;
-  if(status==='late') return`<span class="pill pill-amber"><span class="dot"></span>Retardo</span>`;
-  return`<span class="pill pill-green"><span class="dot"></span>A tiempo</span>`;
+
+  if (d.esDescanso) {
+    return `<span class="pill" style="background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0">🌙 Descanso</span>`;
+  }
+
+  if (d.tipo_falta && _a_esFaltaType(d.tipo_falta)) {
+    const label = d.tipo_falta === 'incapacidad'
+      ? 'Incapacidad'
+      : d.tipo_falta === 'permiso'
+        ? 'Permiso'
+        : d.tipo_falta === 'falta_justificada'
+          ? 'Falta just.'
+          : 'Falta inj.';
+
+    return `<span class="pill pill-red"><span class="dot"></span>${label}</span>`;
+  }
+
+  if (d.es_retardo) {
+    return `<span class="pill pill-amber"><span class="dot"></span>Retardo</span>`;
+  }
+
+  if (d.entrada_at && !d.salida_at) {
+    return `<span class="pill pill-blue"><span class="dot"></span>Sin salida</span>`;
+  }
+
+  if (d.entrada_at) {
+    return `<span class="pill pill-green"><span class="dot"></span>Puntual</span>`;
+  }
+
+  return `<span class="pill pill-gray"><span class="dot"></span>Sin registro</span>`;
+}
+function _a_agentBadge(status, falta) {
+  if (status === 'vacaciones') {
+    return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
+  }
+
+  if (status === 'descanso') {
+    return `<span class="pill" style="background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0">🌙 Descanso</span>`;
+  }
+
+  if (status === 'falta' && falta) {
+    const cfg = _a_CATEGORIA_CONFIG[falta.categoria] || _a_CATEGORIA_CONFIG.falta_injustificada;
+    const por = falta.marcadaPor === 'sistema' ? ' 🤖' : ' 👤';
+    const pend = falta.estado === 'pendiente_comprobante' ? ' ⏳' : '';
+
+    return `<span class="pill" style="background:${cfg.bg};color:${cfg.color};border:1px solid ${cfg.border}">
+      <span class="dot"></span>${cfg.label}${pend}${por}
+    </span>`;
+  }
+
+  if (status === 'falta') {
+    return `<span class="pill pill-red"><span class="dot"></span>Falta 🤖</span>`;
+  }
+
+  if (status === 'sin_punch') {
+    return `<span class="pill pill-amber" style="animation:pulse 1.5s infinite"><span class="dot"></span>Sin punch ⏳</span>`;
+  }
+
+  if (status === 'late') {
+    return `<span class="pill pill-amber"><span class="dot"></span>Retardo</span>`;
+  }
+
+  return `<span class="pill pill-green"><span class="dot"></span>A tiempo</span>`;
 }
 
 
@@ -3413,7 +3645,7 @@ function _a_miniTrend(vals){
 function _a_quincenaTable(){
   const todos=_a_filteredDays();
   // KPIs: excluir fines de semana Y días de descanso
-  const validos=todos.filter(d=>!d.weekend&&!d.esDescanso);
+  const validos = todos.filter(d => !d.esDescanso && !d.esVacacion);
   const tw=validos.reduce((s,d)=>s+(d.segundos_trabajados||0),0);
   const tl=validos.reduce((s,d)=>s+(d.segundos_tarde||0),0);
   const tr=validos.filter(d=>d.es_retardo).length;
@@ -3421,14 +3653,6 @@ function _a_quincenaTable(){
   const pct=validos.length?Math.round(((validos.length-tr)/validos.length)*100):100;
   let rows='';
   todos.forEach((d)=>{
-    if(d.weekend){
-      rows+=`<tr style="opacity:.4;pointer-events:none">
-        <td>${fmtDate(d.fecha)}</td>
-        <td colspan="6" style="color:#94A3B8;font-size:11px;font-style:italic">Fin de semana</td>
-        <td>—</td>
-      </tr>`;
-      return;
-    }
     const motivo = d.motivo_retardo || d.motivo_falta || '';
     const extraStr = d.tiempoExtraMin > 0 ? `+${d.tiempoExtraMin}m` : '—';
     rows+=`<tr onclick="_a_openDayModal(${_a_QDAYS.filter(x=>!x.weekend).indexOf(d)})" style="cursor:pointer">
@@ -4226,7 +4450,10 @@ function _a_renderCEO(){
   }
 
   // Nivel 0: empresa global (vista principal CEO)
-  const totAgents=618, totOnTime=541, totLate=41, totAbsent=23;
+  const totAgents = _a_KPI_GLOBAL.total || 0;
+const totOnTime = _a_KPI_GLOBAL.onTime || 0;
+const totLate = _a_KPI_GLOBAL.late || 0;
+const totAbsent = _a_KPI_GLOBAL.absent || 0;
   const pctGlobal=Math.round((totOnTime/totAgents)*100);
   const totCostAus=_a_CAMP_DATA.reduce((s,c)=>s+c.costAus,0);
   const totCostRet=_a_CAMP_DATA.reduce((s,c)=>s+c.costRet,0);
@@ -4318,9 +4545,9 @@ function _a_renderCEO(){
   <!-- Balance OT: horas perdidas vs recuperadas -->
   ${(()=>{
     const horasPerdidas  = totAbsent * 8; // cada falta = 1 turno de 8h
-    const otAprobadoMins = _a_OT_RECORDS.filter(r=>r.status==='approved').reduce((s,r)=>s+r.ot_mins,0);
+    const otAprobadoMins = _a_OT_RECORDS.filter(r=>r.status==='approved').reduce((s,r)=>s + Number(r.minutes_extra || r.ot_mins || 0), 0);
     const otAprobadoH    = Math.round(otAprobadoMins/60*10)/10;
-    const otPendMins     = _a_OT_RECORDS.filter(r=>r.status==='pending').reduce((s,r)=>s+r.ot_mins,0);
+    const otPendMins     = _a_OT_RECORDS.filter(r=>r.status==='pending').reduce((s,r)=>s + Number(r.minutes_extra || r.ot_mins || 0), 0);
     const otPendH        = Math.round(otPendMins/60*10)/10;
     const netasH         = Math.max(0, horasPerdidas - otAprobadoH);
     const pctRecupH      = horasPerdidas>0?Math.round((otAprobadoH/horasPerdidas)*100):0;
