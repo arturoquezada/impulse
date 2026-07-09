@@ -6781,7 +6781,10 @@ async function _v_sincronizarBalances() {
   }
 }
 
-function _v_abrirDiaCalendario(fecha, empIds) {
+let _v_calDiaMap = {}; // fecha -> [empIds]
+
+function _v_abrirDiaCalendario(fecha) {
+  const empIds = _v_calDiaMap[fecha] || [];
   const detalles = empIds.map(empId => {
     const emp = _v_AGENTES.find(a => a.id === empId);
     if (!emp) return null;
@@ -6821,6 +6824,7 @@ function _v_renderCalendario(solicitudesAprobadas, titulo) {
   // Mapear qué empleados están de vacaciones cada día
   const diasVac = {};
   const diasVacIds = {};
+  _v_calDiaMap = {};
   solicitudesAprobadas.forEach(s => {
     let cur = new Date(s.start_date + 'T12:00:00');
     const fin = new Date(s.end_date + 'T12:00:00');
@@ -6835,6 +6839,7 @@ function _v_renderCalendario(solicitudesAprobadas, titulo) {
         if (!diasVacIds[d]) diasVacIds[d] = [];
         diasVac[d].push(nombre);
         diasVacIds[d].push(s.employee_id);
+        _v_calDiaMap[fecha] = diasVacIds[d];
       }
       cur.setDate(cur.getDate() + 1);
     }
@@ -6850,7 +6855,7 @@ function _v_renderCalendario(solicitudesAprobadas, titulo) {
     const vacIds = diasVacIds[d] || [];
     const isHoy = fecha === ymd(NOW);
     const tieneVacs = vacs.length > 0;
-    const clickHandler = tieneVacs ? `onclick="_v_abrirDiaCalendario('${fecha}',${JSON.stringify(vacIds)})" style="cursor:pointer"` : '';
+    const clickHandler = tieneVacs ? `onclick="_v_abrirDiaCalendario('${fecha}')"` : '';
     cells += `<div ${clickHandler} style="border-radius:8px;padding:4px;min-height:52px;background:${tieneVacs?'#F0FDF4':isHoy?'#EFF6FF':isWeekend?'#F8FAFC':'#fff'};border:1px solid ${tieneVacs?'#BBF7D0':isHoy?'#BFDBFE':'#F1F5F9'};${tieneVacs?'transition:background .15s':''}${tieneVacs?' onmouseover="this.style.background=\'#DCFCE7\'" onmouseout="this.style.background=\'#F0FDF4\'"':''}">
       <div style="font-size:11px;font-weight:${isHoy?'800':'600'};color:${isHoy?'#1D4ED8':isWeekend?'#94A3B8':'#0F172A'};margin-bottom:2px">${d}</div>
       ${vacs.slice(0,2).map(n=>`<div style="font-size:9px;background:#DBEAFE;color:#1E40AF;border-radius:3px;padding:1px 4px;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n}</div>`).join('')}
