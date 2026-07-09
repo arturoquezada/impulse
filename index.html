@@ -6781,6 +6781,35 @@ async function _v_sincronizarBalances() {
   }
 }
 
+function _v_abrirDiaCalendario(fecha, empIds) {
+  const detalles = empIds.map(empId => {
+    const emp = _v_AGENTES.find(a => a.id === empId);
+    if (!emp) return null;
+    const sup = _v_AGENTES.find(a => a.id === emp.supervisor_id);
+    return { nombre: emp.full_name, camp: emp.campaign_id || '—', sup: sup?.full_name?.split(' ').slice(0,2).join(' ') || '—', id: emp.id };
+  }).filter(Boolean);
+
+  document.getElementById('modalTitle').textContent = `🏖️ ${fmtDate(fecha)}`;
+  document.getElementById('modalSub').textContent = `${detalles.length} persona${detalles.length!==1?'s':''} de vacaciones`;
+  document.getElementById('modalBody').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      ${detalles.map(d=>`
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px">
+          <div style="width:36px;height:36px;border-radius:50%;background:#16A34A;color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">${d.nombre.split(' ').map(p=>p[0]).slice(0,2).join('')}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:700;color:#0F172A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.nombre}</div>
+            <div style="font-size:11px;color:#64748B;margin-top:1px">${d.id}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:12px;font-weight:600;color:#16A34A">${d.camp}</div>
+            <div style="font-size:11px;color:#64748B;margin-top:1px">Sup: ${d.sup}</div>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  document.getElementById('modalFooter').innerHTML = `<button class="btn-ghost" onclick="closeModal()">Cerrar</button>`;
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
 // Calendario visual — muestra un mes con días de vacaciones marcados
 function _v_renderCalendario(solicitudesAprobadas, titulo) {
   const año = _v_calMes.getFullYear();
@@ -6791,6 +6820,7 @@ function _v_renderCalendario(solicitudesAprobadas, titulo) {
 
   // Mapear qué empleados están de vacaciones cada día
   const diasVac = {};
+  const diasVacIds = {};
   solicitudesAprobadas.forEach(s => {
     let cur = new Date(s.start_date + 'T12:00:00');
     const fin = new Date(s.end_date + 'T12:00:00');
@@ -6802,7 +6832,9 @@ function _v_renderCalendario(solicitudesAprobadas, titulo) {
       const y = cur.getFullYear();
       if (m === mes && y === año) {
         if (!diasVac[d]) diasVac[d] = [];
+        if (!diasVacIds[d]) diasVacIds[d] = [];
         diasVac[d].push(nombre);
+        diasVacIds[d].push(s.employee_id);
       }
       cur.setDate(cur.getDate() + 1);
     }
@@ -6815,11 +6847,14 @@ function _v_renderCalendario(solicitudesAprobadas, titulo) {
     const dow = new Date(fecha + 'T12:00:00').getDay();
     const isWeekend = dow === 0 || dow === 6;
     const vacs = diasVac[d] || [];
+    const vacIds = diasVacIds[d] || [];
     const isHoy = fecha === ymd(NOW);
-    cells += `<div style="border-radius:8px;padding:4px;min-height:52px;background:${isHoy?'#EFF6FF':isWeekend?'#F8FAFC':'#fff'};border:1px solid ${isHoy?'#BFDBFE':'#F1F5F9'}">
+    const tieneVacs = vacs.length > 0;
+    const clickHandler = tieneVacs ? `onclick="_v_abrirDiaCalendario('${fecha}',${JSON.stringify(vacIds)})" style="cursor:pointer"` : '';
+    cells += `<div ${clickHandler} style="border-radius:8px;padding:4px;min-height:52px;background:${tieneVacs?'#F0FDF4':isHoy?'#EFF6FF':isWeekend?'#F8FAFC':'#fff'};border:1px solid ${tieneVacs?'#BBF7D0':isHoy?'#BFDBFE':'#F1F5F9'};${tieneVacs?'transition:background .15s':''}${tieneVacs?' onmouseover="this.style.background=\'#DCFCE7\'" onmouseout="this.style.background=\'#F0FDF4\'"':''}">
       <div style="font-size:11px;font-weight:${isHoy?'800':'600'};color:${isHoy?'#1D4ED8':isWeekend?'#94A3B8':'#0F172A'};margin-bottom:2px">${d}</div>
       ${vacs.slice(0,2).map(n=>`<div style="font-size:9px;background:#DBEAFE;color:#1E40AF;border-radius:3px;padding:1px 4px;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n}</div>`).join('')}
-      ${vacs.length>2?`<div style="font-size:9px;color:#64748B">+${vacs.length-2}</div>`:''}
+      ${vacs.length>2?`<div style="font-size:9px;color:#16A34A;font-weight:700">+${vacs.length-2} más</div>`:''}
     </div>`;
   }
 
