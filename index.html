@@ -6819,68 +6819,199 @@ function _v_renderCalendario(solicitudesAprobadas, titulo) {
   const mes = _v_calMes.getMonth();
   const primerDia = new Date(año, mes, 1).getDay();
   const diasEnMes = new Date(año, mes + 1, 0).getDate();
-  const nombreMes = _v_calMes.toLocaleDateString('es-MX', {month:'long',year:'numeric'});
+  const nombreMes = _v_calMes.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
 
   // Mapear qué empleados están de vacaciones cada día
   const diasVac = {};
   const diasVacIds = {};
   _v_calDiaMap = {};
+
   solicitudesAprobadas.forEach(s => {
     let cur = new Date(s.start_date + 'T12:00:00');
     const fin = new Date(s.end_date + 'T12:00:00');
+
     const emp = _v_AGENTES.find(a => a.id === s.employee_id);
     const nombre = emp?.full_name?.split(' ')[0] || s.employee_id;
+
     while (cur <= fin) {
       const d = cur.getDate();
       const m = cur.getMonth();
       const y = cur.getFullYear();
+
       if (m === mes && y === año) {
+        const fecha = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
         if (!diasVac[d]) diasVac[d] = [];
         if (!diasVacIds[d]) diasVacIds[d] = [];
-        diasVac[d].push(nombre);
-diasVacIds[d].push(s.employee_id);
+        if (!_v_calDiaMap[fecha]) _v_calDiaMap[fecha] = [];
 
-const fecha = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-if (!_v_calDiaMap[fecha]) _v_calDiaMap[fecha] = [];
-if (!_v_calDiaMap[fecha].includes(s.employee_id)) {
-  _v_calDiaMap[fecha].push(s.employee_id);
-}
+        diasVac[d].push(nombre);
+        diasVacIds[d].push(s.employee_id);
+
+        if (!_v_calDiaMap[fecha].includes(s.employee_id)) {
+          _v_calDiaMap[fecha].push(s.employee_id);
+        }
       }
+
       cur.setDate(cur.getDate() + 1);
     }
   });
 
   let cells = '';
-  for (let i = 0; i < (primerDia === 0 ? 6 : primerDia - 1); i++) cells += '<div></div>';
+
+  for (let i = 0; i < (primerDia === 0 ? 6 : primerDia - 1); i++) {
+    cells += '<div></div>';
+  }
+
   for (let d = 1; d <= diasEnMes; d++) {
-    const fecha = `${año}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const fecha = `${año}-${String(mes + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const dow = new Date(fecha + 'T12:00:00').getDay();
     const isWeekend = dow === 0 || dow === 6;
     const vacs = diasVac[d] || [];
     const vacIds = diasVacIds[d] || [];
     const isHoy = fecha === ymd(NOW);
     const tieneVacs = vacs.length > 0;
+
+    // Regla:
+    // campaign_id === 'admin' -> Admin
+    // cualquier otro campaign_id -> Agente
+    const tipos = vacIds.map(empId => {
+      const emp = _v_AGENTES.find(a => a.id === empId);
+      return String(emp?.campaign_id || '').toLowerCase() === 'admin' ? 'admin' : 'agent';
+    });
+
+    const tieneAdmin = tipos.includes('admin');
+    const tieneAgente = tipos.includes('agent');
+
+    let tipoDia = 'none';
+    if (tieneAdmin && tieneAgente) tipoDia = 'mixto';
+    else if (tieneAdmin) tipoDia = 'admin';
+    else if (tieneAgente) tipoDia = 'agent';
+
+    const colorCfg = {
+      agent: {
+        bg: '#EFF6FF',
+        border: '#BFDBFE',
+        hover: '#DBEAFE',
+        dayText: '#1D4ED8',
+        chipBg: '#DBEAFE',
+        chipText: '#1E40AF',
+        moreText: '#2563EB'
+      },
+      admin: {
+        bg: '#1E3A8A',
+        border: '#1D4ED8',
+        hover: '#172554',
+        dayText: '#FFFFFF',
+        chipBg: 'rgba(255,255,255,.14)',
+        chipText: '#DBEAFE',
+        moreText: '#BFDBFE'
+      },
+      mixto: {
+        bg: '#F3E8FF',
+        border: '#D8B4FE',
+        hover: '#E9D5FF',
+        dayText: '#7E22CE',
+        chipBg: '#E9D5FF',
+        chipText: '#6B21A8',
+        moreText: '#7E22CE'
+      }
+    };
+
+    const cfg = colorCfg[tipoDia];
+
+    const bg = tieneVacs
+      ? cfg.bg
+      : isHoy
+        ? '#EFF6FF'
+        : isWeekend
+          ? '#F8FAFC'
+          : '#fff';
+
+    const border = tieneVacs
+      ? cfg.border
+      : isHoy
+        ? '#BFDBFE'
+        : '#F1F5F9';
+
+    const dayText = tieneVacs
+      ? cfg.dayText
+      : isHoy
+        ? '#1D4ED8'
+        : isWeekend
+          ? '#94A3B8'
+          : '#0F172A';
+
     const clickHandler = tieneVacs ? `onclick="_v_abrirDiaCalendario('${fecha}')"` : '';
-    cells += `<div ${clickHandler} style="border-radius:8px;padding:4px;min-height:52px;background:${tieneVacs?'#F0FDF4':isHoy?'#EFF6FF':isWeekend?'#F8FAFC':'#fff'};border:1px solid ${tieneVacs?'#BBF7D0':isHoy?'#BFDBFE':'#F1F5F9'};${tieneVacs?'transition:background .15s':''}${tieneVacs?' onmouseover="this.style.background=\'#DCFCE7\'" onmouseout="this.style.background=\'#F0FDF4\'"':''}">
-      <div style="font-size:11px;font-weight:${isHoy?'800':'600'};color:${isHoy?'#1D4ED8':isWeekend?'#94A3B8':'#0F172A'};margin-bottom:2px">${d}</div>
-      ${vacs.slice(0,2).map(n=>`<div style="font-size:9px;background:#DBEAFE;color:#1E40AF;border-radius:3px;padding:1px 4px;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n}</div>`).join('')}
-      ${vacs.length>2?`<div style="font-size:9px;color:#16A34A;font-weight:700">+${vacs.length-2} más</div>`:''}
-    </div>`;
+    const cursor = tieneVacs ? 'cursor:pointer;' : '';
+    const hoverEvents = tieneVacs
+      ? `onmouseover="this.style.background='${cfg.hover}'" onmouseout="this.style.background='${cfg.bg}'"`
+      : '';
+
+    cells += `
+      <div
+        ${clickHandler}
+        ${hoverEvents}
+        title="${tieneVacs ? 'Click para ver vacaciones del día' : ''}"
+        style="border-radius:8px;padding:4px;min-height:52px;background:${bg};border:1px solid ${border};${cursor}${tieneVacs ? 'transition:background .15s, transform .12s;' : ''}"
+      >
+        <div style="font-size:11px;font-weight:${isHoy ? '800' : '600'};color:${dayText};margin-bottom:2px">
+          ${d}
+        </div>
+
+        ${vacs.slice(0, 2).map(n => `
+          <div style="font-size:9px;background:${tieneVacs ? cfg.chipBg : '#DBEAFE'};color:${tieneVacs ? cfg.chipText : '#1E40AF'};border-radius:3px;padding:1px 4px;margin-bottom:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            ${n}
+          </div>
+        `).join('')}
+
+        ${vacs.length > 2 ? `
+          <div style="font-size:9px;color:${tieneVacs ? cfg.moreText : '#16A34A'};font-weight:700">
+            +${vacs.length - 2} más
+          </div>
+        ` : ''}
+      </div>
+    `;
   }
 
   return `<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <div class="card-title">${titulo||'📅 Calendario de vacaciones'}</div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <button onclick="_v_calMes=new Date(_v_calMes.getFullYear(),_v_calMes.getMonth()-1,1);_v_render()" style="border:1px solid #E2E8F0;background:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px">←</button>
-        <span style="font-size:13px;font-weight:600;text-transform:capitalize">${nombreMes}</span>
-        <button onclick="_v_calMes=new Date(_v_calMes.getFullYear(),_v_calMes.getMonth()+1,1);_v_render()" style="border:1px solid #E2E8F0;background:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px">→</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">
+      <div class="card-title" style="margin-bottom:0">${titulo}</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn-ghost" onclick="_v_calMes.setMonth(_v_calMes.getMonth()-1);_v_render()">←</button>
+        <div style="font-size:13px;font-weight:700;color:#0F172A;text-transform:capitalize;min-width:140px;text-align:center">
+          ${nombreMes}
+        </div>
+        <button class="btn-ghost" onclick="_v_calMes.setMonth(_v_calMes.getMonth()+1);_v_render()">→</button>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px">
-      ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d=>`<div style="text-align:center;font-size:10px;font-weight:700;color:#64748B;padding:4px">${d}</div>`).join('')}
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;font-size:11px;color:#64748B">
+      <span style="display:inline-flex;align-items:center;gap:5px">
+        <span style="width:12px;height:12px;border-radius:3px;background:#EFF6FF;border:1px solid #BFDBFE"></span>
+        Agente
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:5px">
+        <span style="width:12px;height:12px;border-radius:3px;background:#1E3A8A;border:1px solid #1D4ED8"></span>
+        Admin
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:5px">
+        <span style="width:12px;height:12px;border-radius:3px;background:#F3E8FF;border:1px solid #D8B4FE"></span>
+        Mixto
+      </span>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">${cells}</div>
+
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px">
+      ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(x => `
+        <div style="font-size:10px;font-weight:800;color:#94A3B8;text-align:center;text-transform:uppercase">
+          ${x}
+        </div>
+      `).join('')}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">
+      ${cells}
+    </div>
   </div>`;
 }
 
