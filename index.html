@@ -8472,29 +8472,33 @@ async function _p_responder(id, accept) {
     if (!reason.trim()) return;
   }
 
-  const { error } = await _p_sb.rpc('respond_day_off_swap', {
+  const { data, error } = await _p_sb.rpc('respond_day_off_swap', {
     p_swap_id: id,
     p_accept: accept,
     p_reason: reason
   });
 
   if (error) {
-  console.error('Error completo al responder permuta:', error);
+    console.error('Error completo al responder permuta:', error);
 
-  alert(
-    'No se pudo responder la permuta:\n\n' +
-    (error.message || 'Error desconocido') +
-    (error.details ? '\n\nDetalle: ' + error.details : '') +
-    (error.hint ? '\n\nHint: ' + error.hint : '') +
-    (error.code ? '\n\nCódigo: ' + error.code : '')
-  );
+    alert(
+      'No se pudo responder la permuta:\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.hint ? '\n\nHint: ' + error.hint : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
 
-  return;
-}
+    return;
+  }
+
+  console.log('Permuta respondida correctamente:', data);
 
   _p_cargando = true;
   _p_render();
+
   await _p_cargarDatos();
+
   _p_cargando = false;
   _p_render();
 }
