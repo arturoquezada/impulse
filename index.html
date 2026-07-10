@@ -8254,6 +8254,32 @@ async function _p_cargarDatos() {
 
     _p_SWAPS = swaps || [];
 
+    const { data: dayOffReqs, error: eDayOff } = await _p_sb
+  .from('day_off_override_requests')
+  .select(`
+    id,
+    employee_id,
+    original_rest_date,
+    new_rest_date,
+    status,
+    notes,
+    requested_by,
+    requested_at,
+    reviewed_by,
+    reviewed_at,
+    rejection_reason,
+    created_at,
+    updated_at
+  `)
+  .order('created_at', { ascending: false });
+
+if (eDayOff) {
+  console.warn('No se pudieron cargar cambios de descanso en Permutas:', eDayOff);
+  _p_DAYOFF_REQS = [];
+} else {
+  _p_DAYOFF_REQS = dayOffReqs || [];
+}
+
     const { data: emps, error: e2 } = await _p_sb
       .from('employees')
       .select('id,full_name,campaign_id,shift_start,shift_end,system_role,status,supervisor_id,days_off')
@@ -8809,6 +8835,213 @@ function _p_exportarHistorialAprobadas() {
   URL.revokeObjectURL(url);
 }
 
+function _p_statusCambioDescansoBadge(status) {
+  const cfg = {
+    pending: {
+      bg: '#FEF3C7',
+      color: '#92400E',
+      label: 'Pendiente'
+    },
+    approved: {
+      bg: '#DCFCE7',
+      color: '#166534',
+      label: 'Aprobado'
+    },
+    rejected: {
+      bg: '#FEE2E2',
+      color: '#991B1B',
+      label: 'Rechazado'
+    },
+    cancelled: {
+      bg: '#F1F5F9',
+      color: '#475569',
+      label: 'Cancelado'
+    }
+  };
+
+  const c = cfg[status] || cfg.pending;
+
+  return `
+    <span class="pill" style="background:${c.bg};color:${c.color}">
+      <span class="dot"></span>${c.label}
+    </span>
+  `;
+}
+
+function _p_renderHistorialCambiosDescanso() {
+  const revisadas = (_p_DAYOFF_REQS || [])
+    .filter(r => ['approved', 'rejected', 'cancelled'].includes(r.status))
+    .sort((a, b) => new Date(b.reviewed_at || b.created_at || 0) - new Date(a.reviewed_at || a.created_at || 0));
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">🔄 Historial de cambios temporales de descanso</div>
+          <div style="font-size:12px;color:#64748B">
+            Consulta qué descanso se cambió, quién lo solicitó, quién lo aprobó/rechazó y cuándo.
+          </div>
+        </div>
+
+        <button class="btn-cyan" onclick="_p_exportarHistorialCambiosDescanso()">
+          Exportar CSV
+        </button>
+      </div>
+
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:1100px">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Colaborador</th>
+                <th>Trabaja descanso original</th>
+                <th>Nuevo descanso</th>
+                <th>Solicitó</th>
+                <th>Fecha solicitud</th>
+                <th>Aprobó/Revisó</th>
+                <th>Fecha revisión</th>
+                <th>Motivo</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${revisadas.length ? revisadas.map(r => {
+                const emp = _p_emp(r.employee_id);
+                const solicitante = _p_nombre(r.requested_by);
+                const reviso = _p_nombre(r.reviewed_by);
+
+                return `
+                  <tr>
+                    <td>${_p_statusCambioDescansoBadge(r.status)}</td>
+
+                    <td>
+                      <div class="agent-row-name">${_p_esc(emp?.full_name || r.employee_id || '—')}</div>
+                      <div class="agent-row-id">${_p_esc(r.employee_id || '—')}</div>
+                    </td>
+
+                    <td>
+                      <div style="font-size:12px;color:#334155">
+                        ${_p_labelFechaCompleta(r.original_rest_date)}
+                      </div>
+                      <div style="font-size:11px;color:#64748B;margin-top:3px">
+                        Ese día trabaja
+                      </div>
+                    </td>
+
+                    <td>
+                      <div style="font-size:12px;color:#334155">
+                        ${_p_labelFechaCompleta(r.new_rest_date)}
+                      </div>
+                      <div style="font-size:11px;color:#64748B;margin-top:3px">
+                        Ese día descansa
+                      </div>
+                    </td>
+
+                    <td>
+                      <div class="agent-row-name">${_p_esc(solicitante || '—')}</div>
+                      <div class="agent-row-id">${_p_esc(r.requested_by || 'Sin ID')}</div>
+                    </td>
+
+                    <td style="font-family:'DM Mono',monospace;font-size:12px">
+                      ${_p_fmtDateTime(r.requested_at)}
+                    </td>
+
+                    <td>
+                      <div class="agent-row-name">${_p_esc(reviso || '—')}</div>
+                      <div class="agent-row-id">${_p_esc(r.reviewed_by || 'Sin ID')}</div>
+                    </td>
+
+                    <td style="font-family:'DM Mono',monospace;font-size:12px">
+                      ${_p_fmtDateTime(r.reviewed_at)}
+                    </td>
+
+                    <td>
+                      ${_p_esc(r.status === 'rejected' ? (r.rejection_reason || '—') : (r.notes || '—'))}
+                    </td>
+                  </tr>
+                `;
+              }).join('') : `
+                <tr>
+                  <td colspan="9" style="text-align:center;color:#94A3B8;padding:24px">
+                    Todavía no hay cambios temporales de descanso revisados.
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _p_exportarHistorialCambiosDescanso() {
+  const revisadas = (_p_DAYOFF_REQS || [])
+    .filter(r => ['approved', 'rejected', 'cancelled'].includes(r.status))
+    .sort((a, b) => new Date(b.reviewed_at || b.created_at || 0) - new Date(a.reviewed_at || a.created_at || 0));
+
+  if (!revisadas.length) {
+    alert('No hay cambios temporales de descanso revisados para exportar.');
+    return;
+  }
+
+  const headers = [
+    'Status',
+    'Colaborador ID',
+    'Colaborador',
+    'Trabaja Descanso Original',
+    'Nuevo Descanso',
+    'Solicitado Por ID',
+    'Solicitado Por',
+    'Fecha Solicitud',
+    'Revisado Por ID',
+    'Revisado Por',
+    'Fecha Revision',
+    'Notas',
+    'Motivo Rechazo'
+  ];
+
+  const rows = revisadas.map(r => {
+    const emp = _p_emp(r.employee_id);
+
+    return [
+      r.status || '',
+      r.employee_id || '',
+      emp?.full_name || '',
+      r.original_rest_date || '',
+      r.new_rest_date || '',
+      r.requested_by || '',
+      _p_nombre(r.requested_by) || '',
+      r.requested_at || '',
+      r.reviewed_by || '',
+      _p_nombre(r.reviewed_by) || '',
+      r.reviewed_at || '',
+      r.notes || '',
+      r.rejection_reason || ''
+    ];
+  });
+
+  const csv = [
+    headers.map(_p_csvSafe).join(','),
+    ...rows.map(r => r.map(_p_csvSafe).join(','))
+  ].join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `historial_cambios_descanso_${ymd(new Date())}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  URL.revokeObjectURL(url);
+}
+
+
+
 function _p_renderReportes() {
   const total = _p_SWAPS.length;
   const pendComp = _p_SWAPS.filter(s => s.status === 'pending').length;
@@ -8839,6 +9072,7 @@ function _p_renderReportes() {
 
       ${_p_reportTable('🙋 Top solicitantes', porSolicitante, 'Solicitante')}
       ${_p_renderHistorialAprobadas()}
+      ${_p_renderHistorialCambiosDescanso()}
     </div>
   `;
 }
