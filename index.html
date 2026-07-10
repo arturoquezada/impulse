@@ -2230,8 +2230,8 @@ async function _a_cargarQDAYS(empId, from, to) {
       .lte('punch_date', to),
 
     _a_sb
-      .from('attendance_exceptions')
-      .select('exception_date, type, notes, status')
+    .from('attendance_exceptions')
+    .select('exception_date, type, notes, status, shift_start_override, shift_end_override')
       .eq('employee_id', empId)
       .gte('exception_date', from)
       .lte('exception_date', to),
@@ -2265,6 +2265,7 @@ const ex = exListDia.find(x => !_a_esPermutaTrabajo(x.type) && !_a_esPermutaDesc
 
 const exPermutaTrabajo = exListDia.find(x => _a_esPermutaTrabajo(x.type));
 const exPermutaDescanso = exListDia.find(x => _a_esPermutaDescanso(x.type));
+const exPermutaHorario = exListDia.find(x => String(x.type || '').trim().toLowerCase() === 'permuta_horario');
 
 const vac = vacaciones.find(v =>
   v.start_date <= fecha && v.end_date >= fecha
@@ -2303,9 +2304,11 @@ const esVacacion = exPermutaTrabajo ? false : (!!vac || _a_esVacacionesType(ex?.
     ? 'permuta_descanso'
     : exPermutaTrabajo
       ? 'permuta_trabajo'
-      : esDescanso
-        ? null
-        : ex?.type || s?.exception_type || null;
+      : exPermutaHorario
+        ? 'permuta_horario'
+        : esDescanso
+          ? null
+          : ex?.type || s?.exception_type || null;
 
 const estatus = esVacacion
   ? 'Vacaciones'
@@ -2369,9 +2372,13 @@ const estatus = esVacacion
     : exPermutaTrabajo
       ? 'Trabajo por permuta'
       : ex?.notes || null,
-      motivo_retardo: esDescanso || esVacacion ? null : n?.notes || null
-    });
+      motivo_retardo: esDescanso || esVacacion ? null : n?.notes || null,
 
+shift_start_override: exPermutaHorario?.shift_start_override || null,
+shift_end_override: exPermutaHorario?.shift_end_override || null
+    });
+    
+    
     cur.setDate(cur.getDate() + 1);
   }
 
@@ -3580,6 +3587,13 @@ function _a_roleSwitcherHTML(){
 
 // ── HELPERS ──
 function _a_statusBadge(d) {
+  if (String(d.tipo_falta || '').trim().toLowerCase() === 'permuta_horario') {
+  const h = d.shift_start_override && d.shift_end_override
+    ? ` ${String(d.shift_start_override).slice(0,5)}–${String(d.shift_end_override).slice(0,5)}`
+    : '';
+
+  return `<span class="pill pill-cyan"><span class="dot"></span>Horario por permuta${h}</span>`;
+}
   if (_a_esPermutaDescanso(d.tipo_falta)) {
   return `<span class="pill pill-purple"><span class="dot"></span>Descanso por permuta</span>`;
 }
@@ -7639,6 +7653,47 @@ function _p_diaLabel(fecha) {
   });
 }
 
+function _p_fmtHora(h) {
+  if (!h) return '—';
+  return String(h).slice(0, 5);
+}
+
+function _p_horarioTxt(emp) {
+  if (!emp) return '—';
+  return `${_p_fmtHora(emp.shift_start)}–${_p_fmtHora(emp.shift_end)}`;
+}
+
+function _p_mismoHorario(a, b) {
+  if (!a || !b) return false;
+  return String(a.shift_start || '').slice(0, 5) === String(b.shift_start || '').slice(0, 5)
+    && String(a.shift_end || '').slice(0, 5) === String(b.shift_end || '').slice(0, 5);
+}
+
+function _p_tipoLabel(s) {
+  if (s.swap_type === 'shift') return 'Permuta de horario';
+  return 'Permuta de descanso';
+}
+
+function _p_companerosHorarioDisponibles(fecha) {
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+  const camp = me?.campaign_id || ro.camp;
+
+  if (!me || !fecha) return [];
+
+  return _p_EMPLEADOS
+    .filter(e =>
+      e.id !== ro.id &&
+      e.status === 'active' &&
+      e.system_role === 'agent' &&
+      e.campaign_id === camp &&
+      !_p_esDescansoEmpleadoFecha(e, fecha) &&
+      !_p_esDescansoEmpleadoFecha(me, fecha) &&
+      !_p_mismoHorario(me, e)
+    )
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+}
+
 const _p_DIA_SLUG = [
   'sunday',
   'monday',
@@ -7799,9 +7854,83 @@ function _p_renderTabs() {
   `;
 }
 
-function _p_card(s) {
+function _p_detallePermutaHTML(s) {
   const req = _p_emp(s.requester_id);
   const peer = _p_emp(s.swap_with_id);
+
+  if (s.swap_type === 'shift') {
+    return `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">
+          <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
+            ${_p_esc(_p_nombreCorto(s.requester_id))}
+          </div>
+
+          <div style="font-size:12px;color:#334155">
+            Fecha: <b>${_p_fmtDate(s.work_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.work_date)})</span>
+          </div>
+
+          <div style="font-size:12px;color:#334155;margin-top:3px">
+            Horario normal: <b>${_p_fmtHora(s.requester_shift_start || req?.shift_start)}–${_p_fmtHora(s.requester_shift_end || req?.shift_end)}</b>
+          </div>
+
+          <div style="font-size:12px;color:#16A34A;margin-top:3px">
+            Tomaría: <b>${_p_fmtHora(s.peer_shift_start || peer?.shift_start)}–${_p_fmtHora(s.peer_shift_end || peer?.shift_end)}</b>
+          </div>
+        </div>
+
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">
+          <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
+            ${_p_esc(_p_nombreCorto(s.swap_with_id))}
+          </div>
+
+          <div style="font-size:12px;color:#334155">
+            Fecha: <b>${_p_fmtDate(s.work_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.work_date)})</span>
+          </div>
+
+          <div style="font-size:12px;color:#334155;margin-top:3px">
+            Horario normal: <b>${_p_fmtHora(s.peer_shift_start || peer?.shift_start)}–${_p_fmtHora(s.peer_shift_end || peer?.shift_end)}</b>
+          </div>
+
+          <div style="font-size:12px;color:#16A34A;margin-top:3px">
+            Tomaría: <b>${_p_fmtHora(s.requester_shift_start || req?.shift_start)}–${_p_fmtHora(s.requester_shift_end || req?.shift_end)}</b>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">
+        <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
+          ${_p_esc(_p_nombreCorto(s.requester_id))}
+        </div>
+        <div style="font-size:12px;color:#334155">
+          Trabaja: <b>${_p_fmtDate(s.work_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.work_date)})</span>
+        </div>
+        <div style="font-size:12px;color:#334155;margin-top:3px">
+          Descansa: <b>${_p_fmtDate(s.rest_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.rest_date)})</span>
+        </div>
+      </div>
+
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">
+        <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
+          ${_p_esc(_p_nombreCorto(s.swap_with_id))}
+        </div>
+        <div style="font-size:12px;color:#334155">
+          Descansa: <b>${_p_fmtDate(s.work_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.work_date)})</span>
+        </div>
+        <div style="font-size:12px;color:#334155;margin-top:3px">
+          Trabaja: <b>${_p_fmtDate(s.rest_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.rest_date)})</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _p_card(s) {
+  const req = _p_emp(s.requester_id);
 
   const puedeResponder = s.swap_with_id === ROLES[currentRole].id && s.status === 'pending';
   const puedeCancelar = s.requester_id === ROLES[currentRole].id && ['pending','pending_approval'].includes(s.status);
@@ -7814,8 +7943,9 @@ function _p_card(s) {
           <div style="font-size:14px;font-weight:800;color:#0F172A">
             ${_p_esc(_p_nombre(s.requester_id))} ↔ ${_p_esc(_p_nombre(s.swap_with_id))}
           </div>
+
           <div style="font-size:11px;color:#64748B;margin-top:2px">
-            ${_p_esc(req?.campaign_id || '—')} · Creada ${s.created_at ? _p_fmtDate(s.created_at.slice(0,10)) : '—'}
+            ${_p_esc(req?.campaign_id || '—')} · ${_p_tipoLabel(s)} · Creada ${s.created_at ? _p_fmtDate(s.created_at.slice(0,10)) : '—'}
           </div>
         </div>
 
@@ -7825,31 +7955,7 @@ function _p_card(s) {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">
-          <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
-            ${_p_esc(_p_nombreCorto(s.requester_id))}
-          </div>
-          <div style="font-size:12px;color:#334155">
-            Trabaja: <b>${_p_fmtDate(s.work_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.work_date)})</span>
-          </div>
-          <div style="font-size:12px;color:#334155;margin-top:3px">
-            Descansa: <b>${_p_fmtDate(s.rest_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.rest_date)})</span>
-          </div>
-        </div>
-
-        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">
-          <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">
-            ${_p_esc(_p_nombreCorto(s.swap_with_id))}
-          </div>
-          <div style="font-size:12px;color:#334155">
-            Descansa: <b>${_p_fmtDate(s.work_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.work_date)})</span>
-          </div>
-          <div style="font-size:12px;color:#334155;margin-top:3px">
-            Trabaja: <b>${_p_fmtDate(s.rest_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(s.rest_date)})</span>
-          </div>
-        </div>
-      </div>
+      ${_p_detallePermutaHTML(s)}
 
       ${s.notes ? `
         <div style="font-size:12px;color:#64748B;background:#F8FAFC;border-radius:8px;padding:9px 11px;margin-bottom:12px">
@@ -7904,9 +8010,12 @@ function _p_renderMis() {
           ${lista.length} permuta${lista.length !== 1 ? 's' : ''}
         </div>
 
-        ${_p_isAgent() ? `
-          <button class="btn-primary" onclick="_p_abrirNueva()">+ Nueva permuta</button>
-        ` : ''}
+       ${_p_isAgent() ? `
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn-primary" onclick="_p_abrirNueva()">+ Permuta de descanso</button>
+    <button class="btn-cyan" onclick="_p_abrirNuevaHorario()">+ Permuta de horario</button>
+  </div>
+` : ''}
       </div>
 
       ${_p_renderLista(lista, 'Aún no tienes permutas registradas.')}
@@ -8184,6 +8293,287 @@ function _p_abrirNueva() {
   `;
 
   document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+function _p_abrirNuevaHorario() {
+  if (currentRole !== 'agent') {
+    alert('Solo agentes pueden solicitar permutas.');
+    return;
+  }
+
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+
+  if (!me) {
+    alert('No se pudo cargar tu información de empleado.');
+    return;
+  }
+
+  document.getElementById('modalTitle').textContent = '🕒 Nueva permuta de horario';
+  document.getElementById('modalSub').textContent = 'Solo con agentes de tu misma campaña y diferente horario';
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="alert alert-blue">
+      Elige el día en que quieres cambiar tu horario. Después selecciona a una persona de tu misma campaña que trabaje ese día y tenga un horario diferente.
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">Tu información</div>
+      <div class="kv"><span class="k">Nombre</span><span class="v">${_p_esc(me.full_name || ro.name)}</span></div>
+      <div class="kv"><span class="k">Campaña</span><span class="v">${_p_esc(me.campaign_id || ro.camp || '—')}</span></div>
+      <div class="kv"><span class="k">Tu horario actual</span><span class="v">${_p_horarioTxt(me)}</span></div>
+      <div class="kv"><span class="k">Tus descansos</span><span class="v">${(me.days_off || []).join(', ') || '—'}</span></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">1. ¿Qué día quieres cambiar horario?</div>
+      <input 
+        type="date" 
+        id="p-shift-date" 
+        min="${ymd(new Date())}"
+        onchange="_p_actualizarOpcionesHorario()"
+        style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"
+      />
+      <div id="p-shift-date-help" style="font-size:11px;color:#64748B;margin-top:6px">
+        Debe ser un día en el que tú trabajas.
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">2. ¿Con quién quieres cambiar horario?</div>
+      <select 
+        id="p-shift-with" 
+        disabled
+        onchange="_p_actualizarResumenHorario()"
+        style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f);background:#F8FAFC"
+      >
+        <option value="">Primero elige la fecha</option>
+      </select>
+      <div id="p-shift-with-help" style="font-size:11px;color:#64748B;margin-top:6px">
+        Solo aparecerán personas de tu misma campaña que trabajen ese día y tengan horario diferente.
+      </div>
+    </div>
+
+    <div class="form-row">
+      <label>Comentario opcional</label>
+      <textarea id="p-shift-notes" placeholder="Ej. Necesito cambiar mi horario ese día por un tema personal..."></textarea>
+    </div>
+
+    <div id="p-shift-resumen" style="display:none"></div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button 
+      id="p-shift-submit-btn" 
+      class="btn-primary" 
+      onclick="_p_crearSolicitudHorario()" 
+      disabled 
+      style="opacity:.5;cursor:not-allowed"
+    >
+      Enviar solicitud
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+function _p_actualizarOpcionesHorario() {
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+
+  const fecha = document.getElementById('p-shift-date')?.value || '';
+  const select = document.getElementById('p-shift-with');
+  const dateHelp = document.getElementById('p-shift-date-help');
+  const withHelp = document.getElementById('p-shift-with-help');
+
+  if (!fecha) {
+    select.disabled = true;
+    select.style.background = '#F8FAFC';
+    select.innerHTML = `<option value="">Primero elige la fecha</option>`;
+
+    dateHelp.textContent = 'Debe ser un día en el que tú trabajas.';
+    dateHelp.style.color = '#64748B';
+
+    withHelp.textContent = 'Solo aparecerán personas de tu misma campaña que trabajen ese día y tengan horario diferente.';
+    withHelp.style.color = '#64748B';
+
+    _p_actualizarResumenHorario();
+    return;
+  }
+
+  if (_p_esDescansoEmpleadoFecha(me, fecha)) {
+    select.disabled = true;
+    select.style.background = '#F8FAFC';
+    select.innerHTML = `<option value="">Ese día es tu descanso</option>`;
+
+    dateHelp.textContent = 'Ese día aparece como tu descanso. Para eso usa Permuta de descanso.';
+    dateHelp.style.color = '#DC2626';
+
+    withHelp.textContent = 'No aplica permuta de horario en un día de descanso.';
+    withHelp.style.color = '#DC2626';
+
+    _p_actualizarResumenHorario();
+    return;
+  }
+
+  const compas = _p_companerosHorarioDisponibles(fecha);
+
+  if (!compas.length) {
+    select.disabled = true;
+    select.style.background = '#F8FAFC';
+    select.innerHTML = `<option value="">No hay horarios disponibles</option>`;
+
+    dateHelp.textContent = `Fecha válida: ${_p_labelFechaCompleta(fecha)}.`;
+    dateHelp.style.color = '#16A34A';
+
+    withHelp.textContent = 'No encontramos compañeros de tu campaña que trabajen ese día con horario diferente.';
+    withHelp.style.color = '#DC2626';
+
+    _p_actualizarResumenHorario();
+    return;
+  }
+
+  select.disabled = false;
+  select.style.background = '#fff';
+
+  select.innerHTML = `
+    <option value="">Selecciona compañero...</option>
+    ${compas.map(e => `
+      <option value="${e.id}">
+        ${_p_esc(e.full_name)} · ${_p_horarioTxt(e)}
+      </option>
+    `).join('')}
+  `;
+
+  dateHelp.textContent = `Fecha válida: ${_p_labelFechaCompleta(fecha)}.`;
+  dateHelp.style.color = '#16A34A';
+
+  withHelp.textContent = `${compas.length} compañero${compas.length !== 1 ? 's' : ''} disponible${compas.length !== 1 ? 's' : ''}.`;
+  withHelp.style.color = '#16A34A';
+
+  _p_actualizarResumenHorario();
+}
+
+function _p_actualizarResumenHorario() {
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+
+  const fecha = document.getElementById('p-shift-date')?.value || '';
+  const peerId = document.getElementById('p-shift-with')?.value || '';
+  const peer = _p_emp(peerId);
+
+  const resumen = document.getElementById('p-shift-resumen');
+  const btn = document.getElementById('p-shift-submit-btn');
+
+  const completo = !!(fecha && peerId && peer && me);
+
+  if (!completo) {
+    if (resumen) {
+      resumen.style.display = 'none';
+      resumen.innerHTML = '';
+    }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.style.opacity = '.5';
+      btn.style.cursor = 'not-allowed';
+    }
+
+    return;
+  }
+
+  resumen.style.display = 'block';
+  resumen.innerHTML = `
+    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:13px">
+      <div style="font-size:12px;font-weight:800;color:#166534;margin-bottom:8px">
+        Resumen de la permuta de horario
+      </div>
+
+      <div style="font-size:12px;color:#334155;line-height:1.7">
+        <div>📅 Fecha: <b>${_p_labelFechaCompleta(fecha)}</b></div>
+        <div>✅ Tú tomarás el horario de ${_p_esc(peer.full_name)}: <b>${_p_horarioTxt(peer)}</b></div>
+        <div>✅ ${_p_esc(peer.full_name)} tomará tu horario: <b>${_p_horarioTxt(me)}</b></div>
+      </div>
+    </div>
+  `;
+
+  if (btn) {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+  }
+}
+
+async function _p_crearSolicitudHorario() {
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+
+  const fecha = document.getElementById('p-shift-date')?.value;
+  const swapWithId = document.getElementById('p-shift-with')?.value;
+  const notes = document.getElementById('p-shift-notes')?.value?.trim() || null;
+
+  const peer = _p_emp(swapWithId);
+
+  if (!me) {
+    alert('No se pudo cargar tu información de empleado.');
+    return;
+  }
+
+  if (!fecha) {
+    alert('Elige la fecha en la que quieres cambiar horario.');
+    return;
+  }
+
+  if (_p_esDescansoEmpleadoFecha(me, fecha)) {
+    alert('Ese día es tu descanso. Usa permuta de descanso.');
+    return;
+  }
+
+  if (!swapWithId || !peer) {
+    alert('Elige con quién quieres cambiar horario.');
+    return;
+  }
+
+  if (_p_esDescansoEmpleadoFecha(peer, fecha)) {
+    alert('Esa persona descansa ese día. Elige otra persona o usa permuta de descanso.');
+    return;
+  }
+
+  if (_p_mismoHorario(me, peer)) {
+    alert('Esa persona tiene el mismo horario que tú. No hay nada que permutar.');
+    return;
+  }
+
+  const { error } = await _p_sb.rpc('create_shift_swap', {
+    p_swap_with_id: swapWithId,
+    p_shift_date: fecha,
+    p_notes: notes
+  });
+
+  if (error) {
+    console.error('Error completo al crear permuta de horario:', error);
+
+    alert(
+      'No se pudo crear la permuta de horario:\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.hint ? '\n\nHint: ' + error.hint : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
+
+    return;
+  }
+
+  closeModal();
+
+  _p_cargando = true;
+  _p_render();
+
+  await _p_cargarDatos();
+
+  _p_cargando = false;
+  _p_render();
 }
 
 function _p_actualizarOpcionesPermuta() {
@@ -8504,32 +8894,58 @@ async function _p_responder(id, accept) {
 }
 
 async function _p_aprobar(id, approve) {
+  const s = _p_SWAPS.find(x => x.id === id);
+
+  if (!s) {
+    alert('No se encontró la permuta.');
+    return;
+  }
+
   let reason = null;
 
   if (!approve) {
     reason = prompt('Motivo de rechazo:') || '';
     if (!reason.trim()) return;
   } else {
-    if (!confirm('¿Seguro que quieres aprobar y aplicar esta permuta en Asistencia?')) return;
+    const tipo = s.swap_type === 'shift' ? 'horario' : 'descanso';
+    if (!confirm(`¿Seguro que quieres aprobar y aplicar esta permuta de ${tipo} en Asistencia?`)) return;
   }
 
-  const { error } = await _p_sb.rpc('review_day_off_swap', {
+  const rpcName = s.swap_type === 'shift'
+    ? 'review_shift_swap'
+    : 'review_day_off_swap';
+
+  const { error } = await _p_sb.rpc(rpcName, {
     p_swap_id: id,
     p_approve: approve,
     p_reason: reason
   });
 
   if (error) {
-    alert(error.message || 'No se pudo revisar la permuta.');
+    console.error('Error completo al revisar permuta:', error);
+
+    alert(
+      'No se pudo revisar la permuta:\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.hint ? '\n\nHint: ' + error.hint : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
+
     return;
   }
 
   _p_cargando = true;
   _p_render();
+
   await _p_cargarDatos();
 
   if (typeof _a_cargarDatos === 'function') {
-    try { await _a_cargarDatos(); } catch(e) { console.warn('No se pudo refrescar asistencia:', e); }
+    try {
+      await _a_cargarDatos();
+    } catch(e) {
+      console.warn('No se pudo refrescar asistencia:', e);
+    }
   }
 
   _p_cargando = false;
