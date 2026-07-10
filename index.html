@@ -8546,6 +8546,67 @@ function _p_group(lista, fn) {
   return Object.values(map).sort((a,b) => b.total - a.total);
 }
 
+function _p_reportTable(title, rows, label) {
+  return `
+    <div class="card">
+      <div class="card-title">${title}</div>
+
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:720px">
+            <thead>
+              <tr>
+                <th>${label}</th>
+                <th style="text-align:center">Total</th>
+                <th style="text-align:center">Pend. compañero</th>
+                <th style="text-align:center">Pend. aprobación</th>
+                <th style="text-align:center">Aprobadas</th>
+                <th style="text-align:center">Rechazadas</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${rows.length ? rows.map(r => `
+                <tr>
+                  <td>
+                    <div class="agent-row-name">${_p_esc(r.key)}</div>
+                  </td>
+
+                  <td style="text-align:center;font-family:'DM Mono',monospace">
+                    ${r.total || 0}
+                  </td>
+
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#D97706">
+                    ${r.pending || 0}
+                  </td>
+
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#1D4ED8">
+                    ${r.pending_approval || 0}
+                  </td>
+
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#16A34A">
+                    ${r.approved || 0}
+                  </td>
+
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626">
+                    ${r.rejected || 0}
+                  </td>
+                </tr>
+              `).join('') : `
+                <tr>
+                  <td colspan="6" style="text-align:center;color:#94A3B8;padding:20px">
+                    Sin información
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function _p_fmtDateTime(v) {
   if (!v) return '—';
 
