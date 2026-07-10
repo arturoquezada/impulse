@@ -2117,6 +2117,27 @@ const _a_punchState = {
 };
 function _a_getPunch(){ return _a_punchState[currentRole] || _a_punchState.agent; }
 
+function _a_fmtHoraCorta(h) {
+  if (!h) return '—';
+  return String(h).slice(0, 5);
+}
+
+function _a_horarioDiaTxt(d) {
+  if (!d) return '—';
+
+  if (d.esVacacion) return 'Vacaciones';
+
+  if (d.esDescanso && !d.horario_es_permuta) {
+    return 'Descanso';
+  }
+
+  if (d.horario_inicio && d.horario_fin) {
+    return `${_a_fmtHoraCorta(d.horario_inicio)}–${_a_fmtHoraCorta(d.horario_fin)}`;
+  }
+
+  return '—';
+}
+
 // ── HELPERS ASISTENCIA · DESCANSOS / VACACIONES ───────────────
 const _a_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 
@@ -2208,8 +2229,8 @@ let _a_PUNCHES_HOY  = [];  // ya no se usa (feed eliminado)
 async function _a_cargarQDAYS(empId, from, to) {
   const [empRes, summaryRes, notesRes, excepRes, vacRes] = await Promise.all([
     _a_sb
-      .from('employees')
-      .select('days_off')
+    .from('employees')
+    .select('days_off, shift_start, shift_end')
       .eq('id', empId)
       .maybeSingle(),
 
@@ -2265,7 +2286,9 @@ const ex = exListDia.find(x => !_a_esPermutaTrabajo(x.type) && !_a_esPermutaDesc
 
 const exPermutaTrabajo = exListDia.find(x => _a_esPermutaTrabajo(x.type));
 const exPermutaDescanso = exListDia.find(x => _a_esPermutaDescanso(x.type));
-const exPermutaHorario = exListDia.find(x => String(x.type || '').trim().toLowerCase() === 'permuta_horario');
+const exPermutaHorario = exListDia.find(x =>
+  String(x.type || '').trim().toLowerCase() === 'permuta_horario'
+);
 
 const vac = vacaciones.find(v =>
   v.start_date <= fecha && v.end_date >= fecha
@@ -2319,10 +2342,24 @@ const estatus = esVacacion
       : esDescanso
         ? 'Descanso'
         : s?.attendance_status || (s ? 'Normal' : 'Sin registro');
+        const horarioInicio = exPermutaHorario?.shift_start_override
+  || s?.shift_start
+  || empRes.data?.shift_start
+  || null;
+
+const horarioFin = exPermutaHorario?.shift_end_override
+  || s?.shift_end
+  || empRes.data?.shift_end
+  || null;
 
     dias.push({
       fecha,
+      horario_inicio: horarioInicio,
+horario_fin: horarioFin,
+horario_es_permuta: !!exPermutaHorario,
 
+shift_start_override: exPermutaHorario?.shift_start_override || null,
+shift_end_override: exPermutaHorario?.shift_end_override || null,
       // Ya no usamos sábado/domingo como descanso automático.
       // Se queda en false para no bloquear sábados/domingos trabajados.
       weekend: false,
@@ -3710,9 +3747,21 @@ function _a_quincenaTable(){
   todos.forEach((d)=>{
     const motivo = d.motivo_retardo || d.motivo_falta || '';
     const extraStr = d.tiempoExtraMin > 0 ? `+${d.tiempoExtraMin}m` : '—';
-    rows+=`<tr onclick="_a_openDayModal(${_a_QDAYS.filter(x=>!x.weekend).indexOf(d)})" style="cursor:pointer">
-      <td>${fmtDate(d.fecha)}</td>
-      <td style="font-family:'DM Mono',monospace">${_a_fmtTime(d.entrada_at)}</td>
+    const horarioTxt = _a_horarioDiaTxt(d);
+
+rows+=`<tr onclick="_a_openDayModal(${_a_QDAYS.filter(x=>!x.weekend).indexOf(d)})" style="cursor:pointer">
+  <td>${fmtDate(d.fecha)}</td>
+
+  <td style="font-family:'DM Mono',monospace;color:${d.horario_es_permuta ? '#0E7490' : '#334155'};font-weight:${d.horario_es_permuta ? '800' : '600'}">
+    ${horarioTxt}
+    ${d.horario_es_permuta ? `
+      <div style="font-family:var(--f);font-size:10px;color:#0E7490;font-weight:800;margin-top:2px">
+        Permuta
+      </div>
+    ` : ''}
+  </td>
+
+  <td style="font-family:'DM Mono',monospace">${_a_fmtTime(d.entrada_at)}</td>
       <td style="font-family:'DM Mono',monospace">${_a_fmtTime(d.salida_at)}</td>
       <td style="font-family:'DM Mono',monospace">${_a_secsHHMM(d.segundos_trabajados)}</td>
       <td style="font-family:'DM Mono',monospace;color:${d.segundos_tarde>0?'#B45309':'#94A3B8'}">${_a_secsMin(d.segundos_tarde)}</td>
@@ -3774,8 +3823,8 @@ function _a_renderAgent(){
     </div>
     <div class="tbl-wrap">
       <div class="tbl-head-dark">Detalle por día — click para ver más</div>
-      <div style="overflow-x:auto"><table style="min-width:560px">
-        <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>T. extra</th><th>Status</th><th>Motivo</th></tr></thead>
+      <div style="overflow-x:auto"><table style="min-width:720px">
+        <thead><tr><th>Fecha</th><th>Horario</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>T. extra</th><th>Status</th><th>Motivo</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>
@@ -4395,8 +4444,8 @@ function _a_renderCEO(){
         <div class="qs-box puntual"><div class="qs-label">Puntualidad</div><div class="qs-val">${pct}%</div></div>
       </div>
       <div class="tbl-wrap"><div class="tbl-head-dark">Detalle por día</div>
-      <div style="overflow-x:auto"><table style="min-width:560px">
-        <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>T. extra</th><th>Status</th><th>Motivo</th></tr></thead>
+      <div style="overflow-x:auto"><table style="min-width:720px">
+        <thead><tr><th>Fecha</th><th>Horario</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>T. extra</th><th>Status</th><th>Motivo</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div></div>
     </div>`;
@@ -5194,8 +5243,8 @@ function _a_renderAgentDetail(agentId){
     </div>
     <div class="tbl-wrap">
       <div class="tbl-head-dark">Detalle por día</div>
-      <div style="overflow-x:auto"><table style="min-width:560px">
-        <thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>T. extra</th><th>Status</th><th>Motivo</th></tr></thead>
+      <div style="overflow-x:auto"><table style="min-width:720px">
+        <thead><tr><th>Fecha</th><th>Horario</th><th>Entrada</th><th>Salida</th><th>Trabajado</th><th>Tarde</th><th>T. extra</th><th>Status</th><th>Motivo</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>
@@ -5366,7 +5415,7 @@ function _a_renderMgrDetail(mgrId) {
   </div>
   <div class="card">
     <div class="card-title">Equipo directo de ${mgr.name} · ${mgr.directos} personas</div>
-    <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:560px">
+    <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:720px">
       <thead><tr><th>Supervisor</th><th>Entrada</th><th>Salida</th><th>Status</th><th>Campaña</th><th>Agentes</th><th>A tiempo</th><th>Retardos</th><th>Faltas</th><th>Puntualidad</th></tr></thead>
       <tbody>${rows||'<tr><td colspan="10" style="text-align:center;color:#94A3B8;padding:20px">Sin reportes directos registrados</td></tr>'}</tbody>
     </table></div></div>
@@ -7813,18 +7862,35 @@ function _p_swapsParaMi() {
   return _p_SWAPS.filter(s => s.swap_with_id === ro.id && s.status === 'pending');
 }
 
-function _p_swapsPendientesAprobacion() {
+function _p_esSupervisorDePermuta(s) {
   const ro = ROLES[currentRole];
 
+  const requester = _p_emp(s.requester_id);
+  const peer = _p_emp(s.swap_with_id);
+
+  return requester?.supervisor_id === ro.id || peer?.supervisor_id === ro.id;
+}
+
+function _p_puedeAprobarPermuta(s) {
+  if (!_p_roleCanApprove()) return false;
+  if (s.status !== 'pending_approval') return false;
+
+  // Managers, People, Head People y CEO ven todo.
+  if (currentRole !== 'supervisor') return true;
+
+  // Supervisor ve si cualquiera de los dos agentes pertenece a su equipo.
+  return _p_esSupervisorDePermuta(s);
+}
+
+function _p_swapsPendientesAprobacion() {
   let lista = _p_SWAPS.filter(s => s.status === 'pending_approval');
 
   if (currentRole === 'supervisor') {
-    lista = lista.filter(s => _p_emp(s.requester_id)?.supervisor_id === ro.id);
+    lista = lista.filter(s => _p_esSupervisorDePermuta(s));
   }
 
   return lista;
 }
-
 function _p_renderTabs() {
   const paraMi = _p_swapsParaMi().length;
   const pendientes = _p_swapsPendientesAprobacion().length;
@@ -7934,7 +8000,7 @@ function _p_card(s) {
 
   const puedeResponder = s.swap_with_id === ROLES[currentRole].id && s.status === 'pending';
   const puedeCancelar = s.requester_id === ROLES[currentRole].id && ['pending','pending_approval'].includes(s.status);
-  const puedeAprobar = _p_roleCanApprove() && s.status === 'pending_approval';
+  const puedeAprobar = _p_puedeAprobarPermuta(s);
 
   return `
     <div class="card" style="margin-bottom:12px">
@@ -9393,7 +9459,7 @@ function _v_renderAgent() {
         <div class="card-title">Mis solicitudes</div>
         ${bal.available > 0 ? `<button onclick="_v_abrirSolicitud()" style="padding:8px 16px;background:#0F172A;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">+ Solicitar vacaciones</button>` : '<span style="font-size:12px;color:#94A3B8">Sin días disponibles</span>'}
       </div>
-      ${misSols.length ? `<div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:560px">
+      ${misSols.length ? `<div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:720px">
         <thead><tr><th>Inicio</th><th>Fin</th><th>Días</th><th>Status</th><th>Nota</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div></div>` : '<div style="text-align:center;padding:30px;color:#94A3B8">Sin solicitudes registradas — usa el botón para pedir tus vacaciones</div>'}
