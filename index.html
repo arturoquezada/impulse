@@ -1954,7 +1954,42 @@ function roleSwitcher(){
   return "<div class=\"rs-wrap\"><div class=\"rs-label\">Vista de prueba · cambiar rol</div><div class=\"rs-btns\">"+btns+"</div></div>";
 }
 
-// ══ ASISTENCIA ══
+// ══ HELPERS ══
+
+function _a_parseLocalDate(fecha) {
+  return new Date(fecha + 'T12:00:00');
+}
+
+function _a_todayYMD() {
+  return ymd(new Date());
+}
+
+function _a_esFechaPasada(fecha) {
+  if (!fecha) return false;
+  return fecha < _a_todayYMD();
+}
+
+function _a_inicioSemanaLunes(fecha) {
+  const d = _a_parseLocalDate(fecha);
+  const day = d.getDay(); // domingo 0, lunes 1...
+  const diff = day === 0 ? -6 : 1 - day;
+
+  d.setDate(d.getDate() + diff);
+
+  return ymd(d);
+}
+
+function _a_finSemanaDomingo(fecha) {
+  const d = _a_parseLocalDate(_a_inicioSemanaLunes(fecha));
+  d.setDate(d.getDate() + 6);
+  return ymd(d);
+}
+
+function _a_mismaSemanaLunesDomingo(fechaA, fechaB) {
+  if (!fechaA || !fechaB) return false;
+  return _a_inicioSemanaLunes(fechaA) === _a_inicioSemanaLunes(fechaB);
+}
+
 // ── DATE ──
 
 function _a_fmtTime(iso){if(!iso)return'—';return new Date(iso).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'America/Mexico_City'})}
@@ -2328,7 +2363,7 @@ function _a_abrirCambioDescanso(empId) {
 
       <div class="form-row">
         <label>Descanso original que trabajará</label>
-        <input type="date" id="a-original-rest-date" onchange="_a_actualizarResumenCambioDescanso()">
+        <input type="date" id="a-original-rest-date" min="${ymd(new Date())}"onchange="_a_actualizarResumenCambioDescanso()">
         <div style="font-size:11px;color:#64748B;margin-top:4px">
           Ej. martes. Ese día el colaborador trabajará.
         </div>
@@ -2336,8 +2371,8 @@ function _a_abrirCambioDescanso(empId) {
 
       <div class="form-row">
         <label>Nuevo día de descanso</label>
-        <input type="date" id="a-new-rest-date" onchange="_a_actualizarResumenCambioDescanso()">
-        <div style="font-size:11px;color:#64748B;margin-top:4px">
+        <input type="date" id="a-new-rest-date" min="${ymd(new Date())}"onchange="_a_actualizarResumenCambioDescanso()">
+       <div style="font-size:11px;color:#64748B;margin-top:4px">
           Ej. jueves. Ese día el colaborador descansará.
         </div>
       </div>
@@ -2375,6 +2410,28 @@ function _a_actualizarResumenCambioDescanso() {
   }
 
   box.style.display = 'block';
+
+  if (_a_esFechaPasada(originalDate) || _a_esFechaPasada(newDate)) {
+    box.innerHTML = `
+      <div class="alert alert-red" style="margin:0">
+        No puedes solicitar cambios con fechas pasadas. Solo se permite de hoy en adelante.
+      </div>
+    `;
+    return;
+  }
+
+  if (!_a_mismaSemanaLunesDomingo(originalDate, newDate)) {
+    box.innerHTML = `
+      <div class="alert alert-red" style="margin:0">
+        El descanso original y el nuevo descanso deben estar dentro de la misma semana, de lunes a domingo.
+      </div>
+    `;
+    return;
+  }
+
+  const inicioSemana = _a_inicioSemanaLunes(originalDate);
+  const finSemana = _a_finSemanaDomingo(originalDate);
+
   box.innerHTML = `
     <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:13px">
       <div style="font-size:12px;font-weight:800;color:#166534;margin-bottom:8px">
@@ -2382,6 +2439,7 @@ function _a_actualizarResumenCambioDescanso() {
       </div>
 
       <div style="font-size:12px;color:#334155;line-height:1.7">
+        <div>✅ Semana aplicable: <b>${_a_fechaLabel(inicioSemana)} al ${_a_fechaLabel(finSemana)}</b></div>
         <div>✅ Trabajará su descanso original: <b>${_a_fechaLabel(originalDate)}</b></div>
         <div>✅ Descansará temporalmente: <b>${_a_fechaLabel(newDate)}</b></div>
         <div>⏳ Quedará pendiente de aprobación de Manager o People.</div>
@@ -2396,14 +2454,24 @@ async function _a_solicitarCambioDescanso(empId) {
   const notes = document.getElementById('a-dayoff-notes')?.value?.trim() || null;
 
   if (!originalDate) {
-    alert('Selecciona el descanso original que trabajará.');
-    return;
-  }
+  alert('Selecciona el descanso original que trabajará.');
+  return;
+}
 
-  if (!newDate) {
-    alert('Selecciona el nuevo día de descanso.');
-    return;
-  }
+if (!newDate) {
+  alert('Selecciona el nuevo día de descanso.');
+  return;
+}
+
+if (_a_esFechaPasada(originalDate) || _a_esFechaPasada(newDate)) {
+  alert('Solo puedes solicitar cambios de descanso de hoy en adelante.');
+  return;
+}
+
+if (!_a_mismaSemanaLunesDomingo(originalDate, newDate)) {
+  alert('El descanso original y el nuevo descanso deben estar en la misma semana, de lunes a domingo.');
+  return;
+}
 
   const { error } = await _a_sb.rpc('request_day_off_override', {
     p_employee_id: empId,
