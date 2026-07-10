@@ -2142,7 +2142,7 @@ const _a_sb = supabase.createClient(_a_SB_URL, _a_SB_KEY);
 
 // ── STATE ────────────────────────────────────────────────────
 let _a_TEAM    = [];  // equipo del supervisor (hoy)
-let _a_TEAM_ALL = []; // todos los empleados disponibles para búsquedas/detalle
+let _a_TEAM_ALL = []; // empleados cargados para búsquedas/detalle
 let _a_DAYOFF_REQS = []; // solicitudes de cambio temporal de descanso
 let _a_QDAYS   = [];  // quincena del agente actual
 let _a_cargando = false;
@@ -2276,6 +2276,7 @@ function _a_empActualDetalle() {
     days_off: []
   };
 }
+
 function _a_fechaLabel(fecha) {
   if (!fecha) return '—';
   return new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', {
@@ -2341,10 +2342,14 @@ function _a_renderCambioDescansoBox() {
 }
 
 function _a_abrirCambioDescanso(empId) {
-  const emp = (Array.isArray(_a_TEAM) ? _a_TEAM : []).find(e => e.id === empId)
-  || (Array.isArray(_a_TEAM_ALL) ? _a_TEAM_ALL : []).find(e => e.id === empId)
-  || (Array.isArray(_a_SUPS_REAL) ? _a_SUPS_REAL : []).find(e => e.id === empId)
-  || _a_empActualDetalle();
+  const team = Array.isArray(_a_TEAM) ? _a_TEAM : [];
+  const all = Array.isArray(_a_TEAM_ALL) ? _a_TEAM_ALL : [];
+  const sups = Array.isArray(_a_SUPS_REAL) ? _a_SUPS_REAL : [];
+
+  const emp = team.find(e => e.id === empId)
+    || all.find(e => e.id === empId)
+    || sups.find(e => e.id === empId)
+    || _a_empActualDetalle();
 
   const nombre = emp?.name || emp?.full_name || 'Colaborador';
   const descansos = emp?.daysOff || emp?.days_off || [];
@@ -2521,8 +2526,11 @@ function _a_renderCambiosDescansoPendientes() {
   if (!pendientes.length) return '';
 
   const rows = pendientes.map(r => {
-    const emp = (_a_TEAM_ALL || []).find(e => e.id === r.employee_id)
-      || (_a_TEAM || []).find(e => e.id === r.employee_id);
+    const all = Array.isArray(_a_TEAM_ALL) ? _a_TEAM_ALL : [];
+const team = Array.isArray(_a_TEAM) ? _a_TEAM : [];
+
+const emp = all.find(e => e.id === r.employee_id)
+  || team.find(e => e.id === r.employee_id);
 
     const nombre = emp?.full_name || emp?.name || r.employee_id;
 
