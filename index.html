@@ -2109,6 +2109,7 @@ const _a_sb = supabase.createClient(_a_SB_URL, _a_SB_KEY);
 let _a_TEAM    = [];  // equipo del supervisor (hoy)
 let _a_QDAYS   = [];  // quincena del agente actual
 let _a_cargando = false;
+let _a_DAYOFF_REQS = [];
 
 // punchState — se carga de Supabase al iniciar
 const _a_punchState = {
@@ -2211,7 +2212,340 @@ function _a_esPermutaTrabajo(type) {
   return String(type || '').trim().toLowerCase() === 'permuta_trabajo';
 }
 
-// ── CARGAR DATOS ─────────────────────────────────────────────
+
+function _a_puedeSolicitarCambioDescanso() {
+  return ['supervisor','manager','people','head_people','ceo'].includes(currentRole);
+}
+
+function _a_puedeAprobarCambioDescanso() {
+  return ['manager','people','head_people','ceo'].includes(currentRole);
+}
+
+function _a_empActualDetalle() {
+  const empId = _a_QDAYS_EMPLEADO_ID || _a_drillAgent?.id || ROLES[currentRole].id;
+
+  const enTeam = (_a_TEAM || []).find(e => e.id === empId);
+  const enAll = (_a_TEAM_ALL || []).find(e => e.id === empId);
+
+  return enTeam || enAll || {
+    id: empId,
+    name: ROLES[currentRole].name,
+    full_name: ROLES[currentRole].name,
+    daysOff: [],
+    days_off: []
+  };
+}
+
+function _a_fechaLabel(fecha) {
+  if (!fecha) return '—';
+  return new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short'
+  });
+}
+
+async function _a_cargarCambiosDescanso() {
+  try {
+    const { data, error } = await _a_sb
+      .from('day_off_override_requests')
+      .select(`
+        id,
+        employee_id,
+        original_rest_date,
+        new_rest_date,
+        status,
+        notes,
+        requested_by,
+        requested_at,
+        reviewed_by,
+        reviewed_at,
+        rejection_reason
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    _a_DAYOFF_REQS = data || [];
+  } catch (e) {
+    console.warn('No se pudieron cargar cambios temporales de descanso:', e);
+    _a_DAYOFF_REQS = [];
+  }
+}
+
+function _a_renderCambioDescansoBox() {
+  if (!_a_puedeSolicitarCambioDescanso()) return '';
+
+  const emp = _a_empActualDetalle();
+  const empId = emp.id;
+
+  if (!empId) return '';
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">Cambio temporal de descanso</div>
+          <div style="font-size:12px;color:#64748B">
+            Cambia el descanso de una semana sin modificar el descanso fijo del colaborador.
+            Requiere aprobación de Manager o People.
+          </div>
+        </div>
+
+        <button class="btn-cyan" onclick="_a_abrirCambioDescanso('${empId}')">
+          Cambiar descanso temporal
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function _a_abrirCambioDescanso(empId) {
+  const emp = (_a_TEAM || []).find(e => e.id === empId)
+    || (_a_TEAM_ALL || []).find(e => e.id === empId)
+    || _a_empActualDetalle();
+
+  const nombre = emp?.name || emp?.full_name || 'Colaborador';
+  const descansos = emp?.daysOff || emp?.days_off || [];
+
+  document.getElementById('modalTitle').textContent = '🔄 Cambio temporal de descanso';
+  document.getElementById('modalSub').textContent = 'Requiere aprobación de Manager o People';
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="alert alert-blue">
+      Este cambio solo aplica para una semana. No modifica el descanso fijo del colaborador.
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">Colaborador</div>
+      <div class="kv"><span class="k">Nombre</span><span class="v">${nombre}</span></div>
+      <div class="kv"><span class="k">ID</span><span class="v">${empId}</span></div>
+      <div class="kv"><span class="k">Descansos fijos</span><span class="v">${descansos.join(', ') || '—'}</span></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">Cambio solicitado</div>
+
+      <div class="form-row">
+        <label>Descanso original que trabajará</label>
+        <input type="date" id="a-original-rest-date" onchange="_a_actualizarResumenCambioDescanso()">
+        <div style="font-size:11px;color:#64748B;margin-top:4px">
+          Ej. martes. Ese día el colaborador trabajará.
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Nuevo día de descanso</label>
+        <input type="date" id="a-new-rest-date" onchange="_a_actualizarResumenCambioDescanso()">
+        <div style="font-size:11px;color:#64748B;margin-top:4px">
+          Ej. jueves. Ese día el colaborador descansará.
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Motivo / comentario</label>
+        <textarea id="a-dayoff-notes" placeholder="Ej. Cobertura operativa de la semana..."></textarea>
+      </div>
+    </div>
+
+    <div id="a-dayoff-summary" style="display:none"></div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn-primary" onclick="_a_solicitarCambioDescanso('${empId}')">
+      Enviar a aprobación
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+function _a_actualizarResumenCambioDescanso() {
+  const originalDate = document.getElementById('a-original-rest-date')?.value;
+  const newDate = document.getElementById('a-new-rest-date')?.value;
+  const box = document.getElementById('a-dayoff-summary');
+
+  if (!box) return;
+
+  if (!originalDate || !newDate) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:13px">
+      <div style="font-size:12px;font-weight:800;color:#166534;margin-bottom:8px">
+        Resumen
+      </div>
+
+      <div style="font-size:12px;color:#334155;line-height:1.7">
+        <div>✅ Trabajará su descanso original: <b>${_a_fechaLabel(originalDate)}</b></div>
+        <div>✅ Descansará temporalmente: <b>${_a_fechaLabel(newDate)}</b></div>
+        <div>⏳ Quedará pendiente de aprobación de Manager o People.</div>
+      </div>
+    </div>
+  `;
+}
+
+async function _a_solicitarCambioDescanso(empId) {
+  const originalDate = document.getElementById('a-original-rest-date')?.value;
+  const newDate = document.getElementById('a-new-rest-date')?.value;
+  const notes = document.getElementById('a-dayoff-notes')?.value?.trim() || null;
+
+  if (!originalDate) {
+    alert('Selecciona el descanso original que trabajará.');
+    return;
+  }
+
+  if (!newDate) {
+    alert('Selecciona el nuevo día de descanso.');
+    return;
+  }
+
+  const { error } = await _a_sb.rpc('request_day_off_override', {
+    p_employee_id: empId,
+    p_original_rest_date: originalDate,
+    p_new_rest_date: newDate,
+    p_notes: notes
+  });
+
+  if (error) {
+    console.error('Error completo al solicitar cambio de descanso:', error);
+
+    alert(
+      'No se pudo solicitar el cambio:\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.hint ? '\n\nHint: ' + error.hint : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
+
+    return;
+  }
+
+  closeModal();
+
+  _a_cargando = true;
+  _a_render();
+
+  await _a_cargarDatos();
+
+  _a_cargando = false;
+  _a_render();
+
+  alert('Solicitud enviada a aprobación de Manager/People.');
+}
+
+function _a_renderCambiosDescansoPendientes() {
+  if (!_a_puedeAprobarCambioDescanso()) return '';
+
+  const pendientes = (_a_DAYOFF_REQS || []).filter(r => r.status === 'pending');
+
+  if (!pendientes.length) return '';
+
+  const rows = pendientes.map(r => {
+    const emp = (_a_TEAM_ALL || []).find(e => e.id === r.employee_id)
+      || (_a_TEAM || []).find(e => e.id === r.employee_id);
+
+    const nombre = emp?.full_name || emp?.name || r.employee_id;
+
+    return `
+      <tr>
+        <td>
+          <div class="agent-row-name">${nombre}</div>
+          <div class="agent-row-id">${r.employee_id}</div>
+        </td>
+        <td>${_a_fechaLabel(r.original_rest_date)}</td>
+        <td>${_a_fechaLabel(r.new_rest_date)}</td>
+        <td>${r.notes || '—'}</td>
+        <td>${r.requested_at ? new Date(r.requested_at).toLocaleString('es-MX') : '—'}</td>
+        <td>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn-green" onclick="_a_revisarCambioDescanso('${r.id}', true)">Aprobar</button>
+            <button class="btn-red" onclick="_a_revisarCambioDescanso('${r.id}', false)">Rechazar</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="card">
+      <div class="card-title">Cambios temporales de descanso pendientes</div>
+
+      <div class="alert alert-amber">
+        Estas solicitudes requieren aprobación de Manager o People antes de reflejarse en asistencia.
+      </div>
+
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:850px">
+            <thead>
+              <tr>
+                <th>Colaborador</th>
+                <th>Trabajará descanso original</th>
+                <th>Nuevo descanso</th>
+                <th>Motivo</th>
+                <th>Solicitado</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function _a_revisarCambioDescanso(id, approve) {
+  let reason = null;
+
+  if (!approve) {
+    reason = prompt('Motivo de rechazo:') || '';
+    if (!reason.trim()) return;
+  } else {
+    if (!confirm('¿Seguro que quieres aprobar y aplicar este cambio de descanso en Asistencia?')) return;
+  }
+
+  const { error } = await _a_sb.rpc('review_day_off_override', {
+    p_request_id: id,
+    p_approve: approve,
+    p_reason: reason
+  });
+
+  if (error) {
+    console.error('Error completo al revisar cambio de descanso:', error);
+
+    alert(
+      'No se pudo revisar el cambio:\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.hint ? '\n\nHint: ' + error.hint : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
+
+    return;
+  }
+
+  _a_cargando = true;
+  _a_render();
+
+  await _a_cargarDatos();
+
+  const empId = _a_QDAYS_EMPLEADO_ID || _a_drillAgent?.id || ROLES[currentRole].id;
+  if (empId) {
+    await _a_cargarQDAYS(empId, _a_dateFilter.from, _a_dateFilter.to);
+  }
+
+  _a_cargando = false;
+  _a_render();
+}
+
+
 
 // ── STATE HEAD/PEOPLE — datos reales Supabase ─────────────────
 let _a_CAMPS_REAL = [];
@@ -3808,6 +4142,7 @@ function _a_renderAgent(){
     </div>
   </div>
   ${_a_dateFilterHTML()}
+  ${_a_renderCambiosDescansoPendientes()}
   <div class="card">
     <div class="q-nav">
       <button class="q-nav-btn" onclick="_a_navDate(-1)">← Anterior</button>
@@ -3918,6 +4253,7 @@ function _a_renderSupervisor(){
 
   <div class="readonly-notice">👁️ <span>Las siguientes secciones son de tu equipo — <strong>solo lectura.</strong> No puedes marcar entrada/salida por un agente.</span></div>
   ${_a_dateFilterHTML()}
+  ${_a_renderCambiosDescansoPendientes()}
   <!-- KPIs Hoy -->
   <div class="kpi4">
     <div class="kpi-box"><div class="kpi-icon" style="background:#DCFCE7">✅</div><div class="kpi-val" style="color:#16A34A">${onTime}</div><div class="kpi-lbl">A tiempo · ${_a_dateFilter.label}</div>
@@ -4059,6 +4395,7 @@ function _a_renderManager(){
 
   return`${_a_roleSwitcherHTML()}
   ${_a_dateFilterHTML()}
+  ${_a_renderCambiosDescansoPendientes()}
   ${_a_KPI_GLOBAL.total>0?_a_filterBarHTML():''}
   <!-- KPIs hoy -->
   <div class="kpi4">
@@ -4252,7 +4589,7 @@ function _a_renderPeople(supsOverride) {
 
   return`${_a_roleSwitcherHTML()}
   ${_a_dateFilterHTML()}
-
+${_a_renderCambiosDescansoPendientes()}
   <!-- KPIs operación -->
   <div class="kpi4">
     <div class="kpi-box"><div class="kpi-icon" style="background:#DBEAFE">👥</div><div class="kpi-val">${totAgents}</div><div class="kpi-lbl">Agentes activos</div></div>
@@ -4589,7 +4926,7 @@ const totAbsent = _a_KPI_GLOBAL.absent || 0;
 
   return`${_a_roleSwitcherHTML()}
   ${_a_dateFilterHTML()}
-
+${_a_renderCambiosDescansoPendientes()}
   <!-- KPIs ejecutivos -->
   <div class="kpi4">
     <div class="kpi-box" style="border-color:#BFDBFE">
@@ -4942,6 +5279,7 @@ function _a_renderHeadPeople(){
 
   return`${_a_roleSwitcherHTML()}
   ${_a_dateFilterHTML()}
+  ${_a_renderCambiosDescansoPendientes()}
   ${_a_KPI_GLOBAL.total>0?_a_filterBarHTML():''}
   <!-- Validación incapacidades pendientes (solo People / Head) -->
   ${_a_FALTAS_LOG.filter(f=>f.estado==='pendiente_comprobante').length>0?`
