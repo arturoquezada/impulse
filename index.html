@@ -3108,6 +3108,7 @@ _a_TEAM_ALL = allEmps || [];
       });
     }
 
+    await _a_cargarCambiosDescanso();
     return true;
   } catch(err) {
     console.error('Error cargando asistencia:', err);
@@ -5623,8 +5624,11 @@ function _a_renderAgentDetail(agentId){
     ${_a_agentBadge(a.status)}
   </div>
   <div class="readonly-notice">👁️ <strong>Vista supervisor · Solo lectura.</strong> No puedes marcar entrada/salida.</div>
-  <div class="card">
-    <div class="card-title">Hoy</div>
+
+${_a_renderCambioDescansoBox()}
+
+<div class="card">
+  <div class="card-title">Hoy</div>
     <div class="hoy-grid">
       <div class="hoy-box"><div class="hoy-box-label">🟢 Entrada</div>
         <div class="hoy-box-val ${a.entrada?'':'empty'}">${a.entrada||'——:——'}</div>
