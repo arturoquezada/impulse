@@ -2142,9 +2142,10 @@ const _a_sb = supabase.createClient(_a_SB_URL, _a_SB_KEY);
 
 // ── STATE ────────────────────────────────────────────────────
 let _a_TEAM    = [];  // equipo del supervisor (hoy)
+let _a_TEAM_ALL = []; // todos los empleados disponibles para búsquedas/detalle
+let _a_DAYOFF_REQS = []; // solicitudes de cambio temporal de descanso
 let _a_QDAYS   = [];  // quincena del agente actual
 let _a_cargando = false;
-let _a_DAYOFF_REQS = [];
 
 // punchState — se carga de Supabase al iniciar
 const _a_punchState = {
@@ -2259,10 +2260,15 @@ function _a_puedeAprobarCambioDescanso() {
 function _a_empActualDetalle() {
   const empId = _a_QDAYS_EMPLEADO_ID || _a_drillAgent?.id || ROLES[currentRole].id;
 
-  const enTeam = (_a_TEAM || []).find(e => e.id === empId);
-  const enAll = (_a_TEAM_ALL || []).find(e => e.id === empId);
+  const team = Array.isArray(_a_TEAM) ? _a_TEAM : [];
+  const all = Array.isArray(_a_TEAM_ALL) ? _a_TEAM_ALL : [];
+  const sups = Array.isArray(_a_SUPS_REAL) ? _a_SUPS_REAL : [];
 
-  return enTeam || enAll || {
+  const enTeam = team.find(e => e.id === empId);
+  const enAll = all.find(e => e.id === empId);
+  const enSup = sups.find(e => e.id === empId);
+
+  return enTeam || enAll || enSup || {
     id: empId,
     name: ROLES[currentRole].name,
     full_name: ROLES[currentRole].name,
@@ -2270,7 +2276,6 @@ function _a_empActualDetalle() {
     days_off: []
   };
 }
-
 function _a_fechaLabel(fecha) {
   if (!fecha) return '—';
   return new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', {
@@ -2336,9 +2341,10 @@ function _a_renderCambioDescansoBox() {
 }
 
 function _a_abrirCambioDescanso(empId) {
-  const emp = (_a_TEAM || []).find(e => e.id === empId)
-    || (_a_TEAM_ALL || []).find(e => e.id === empId)
-    || _a_empActualDetalle();
+  const emp = (Array.isArray(_a_TEAM) ? _a_TEAM : []).find(e => e.id === empId)
+  || (Array.isArray(_a_TEAM_ALL) ? _a_TEAM_ALL : []).find(e => e.id === empId)
+  || (Array.isArray(_a_SUPS_REAL) ? _a_SUPS_REAL : []).find(e => e.id === empId)
+  || _a_empActualDetalle();
 
   const nombre = emp?.name || emp?.full_name || 'Colaborador';
   const descansos = emp?.daysOff || emp?.days_off || [];
