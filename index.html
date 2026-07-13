@@ -11425,13 +11425,43 @@ function _d_empleadosSolicitables() {
   return [];
 }
 
-function _d_tabs() {
+function _d_tabsDisponibles() {
   const tabs = [];
-  if (_d_puedeSolicitar()) tabs.push(['nuevo', 'Nuevo caso']);
-  tabs.push(['pendientes', 'Pendientes']);
-  tabs.push(['historial', 'Historial']);
-  tabs.push(['matriz', 'Matriz']);
-  if (['manager','people','head_people','ceo'].includes(currentRole)) tabs.push(['reportes', 'Reportes']);
+
+  if (_d_canCreateCase()) {
+    tabs.push(['nuevo', 'Nuevo caso']);
+  }
+
+  if (_d_canReviewCases()) {
+    tabs.push(['pendientes', 'Pendientes']);
+  }
+
+  tabs.push(['historial', currentRole === 'agent' ? 'Mis acciones' : 'Historial']);
+
+  if (_d_canViewMatrix()) {
+    tabs.push(['matriz', 'Matriz']);
+  }
+
+  if (_d_canViewReports()) {
+    tabs.push(['reportes', 'Reportes']);
+  }
+
+  return tabs;
+}
+
+function _d_asegurarVistaPermitida() {
+  const tabs = _d_tabsDisponibles();
+  const ids = tabs.map(t => t[0]);
+
+  if (!ids.includes(_d_vista)) {
+    _d_vista = ids[0] || 'historial';
+  }
+}
+
+function _d_tabs() {
+  _d_asegurarVistaPermitida();
+
+  const tabs = _d_tabsDisponibles();
 
   return `
     <div class="tabs">
@@ -11445,6 +11475,7 @@ function _d_tabs() {
 function _d_setVista(v) {
   _d_vista = v;
   _d_detalleId = null;
+  _d_asegurarVistaPermitida();
   _d_render();
 }
 
@@ -11544,28 +11575,32 @@ function _d_actualizarResumenNuevo() {
   }
 
   let reviewText = 'Emisión automática';
-const nivelBase = m.default_level;
+  const nivelBase = m.default_level;
 
-if (
-  m.is_grave ||
-  nivelBase === 'last_warning' ||
-  nivelBase === 'termination' ||
-  currentRole === 'manager' ||
-  currentRole === 'people' ||
-  currentRole === 'head_people' ||
-  (emp && emp.system_role !== 'agent')
-) {
-  reviewText = 'Revisión People';
-}
+  if (
+    m.is_grave ||
+    m.requires_people_review ||
+    nivelBase === 'last_warning' ||
+    nivelBase === 'termination' ||
+    currentRole === 'manager' ||
+    currentRole === 'people' ||
+    currentRole === 'head_people' ||
+    (emp && emp.system_role !== 'agent')
+  ) {
+    reviewText = 'Revisión People';
+  }
+
+  const durationText = m.sanction_duration_text || (m.sanction_duration_days ? `${m.sanction_duration_days} días` : 'Sin vigencia');
+  const requiresAck = m.requires_employee_ack !== false;
 
   box.innerHTML = `
     <div class="card" style="background:#F8FAFC;margin-top:8px">
       <div class="card-title" style="margin-bottom:8px">Resumen de matriz</div>
-      <div class="kv"><span class="k">Criterio</span><span class="v">${_d_esc(m.infraction_type)}</span></div>
+      <div class="kv"><span class="k">Criterio</span><span class="v">${_d_esc(m.rule_title || m.infraction_type)}</span></div>
       <div class="kv"><span class="k">Nivel base</span><span class="v">${_d_levelBadge(m.default_level)}</span></div>
-      <div class="kv"><span class="k">Duración</span><span class="v">${_d_esc(m.duration_text || 'Sin vigencia')}</span></div>
+      <div class="kv"><span class="k">Duración</span><span class="v">${_d_esc(durationText)}</span></div>
       <div class="kv"><span class="k">Revisión</span><span class="v">${reviewText}</span></div>
-      <div class="kv"><span class="k">Firma</span><span class="v">${m.requires_ack ? 'Sí requiere acuse' : 'No requiere'}</span></div>
+      <div class="kv"><span class="k">Firma</span><span class="v">${requiresAck ? 'Sí requiere acuse' : 'No requiere'}</span></div>
       ${m.is_grave ? `<div class="alert alert-red" style="margin-top:10px;margin-bottom:0">Falta grave · se manda directo a People.</div>` : ''}
       ${_d_resumenIncidenciaAsistenciaHTML()}
       ${m.behavior_examples ? `<div style="font-size:12px;color:#64748B;margin-top:10px;line-height:1.5"><b>Ejemplos:</b><br>${_d_esc(m.behavior_examples).replace(/\n/g, '<br>')}</div>` : ''}
@@ -11573,6 +11608,7 @@ if (
     </div>
   `;
 }
+
 
 async function _d_solicitarCaso() {
   const empId = document.getElementById('d-case-employee')?.value;
@@ -11634,8 +11670,26 @@ if (creado?.status === 'approved' && creado?.auto_issued) {
 }
 }
 
+function _d_casesVisiblesPorRol(base) {
+  const ro = ROLES[currentRole] || {};
+  const lista = [...(base || [])];
+
+  if (currentRole === 'agent') {
+    return lista.filter(c => c.employee_id === ro.id);
+  }
+
+  if (currentRole === 'supervisor') {
+    return lista.filter(c => {
+      const emp = _d_emp(c.employee_id);
+      return emp?.supervisor_id === ro.id || c.requested_by === ro.id;
+    });
+  }
+
+  return lista;
+}
+
 function _d_casesFiltrados(base) {
-  let lista = [...(base || [])];
+  let lista = _d_casesVisiblesPorRol(base);
   const txt = (_d_filtroTexto || '').toLowerCase().trim();
 
   if (_d_filtroStatus !== 'all') {
@@ -11649,6 +11703,7 @@ function _d_casesFiltrados(base) {
       return [
         c.employee_id,
         emp?.full_name,
+        m?.rule_title,
         m?.infraction_type,
         c.facts,
         c.recommended_level,
@@ -11659,6 +11714,7 @@ function _d_casesFiltrados(base) {
 
   return lista;
 }
+
 
 function _d_filtrosHTML() {
   return `
@@ -11748,7 +11804,11 @@ function _d_caseRows(lista, opts = {}) {
 }
 
 function _d_renderPendientes() {
-  const pendientes = _d_CASES.filter(c => c.status === 'pending_review');
+  if (!_d_canReviewCases()) {
+    return `<div class="card"><div class="alert alert-amber">No tienes permisos para revisar casos pendientes.</div></div>`;
+  }
+
+  const pendientes = _d_CASES.filter(c => c.status === 'pending_review' && _d_puedeRevisarCaso(c));
   const lista = _d_casesFiltrados(pendientes);
 
   return `
@@ -11763,19 +11823,44 @@ function _d_renderPendientes() {
   `;
 }
 
+
 function _d_renderHistorial() {
   const lista = _d_casesFiltrados(_d_CASES);
   return `
     <div class="card">
-      <div class="card-title">Historial de Acciones People</div>
-      ${_d_filtrosHTML()}
+      <div class="card-title">${currentRole === 'agent' ? 'Mis Acciones People' : 'Historial de Acciones People'}</div>
+      ${currentRole === 'agent'
+        ? `<div class="alert alert-blue">Aquí puedes revisar tus acciones y dar acuse cuando aplique.</div>`
+        : _d_filtrosHTML()
+      }
       ${_d_caseRows(lista)}
     </div>
   `;
 }
 
+
+function _d_isAgent() {
+  return currentRole === 'agent';
+}
+
+function _d_canCreateCase() {
+  return ['supervisor', 'manager', 'people', 'head_people'].includes(currentRole);
+}
+
+function _d_canReviewCases() {
+  return ['manager', 'people', 'head_people'].includes(currentRole);
+}
+
+function _d_canViewMatrix() {
+  return ['supervisor', 'manager', 'people', 'head_people', 'ceo'].includes(currentRole);
+}
+
 function _d_canEditMatrix() {
   return ['people', 'head_people'].includes(currentRole);
+}
+
+function _d_canViewReports() {
+  return ['people', 'head_people', 'ceo'].includes(currentRole);
 }
 
 function _d_checked(value) {
@@ -12230,47 +12315,6 @@ function _d_renderMatriz() {
   `;
 }
 
-function _d_renderMatriz() {
-  return `
-    <div class="card">
-      <div class="card-title">Matriz de criterios</div>
-      <div class="tbl-wrap">
-        <div style="overflow-x:auto">
-          <table style="min-width:1050px">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Criterio</th>
-                <th>Nivel base</th>
-                <th>Duración</th>
-                <th>People</th>
-                <th>Grave</th>
-                <th>Escalación</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${_d_MATRIX.map(m => `
-                <tr onclick="_d_abrirMatrizDetalle('${m.id}')" style="cursor:pointer">
-                  <td style="font-family:'DM Mono',monospace">${m.matrix_no}</td>
-                  <td>
-                    <div class="agent-row-name">${_d_esc(m.infraction_type)}</div>
-                    <div style="font-size:11px;color:#64748B;margin-top:3px;max-width:440px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_d_esc(m.behavior_examples || '')}</div>
-                  </td>
-                  <td>${_d_levelBadge(m.default_level)}</td>
-                  <td>${_d_esc(m.duration_text || '—')}</td>
-                  <td>${m.requires_people_review ? '<span class="pill pill-purple"><span class="dot"></span>Sí</span>' : '<span class="pill pill-gray">No</span>'}</td>
-                  <td>${m.is_grave ? '<span class="pill pill-red"><span class="dot"></span>Grave</span>' : '<span class="pill pill-gray">No</span>'}</td>
-                  <td style="font-size:12px;color:#475569;max-width:300px">${_d_esc(m.escalation_condition || '—')}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 function _d_renderReportes() {
   const porStatus = _d_group(_d_CASES, c => _d_statusLabel(c.status));
   const porNivel = _d_group(_d_CASES, c => _d_levelLabel(c.issued_level || c.recommended_level));
@@ -12327,15 +12371,20 @@ function _d_render() {
     return;
   }
 
-  if (currentRole === 'agent' && !['historial','matriz'].includes(_d_vista)) _d_vista = 'historial';
-  if (!_d_puedeSolicitar() && _d_vista === 'nuevo') _d_vista = 'historial';
+  _d_asegurarVistaPermitida();
 
   let body = '';
-  if (_d_vista === 'nuevo') body = _d_renderNuevo();
-  else if (_d_vista === 'pendientes') body = _d_renderPendientes();
-  else if (_d_vista === 'matriz') body = _d_renderMatriz();
-  else if (_d_vista === 'reportes') body = _d_renderReportes();
-  else body = _d_renderHistorial();
+  if (_d_vista === 'nuevo') {
+    body = _d_canCreateCase() ? _d_renderNuevo() : _d_renderHistorial();
+  } else if (_d_vista === 'pendientes') {
+    body = _d_canReviewCases() ? _d_renderPendientes() : _d_renderHistorial();
+  } else if (_d_vista === 'matriz') {
+    body = _d_canViewMatrix() ? _d_renderMatriz() : _d_renderHistorial();
+  } else if (_d_vista === 'reportes') {
+    body = _d_canViewReports() ? _d_renderReportes() : _d_renderHistorial();
+  } else {
+    body = _d_renderHistorial();
+  }
 
   c.innerHTML = `
     ${roleSwitcher()}
@@ -12344,7 +12393,7 @@ function _d_render() {
         <div style="font-size:22px;font-weight:900;letter-spacing:-.4px;color:#0F172A">Acciones People</div>
         <div style="font-size:12px;color:#64748B;margin-top:3px">Gestión de acciones correctivas conforme a matriz, revisión y acuse.</div>
       </div>
-      ${_d_puedeSolicitar() ? `<button class="btn-primary" onclick="_d_setVista('nuevo')">+ Nuevo caso</button>` : ''}
+      ${_d_canCreateCase() ? `<button class="btn-primary" onclick="_d_setVista('nuevo')">+ Nuevo caso</button>` : ''}
     </div>
     ${_d_tabs()}
     ${body}
@@ -12353,25 +12402,31 @@ function _d_render() {
   if (_d_vista === 'nuevo') setTimeout(_d_actualizarResumenNuevo, 50);
 }
 
+
 function _d_abrirMatrizDetalle(id) {
   const m = _d_matrix(id);
   if (!m) return;
 
+  const durationText = m.sanction_duration_text || (m.sanction_duration_days ? `${m.sanction_duration_days} días` : '—');
+
   document.getElementById('modalTitle').textContent = `Matriz #${m.matrix_no}`;
-  document.getElementById('modalSub').textContent = m.infraction_type;
+  document.getElementById('modalSub').textContent = m.rule_title || m.infraction_type;
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-section">
       <div class="ms-title">Criterio</div>
-      <div style="font-size:14px;font-weight:800;color:#0F172A">${_d_esc(m.infraction_type)}</div>
+      <div style="font-size:14px;font-weight:800;color:#0F172A">${_d_esc(m.rule_title || m.infraction_type)}</div>
       <div style="font-size:12px;color:#475569;line-height:1.6;margin-top:8px">${_d_esc(m.behavior_examples || '—').replace(/\n/g, '<br>')}</div>
     </div>
     <div class="modal-section">
       <div class="ms-title">Regla</div>
+      <div class="kv"><span class="k">Categoría</span><span class="v">${_d_esc(m.category || 'general')}</span></div>
       <div class="kv"><span class="k">Nivel base</span><span class="v">${_d_levelBadge(m.default_level)}</span></div>
       <div class="kv"><span class="k">Niveles permitidos</span><span class="v">${(m.allowed_levels || []).map(_d_levelLabel).join(', ')}</span></div>
-      <div class="kv"><span class="k">Duración</span><span class="v">${_d_esc(m.duration_text || '—')}</span></div>
+      <div class="kv"><span class="k">Duración</span><span class="v">${_d_esc(durationText)}</span></div>
+      <div class="kv"><span class="k">Liga asistencia</span><span class="v">${_d_attendanceTypeLabel(m.attendance_link_type)}</span></div>
       <div class="kv"><span class="k">People directo</span><span class="v">${m.requires_people_review ? 'Sí' : 'No'}</span></div>
       <div class="kv"><span class="k">Falta grave</span><span class="v">${m.is_grave ? 'Sí' : 'No'}</span></div>
+      <div class="kv"><span class="k">Firma</span><span class="v">${m.requires_employee_ack !== false ? 'Sí' : 'No'}</span></div>
     </div>
     <div class="modal-section">
       <div class="ms-title">Escalación / Nota</div>
@@ -12382,6 +12437,7 @@ function _d_abrirMatrizDetalle(id) {
   document.getElementById('modalFooter').innerHTML = `<button class="btn-ghost" onclick="closeModal()">Cerrar</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
 }
+
 
 function _d_abrirDetalle(id) {
   const c = _d_CASES.find(x => x.id === id);
@@ -14287,8 +14343,9 @@ window['_init_vacaciones']=function(){
 window['_rerender_vacaciones']=function(){ if(typeof _v_render==='function')_v_render(); };
 
 window['_init_disciplinario']=function(){
+  _d_asegurarVistaPermitida();
   _d_cargando=true; _d_render();
-  _d_cargarDatos().then(ok=>{ _d_cargando=false; _d_render(); });
+  _d_cargarDatos().then(ok=>{ _d_cargando=false; _d_asegurarVistaPermitida(); _d_render(); });
 };
 window['_rerender_disciplinario']=function(){ if(typeof _d_render==='function')_d_render(); };
 
