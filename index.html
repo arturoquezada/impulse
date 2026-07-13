@@ -11071,11 +11071,10 @@ let _d_SELECTED_ATT_INCIDENT = null;
 
 async function _d_cargarDatos() {
   try {
-    const { data: matrix, error: eMatrix } = await _d_sb
-      .from('people_action_matrix')
-      .select('*')
-      .eq('is_active', true)
-      .order('matrix_no', { ascending: true });
+    const { data: matrix, error: matrixErr } = await _d_sb
+  .from('people_action_matrix')
+  .select('*')
+  .order('matrix_no', { ascending: true });
     if (eMatrix) throw eMatrix;
 
     const { data: cases, error: eCases } = await _d_sb
@@ -11492,7 +11491,10 @@ function _d_renderNuevo() {
         <label>Criterio de matriz</label>
         <select id="d-case-matrix" onchange="_d_onNuevoCambio()">
           <option value="">Selecciona...</option>
-          ${_d_MATRIX.map(m => `<option value="${m.id}">#${m.matrix_no} · ${_d_esc(m.infraction_type)}</option>`).join('')}
+          ${_d_MATRIX
+  .filter(m => m.is_active !== false)
+  .map(m => `<option value="${m.id}">#${m.matrix_no} · ${_d_esc(m.rule_title || m.infraction_type)}</option>`)
+  .join('')}
         </select>
       </div>
       <div id="d-att-incidents-box"></div>
@@ -11768,6 +11770,462 @@ function _d_renderHistorial() {
       <div class="card-title">Historial de Acciones People</div>
       ${_d_filtrosHTML()}
       ${_d_caseRows(lista)}
+    </div>
+  `;
+}
+
+function _d_canEditMatrix() {
+  return ['people', 'head_people'].includes(currentRole);
+}
+
+function _d_checked(value) {
+  return value ? 'checked' : '';
+}
+
+function _d_levelLabelSafe(level) {
+  if (typeof _d_levelLabel === 'function') return _d_levelLabel(level);
+
+  const map = {
+    feedback: 'Feedback documentado',
+    verbal: 'Amonestación verbal',
+    first_written: 'Primera escrita',
+    second_written: 'Segunda escrita',
+    last_warning: 'Última advertencia',
+    termination: 'Baja / terminación'
+  };
+
+  return map[level] || level || '—';
+}
+
+function _d_levelOptionsHTML(selectedLevels = []) {
+  const levels = [
+    ['feedback', 'Feedback documentado'],
+    ['verbal', 'Amonestación verbal'],
+    ['first_written', 'Primera escrita'],
+    ['second_written', 'Segunda escrita'],
+    ['last_warning', 'Última advertencia'],
+    ['termination', 'Baja / terminación']
+  ];
+
+  return levels.map(([value, label]) => `
+    <label style="display:flex;gap:8px;align-items:center;font-size:13px">
+      <input
+        type="checkbox"
+        class="d-m-level"
+        value="${value}"
+        ${selectedLevels.includes(value) ? 'checked' : ''}
+        style="width:auto"
+      >
+      ${label}
+    </label>
+  `).join('');
+}
+
+function _d_getSelectedMatrixLevels() {
+  return Array.from(document.querySelectorAll('.d-m-level:checked')).map(x => x.value);
+}
+
+function _d_attendanceTypeLabel(value) {
+  if (value === 'late') return 'Retardo real';
+  if (value === 'absence') return 'Falta / ausencia real';
+  return 'No aplica';
+}
+
+function _d_openMatrixRuleModal(ruleId = null) {
+  if (!_d_canEditMatrix()) {
+    alert('Solo People puede editar la matriz.');
+    return;
+  }
+
+  const r = ruleId ? (_d_MATRIX || []).find(x => x.id === ruleId) : null;
+
+  const selectedLevels = Array.isArray(r?.allowed_levels) && r.allowed_levels.length
+    ? r.allowed_levels
+    : ['verbal', 'first_written', 'second_written', 'last_warning', 'termination'];
+
+  const html = `
+    <div id="d-matrix-modal" style="
+      position:fixed;
+      inset:0;
+      background:rgba(15,23,42,.55);
+      z-index:99999;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+    ">
+      <div style="
+        width:min(880px, 96vw);
+        max-height:92vh;
+        overflow:auto;
+        background:#fff;
+        border-radius:18px;
+        box-shadow:0 30px 80px rgba(0,0,0,.25);
+      ">
+        <div style="padding:18px 20px;border-bottom:1px solid #E2E8F0;display:flex;justify-content:space-between;gap:12px;align-items:center">
+          <div>
+            <div style="font-size:18px;font-weight:900;color:#0F172A">
+              ${r ? 'Editar regla de matriz' : 'Nueva regla de matriz'}
+            </div>
+            <div style="font-size:12px;color:#64748B;margin-top:3px">
+              Solo People puede crear o modificar reglas.
+            </div>
+          </div>
+
+          <button class="btn-secondary" onclick="_d_closeMatrixRuleModal()">Cerrar</button>
+        </div>
+
+        <div style="padding:20px;display:grid;gap:14px">
+          <input type="hidden" id="d-m-rule-id" value="${_d_esc(r?.id || '')}">
+
+          <div style="display:grid;grid-template-columns:120px 1fr 1fr;gap:12px">
+            <div class="form-row">
+              <label>No.</label>
+              <input id="d-m-matrix-no" type="number" value="${_d_esc(r?.matrix_no || '')}" placeholder="Auto">
+            </div>
+
+            <div class="form-row">
+              <label>Categoría</label>
+              <input id="d-m-category" value="${_d_esc(r?.category || 'general')}" placeholder="Asistencia, conducta, seguridad...">
+            </div>
+
+            <div class="form-row">
+              <label>Nombre corto</label>
+              <input id="d-m-rule-title" value="${_d_esc(r?.rule_title || '')}" placeholder="Ej. Retardo">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label>Tipo de infracción / regla *</label>
+            <input id="d-m-infraction-type" value="${_d_esc(r?.infraction_type || '')}" placeholder="Ej. Retardo injustificado">
+          </div>
+
+          <div class="form-row">
+            <label>Ejemplos / descripción</label>
+            <textarea id="d-m-behavior" rows="4" placeholder="Describe cuándo aplica esta regla...">${_d_esc(r?.behavior_examples || '')}</textarea>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-row">
+              <label>Niveles permitidos</label>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;border:1px solid #E2E8F0;border-radius:12px;padding:12px">
+                ${_d_levelOptionsHTML(selectedLevels)}
+              </div>
+            </div>
+
+            <div style="display:grid;gap:12px">
+              <div class="form-row">
+                <label>Nivel inicial / default *</label>
+                <select id="d-m-default-level">
+                  <option value="feedback" ${r?.default_level === 'feedback' ? 'selected' : ''}>Feedback documentado</option>
+                  <option value="verbal" ${(!r || r?.default_level === 'verbal') ? 'selected' : ''}>Amonestación verbal</option>
+                  <option value="first_written" ${r?.default_level === 'first_written' ? 'selected' : ''}>Primera escrita</option>
+                  <option value="second_written" ${r?.default_level === 'second_written' ? 'selected' : ''}>Segunda escrita</option>
+                  <option value="last_warning" ${r?.default_level === 'last_warning' ? 'selected' : ''}>Última advertencia</option>
+                  <option value="termination" ${r?.default_level === 'termination' ? 'selected' : ''}>Baja / terminación</option>
+                </select>
+              </div>
+
+              <div class="form-row">
+                <label>Liga con asistencia</label>
+                <select id="d-m-attendance-link-type">
+                  <option value="none" ${(!r || !r.attendance_link_type || r.attendance_link_type === 'none') ? 'selected' : ''}>No aplica</option>
+                  <option value="late" ${r?.attendance_link_type === 'late' ? 'selected' : ''}>Retardo real</option>
+                  <option value="absence" ${r?.attendance_link_type === 'absence' ? 'selected' : ''}>Falta / ausencia real</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 140px;gap:12px">
+            <div class="form-row">
+              <label>Duración de sanción</label>
+              <input id="d-m-duration-text" value="${_d_esc(r?.sanction_duration_text || '')}" placeholder="Ej. 90 días">
+            </div>
+
+            <div class="form-row">
+              <label>Días</label>
+              <input id="d-m-duration-days" type="number" value="${_d_esc(r?.sanction_duration_days ?? 90)}">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <label>Condición de escalación</label>
+            <textarea id="d-m-escalation" rows="3" placeholder="Ej. Si reincide dentro de la vigencia, escala al siguiente nivel...">${_d_esc(r?.escalation_condition || '')}</textarea>
+          </div>
+
+          <div class="form-row">
+            <label>Nota interna</label>
+            <textarea id="d-m-note" rows="3" placeholder="Notas para People o managers...">${_d_esc(r?.note || '')}</textarea>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+            <label style="display:flex;gap:8px;align-items:center;border:1px solid #E2E8F0;border-radius:12px;padding:10px;font-size:13px">
+              <input id="d-m-is-grave" type="checkbox" ${_d_checked(r?.is_grave === true)} style="width:auto">
+              Falta grave
+            </label>
+
+            <label style="display:flex;gap:8px;align-items:center;border:1px solid #E2E8F0;border-radius:12px;padding:10px;font-size:13px">
+              <input id="d-m-requires-people" type="checkbox" ${_d_checked(r?.requires_people_review === true)} style="width:auto">
+              Revisión People
+            </label>
+
+            <label style="display:flex;gap:8px;align-items:center;border:1px solid #E2E8F0;border-radius:12px;padding:10px;font-size:13px">
+              <input id="d-m-requires-ack" type="checkbox" ${_d_checked(r ? r.requires_employee_ack !== false : true)} style="width:auto">
+              Requiere firma
+            </label>
+
+            <label style="display:flex;gap:8px;align-items:center;border:1px solid #E2E8F0;border-radius:12px;padding:10px;font-size:13px">
+              <input id="d-m-active" type="checkbox" ${_d_checked(r ? r.is_active !== false : true)} style="width:auto">
+              Activa
+            </label>
+          </div>
+
+          <div class="alert alert-amber" style="margin:0">
+            Si una regla ya fue usada en casos reales y el cambio es fuerte, mejor desactívala y crea una nueva regla. Así el historial queda más limpio.
+          </div>
+        </div>
+
+        <div style="padding:16px 20px;border-top:1px solid #E2E8F0;display:flex;justify-content:flex-end;gap:10px">
+          <button class="btn-secondary" onclick="_d_closeMatrixRuleModal()">Cancelar</button>
+          <button class="btn-primary" onclick="_d_saveMatrixRule()">Guardar regla</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function _d_closeMatrixRuleModal() {
+  document.getElementById('d-matrix-modal')?.remove();
+}
+
+async function _d_saveMatrixRule() {
+  if (!_d_canEditMatrix()) {
+    alert('Solo People puede editar la matriz.');
+    return;
+  }
+
+  const ruleId = document.getElementById('d-m-rule-id')?.value || null;
+  const matrixNoRaw = document.getElementById('d-m-matrix-no')?.value;
+  const matrixNo = matrixNoRaw ? Number(matrixNoRaw) : null;
+
+  const category = document.getElementById('d-m-category')?.value.trim() || 'general';
+  const ruleTitle = document.getElementById('d-m-rule-title')?.value.trim() || null;
+  const infractionType = document.getElementById('d-m-infraction-type')?.value.trim();
+  const behavior = document.getElementById('d-m-behavior')?.value.trim() || null;
+  const allowedLevels = _d_getSelectedMatrixLevels();
+  const defaultLevel = document.getElementById('d-m-default-level')?.value;
+  const attendanceLinkType = document.getElementById('d-m-attendance-link-type')?.value || 'none';
+  const durationText = document.getElementById('d-m-duration-text')?.value.trim() || null;
+  const durationDaysRaw = document.getElementById('d-m-duration-days')?.value;
+  const durationDays = durationDaysRaw ? Number(durationDaysRaw) : 90;
+  const escalation = document.getElementById('d-m-escalation')?.value.trim() || null;
+  const note = document.getElementById('d-m-note')?.value.trim() || null;
+  const isGrave = document.getElementById('d-m-is-grave')?.checked || false;
+  const requiresPeople = document.getElementById('d-m-requires-people')?.checked || false;
+  const requiresAck = document.getElementById('d-m-requires-ack')?.checked || false;
+  const isActive = document.getElementById('d-m-active')?.checked || false;
+
+  if (!infractionType) {
+    alert('Pon el tipo de infracción / regla.');
+    return;
+  }
+
+  if (!allowedLevels.length) {
+    alert('Selecciona al menos un nivel permitido.');
+    return;
+  }
+
+  if (!allowedLevels.includes(defaultLevel)) {
+    alert('El nivel inicial/default debe estar dentro de los niveles permitidos.');
+    return;
+  }
+
+  const { error } = await _d_sb.rpc('upsert_people_action_matrix_rule', {
+    p_rule_id: ruleId || null,
+    p_matrix_no: matrixNo,
+    p_category: category,
+    p_rule_title: ruleTitle,
+    p_infraction_type: infractionType,
+    p_behavior_examples: behavior,
+    p_allowed_levels: allowedLevels,
+    p_default_level: defaultLevel,
+    p_sanction_duration_text: durationText,
+    p_sanction_duration_days: durationDays,
+    p_escalation_condition: escalation,
+    p_note: note,
+    p_is_grave: isGrave,
+    p_requires_people_review: requiresPeople,
+    p_attendance_link_type: attendanceLinkType,
+    p_requires_employee_ack: requiresAck,
+    p_is_active: isActive
+  });
+
+  if (error) {
+    console.error(error);
+    alert(error.message || 'No se pudo guardar la regla.');
+    return;
+  }
+
+  _d_closeMatrixRuleModal();
+
+  _d_cargando = true;
+  _d_render();
+
+  await _d_cargarDatos();
+
+  _d_cargando = false;
+  _d_vista = 'matriz';
+  _d_render();
+
+  alert('Regla guardada correctamente.');
+}
+
+async function _d_toggleMatrixRule(ruleId, isActive) {
+  if (!_d_canEditMatrix()) {
+    alert('Solo People puede activar o desactivar reglas.');
+    return;
+  }
+
+  const msg = isActive
+    ? '¿Seguro que quieres reactivar esta regla?'
+    : '¿Seguro que quieres desactivar esta regla? No se borrará el historial.';
+
+  if (!confirm(msg)) return;
+
+  const { error } = await _d_sb.rpc('set_people_action_matrix_rule_active', {
+    p_rule_id: ruleId,
+    p_is_active: isActive
+  });
+
+  if (error) {
+    console.error(error);
+    alert(error.message || 'No se pudo actualizar la regla.');
+    return;
+  }
+
+  _d_cargando = true;
+  _d_render();
+
+  await _d_cargarDatos();
+
+  _d_cargando = false;
+  _d_vista = 'matriz';
+  _d_render();
+}
+
+function _d_renderMatriz() {
+  const canEdit = _d_canEditMatrix();
+
+  const matrix = [...(_d_MATRIX || [])].sort((a, b) => {
+    const ao = a.sort_order ?? a.matrix_no ?? 9999;
+    const bo = b.sort_order ?? b.matrix_no ?? 9999;
+    return ao - bo;
+  });
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px">
+        <div>
+          <h3 style="margin:0 0 4px">Matriz de Acciones People</h3>
+          <div style="font-size:12px;color:#64748B">
+            La matriz ya vive en Supabase. El archivo externo ya no se necesita.
+          </div>
+        </div>
+
+        ${canEdit ? `
+          <button class="btn-primary" onclick="_d_openMatrixRuleModal()">
+            + Nueva regla
+          </button>
+        ` : ''}
+      </div>
+
+      ${!canEdit ? `
+        <div class="alert alert-blue">
+          Solo People puede editar la matriz. Tú puedes consultarla en modo lectura.
+        </div>
+      ` : `
+        <div class="alert alert-green">
+          Puedes crear, editar o desactivar reglas. No se eliminan reglas para no romper el historial.
+        </div>
+      `}
+
+      <div style="overflow:auto;margin-top:12px">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>No.</th>
+              <th>Regla</th>
+              <th>Categoría</th>
+              <th>Nivel inicial</th>
+              <th>Asistencia</th>
+              <th>Vigencia</th>
+              <th>Ruta</th>
+              <th>Estado</th>
+              ${canEdit ? '<th>Acciones</th>' : ''}
+            </tr>
+          </thead>
+
+          <tbody>
+            ${matrix.map(m => `
+              <tr style="${m.is_active === false ? 'opacity:.55' : ''}">
+                <td>#${_d_esc(m.matrix_no || '—')}</td>
+
+                <td>
+                  <div style="font-weight:800;color:#0F172A">
+                    ${_d_esc(m.rule_title || m.infraction_type || '—')}
+                  </div>
+                  <div style="font-size:12px;color:#64748B;max-width:420px;white-space:normal">
+                    ${_d_esc(m.behavior_examples || '')}
+                  </div>
+                </td>
+
+                <td>${_d_esc(m.category || 'general')}</td>
+
+                <td>${_d_levelLabelSafe(m.default_level)}</td>
+
+                <td>${_d_attendanceTypeLabel(m.attendance_link_type)}</td>
+
+                <td>${_d_esc(m.sanction_duration_text || ((m.sanction_duration_days || 0) + ' días'))}</td>
+
+                <td>
+                  <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    ${m.is_grave ? `<span class="pill pill-red"><span class="dot"></span>Grave</span>` : ''}
+                    ${m.requires_people_review
+                      ? `<span class="pill pill-purple"><span class="dot"></span>People</span>`
+                      : `<span class="pill pill-green"><span class="dot"></span>Auto</span>`
+                    }
+                  </div>
+                </td>
+
+                <td>
+                  ${m.is_active === false
+                    ? `<span class="pill pill-gray"><span class="dot"></span>Inactiva</span>`
+                    : `<span class="pill pill-green"><span class="dot"></span>Activa</span>`
+                  }
+                </td>
+
+                ${canEdit ? `
+                  <td>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <button class="btn-secondary" onclick="_d_openMatrixRuleModal('${_d_esc(m.id)}')">
+                        Editar
+                      </button>
+
+                      ${m.is_active === false
+                        ? `<button class="btn-secondary" onclick="_d_toggleMatrixRule('${_d_esc(m.id)}', true)">Reactivar</button>`
+                        : `<button class="btn-secondary" onclick="_d_toggleMatrixRule('${_d_esc(m.id)}', false)">Desactivar</button>`
+                      }
+                    </div>
+                  </td>
+                ` : ''}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
     </div>
   `;
 }
