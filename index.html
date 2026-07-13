@@ -5728,6 +5728,7 @@ function _a_renderSupDetail(supId){
   </div>`;
 }
 
+
 // ─────────────────────────────────────────────
 // ACCIONES
 // ─────────────────────────────────────────────
@@ -11065,6 +11066,8 @@ let _d_vista = 'historial';
 let _d_detalleId = null;
 let _d_filtroTexto = '';
 let _d_filtroStatus = 'all';
+let _d_ATT_INCIDENTS = [];
+let _d_SELECTED_ATT_INCIDENT = null;
 
 async function _d_cargarDatos() {
   try {
@@ -11122,6 +11125,188 @@ function _d_nombre(id) {
 
 function _d_matrix(id) {
   return (_d_MATRIX || []).find(m => m.id === id);
+}
+function _d_matrixActualNuevo() {
+  const matrixId = document.getElementById('d-case-matrix')?.value;
+  return _d_matrix(matrixId);
+}
+
+function _d_empActualNuevo() {
+  return document.getElementById('d-case-employee')?.value || '';
+}
+
+function _d_attendanceLinkType(m) {
+  if (!m) return 'none';
+
+  if (m.attendance_link_type) return m.attendance_link_type;
+
+  const txt = `${m.infraction_type || ''} ${m.behavior_examples || ''}`.toLowerCase();
+
+  if (
+    txt.includes('retardo') ||
+    txt.includes('tardanza') ||
+    txt.includes('puntualidad') ||
+    txt.includes('llegar tarde')
+  ) return 'late';
+
+  if (
+    txt.includes('falta') ||
+    txt.includes('ausencia') ||
+    txt.includes('inasistencia') ||
+    txt.includes('abandono')
+  ) return 'absence';
+
+  return 'none';
+}
+
+function _d_necesitaIncidenciaAsistencia() {
+  const m = _d_matrixActualNuevo();
+  return ['late', 'absence'].includes(_d_attendanceLinkType(m));
+}
+
+function _d_labelIncidencia(i) {
+  if (!i) return '—';
+
+  if (i.incident_type === 'late') {
+    return `${i.incident_date} · Entrada ${String(i.time_in || '—').slice(0, 5)} · ${i.minutes_late || 0} min tarde`;
+  }
+
+  return `${i.incident_date} · ${i.attendance_status || 'Falta/Ausencia'}`;
+}
+
+async function _d_onNuevoCambio() {
+  _d_SELECTED_ATT_INCIDENT = null;
+
+  if (typeof _d_actualizarResumenNuevo === 'function') {
+    _d_actualizarResumenNuevo();
+  }
+
+  await _d_cargarIncidenciasAsistencia();
+}
+
+async function _d_cargarIncidenciasAsistencia() {
+  const box = document.getElementById('d-att-incidents-box');
+  if (!box) return;
+
+  const empId = _d_empActualNuevo();
+  const m = _d_matrixActualNuevo();
+  const linkType = _d_attendanceLinkType(m);
+
+  _d_ATT_INCIDENTS = [];
+  _d_SELECTED_ATT_INCIDENT = null;
+
+  if (!empId || !m || linkType === 'none') {
+    box.innerHTML = '';
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="modal-section">
+      <div class="ms-title">Incidencias reales de asistencia</div>
+      <div style="font-size:12px;color:#64748B">
+        Cargando incidencias reales de las últimas 48 horas...
+      </div>
+    </div>
+  `;
+
+  const { data, error } = await _d_sb.rpc('list_people_action_attendance_incidents', {
+    p_employee_id: empId,
+    p_matrix_id: m.id
+  });
+
+  if (error) {
+    console.error('Error cargando incidencias de asistencia:', error);
+    box.innerHTML = `
+      <div class="alert alert-red">
+        No se pudieron cargar las incidencias de asistencia:<br>
+        ${_d_esc(error.message || 'Error desconocido')}
+      </div>
+    `;
+    return;
+  }
+
+  _d_ATT_INCIDENTS = data || [];
+
+  if (!_d_ATT_INCIDENTS.length) {
+    box.innerHTML = `
+      <div class="alert alert-amber">
+        No hay ${linkType === 'late' ? 'retardos' : 'faltas/ausencias'} reales para este colaborador dentro de las últimas 48 horas.
+        No se puede levantar esta Acción People con este criterio.
+      </div>
+    `;
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="modal-section">
+      <div class="ms-title">Incidencias reales de asistencia · últimas 48 horas</div>
+
+      <div style="font-size:12px;color:#64748B;margin-bottom:10px">
+        Selecciona la incidencia que respalda esta Acción People.
+      </div>
+
+      <div style="display:grid;gap:8px">
+        ${_d_ATT_INCIDENTS.map(i => `
+          <label style="display:flex;gap:10px;align-items:flex-start;border:1px solid #E2E8F0;border-radius:10px;padding:10px;background:#fff;cursor:pointer">
+            <input
+              type="radio"
+              name="d-att-incident"
+              value="${_d_esc(i.source_id)}"
+              onchange="_d_selectIncidenciaAsistencia('${_d_esc(i.source_id)}')"
+              style="margin-top:3px;width:auto"
+            >
+            <div>
+              <div style="font-size:13px;font-weight:800;color:#0F172A">
+                ${_d_esc(_d_labelIncidencia(i))}
+              </div>
+              <div style="font-size:12px;color:#64748B;margin-top:3px">
+                ${_d_esc(i.facts_suggestion || '')}
+              </div>
+            </div>
+          </label>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function _d_selectIncidenciaAsistencia(sourceId) {
+  _d_SELECTED_ATT_INCIDENT = (_d_ATT_INCIDENTS || []).find(i => i.source_id === sourceId) || null;
+
+  if (_d_SELECTED_ATT_INCIDENT) {
+    document.getElementById('d-case-date').value = _d_SELECTED_ATT_INCIDENT.incident_date;
+
+    if (_d_SELECTED_ATT_INCIDENT.incident_time) {
+      document.getElementById('d-case-time').value = String(_d_SELECTED_ATT_INCIDENT.incident_time).slice(0, 5);
+    }
+
+    const factsEl = document.getElementById('d-case-facts');
+    if (factsEl && !factsEl.value.trim()) {
+      factsEl.value = _d_SELECTED_ATT_INCIDENT.facts_suggestion || '';
+    }
+  }
+
+  if (typeof _d_actualizarResumenNuevo === 'function') {
+    _d_actualizarResumenNuevo();
+  }
+}
+
+function _d_resumenIncidenciaAsistenciaHTML() {
+  if (!_d_necesitaIncidenciaAsistencia()) return '';
+
+  if (!_d_SELECTED_ATT_INCIDENT) {
+    return `
+      <div class="alert alert-amber" style="margin-top:10px;margin-bottom:0">
+        Este criterio requiere seleccionar una incidencia real de asistencia de las últimas 48 horas.
+      </div>
+    `;
+  }
+
+  return `
+    <div class="alert alert-green" style="margin-top:10px;margin-bottom:0">
+      Incidencia seleccionada: ${_d_esc(_d_labelIncidencia(_d_SELECTED_ATT_INCIDENT))}
+    </div>
+  `;
 }
 
 function _d_fmtDateTime(v) {
@@ -11297,7 +11482,7 @@ function _d_renderNuevo() {
 
       <div class="form-row">
         <label>Colaborador</label>
-        <select id="d-case-employee" onchange="_d_actualizarResumenNuevo()">
+        <select id="d-case-employee" onchange="_d_onNuevoCambio()">
           <option value="">Selecciona...</option>
           ${emps.map(e => `<option value="${_d_esc(e.id)}">${_d_esc(e.full_name)} · ${_d_esc(e.id)} · ${_d_esc(e.system_role || '')}</option>`).join('')}
         </select>
@@ -11305,11 +11490,12 @@ function _d_renderNuevo() {
 
       <div class="form-row">
         <label>Criterio de matriz</label>
-        <select id="d-case-matrix" onchange="_d_actualizarResumenNuevo()">
+        <select id="d-case-matrix" onchange="_d_onNuevoCambio()">
           <option value="">Selecciona...</option>
           ${_d_MATRIX.map(m => `<option value="${m.id}">#${m.matrix_no} · ${_d_esc(m.infraction_type)}</option>`).join('')}
         </select>
       </div>
+      <div id="d-att-incidents-box"></div>
 
       <div class="kgrid kg2">
         <div class="form-row">
@@ -11379,6 +11565,7 @@ if (
       <div class="kv"><span class="k">Revisión</span><span class="v">${reviewText}</span></div>
       <div class="kv"><span class="k">Firma</span><span class="v">${m.requires_ack ? 'Sí requiere acuse' : 'No requiere'}</span></div>
       ${m.is_grave ? `<div class="alert alert-red" style="margin-top:10px;margin-bottom:0">Falta grave · se manda directo a People.</div>` : ''}
+      ${_d_resumenIncidenciaAsistenciaHTML()}
       ${m.behavior_examples ? `<div style="font-size:12px;color:#64748B;margin-top:10px;line-height:1.5"><b>Ejemplos:</b><br>${_d_esc(m.behavior_examples).replace(/\n/g, '<br>')}</div>` : ''}
       ${m.escalation_condition ? `<div style="font-size:12px;color:#64748B;margin-top:10px;line-height:1.5"><b>Escalación:</b><br>${_d_esc(m.escalation_condition).replace(/\n/g, '<br>')}</div>` : ''}
     </div>
@@ -11394,18 +11581,24 @@ async function _d_solicitarCaso() {
   const facts = document.getElementById('d-case-facts')?.value?.trim();
 
   if (!empId) { alert('Selecciona un colaborador.'); return; }
-  if (!matrixId) { alert('Selecciona un criterio de la matriz.'); return; }
-  if (!date) { alert('Selecciona la fecha del incidente.'); return; }
-  if (!facts) { alert('Describe los hechos de forma objetiva.'); return; }
+if (!matrixId) { alert('Selecciona un criterio de la matriz.'); return; }
 
-  const { data: caseId, error } = await _d_sb.rpc('request_people_action_case', {
-    p_employee_id: empId,
-    p_matrix_id: matrixId,
-    p_incident_date: date,
-    p_incident_time: time,
-    p_facts: facts,
-    p_evidence_url: evidence
-  });
+if (_d_necesitaIncidenciaAsistencia() && !_d_SELECTED_ATT_INCIDENT) {
+  alert('Este criterio requiere seleccionar una incidencia real de asistencia de las últimas 48 horas.');
+  return;
+}
+
+if (!date) { alert('Selecciona la fecha del incidente.'); return; }
+if (!facts) { alert('Describe los hechos de forma objetiva.'); return; }
+const { data: caseId, error } = await _d_sb.rpc('request_people_action_case', {
+  p_employee_id: empId,
+  p_matrix_id: matrixId,
+  p_incident_date: date,
+  p_incident_time: time,
+  p_facts: facts,
+  p_evidence_url: evidence,
+  p_attendance_source_id: _d_SELECTED_ATT_INCIDENT?.source_id || null
+});
 
   if (error) {
     console.error('Error completo al solicitar Acción People:', error);
