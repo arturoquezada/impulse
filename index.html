@@ -11075,7 +11075,7 @@ async function _d_cargarDatos() {
   .from('people_action_matrix')
   .select('*')
   .order('matrix_no', { ascending: true });
-    if (eMatrix) throw eMatrix;
+  if (matrixErr) throw matrixErr;
 
     const { data: cases, error: eCases } = await _d_sb
       .from('people_action_cases')
