@@ -1724,7 +1724,7 @@ function _buildAppShell() {
     {id:'tickets',      icon:'🎫', label:'Tickets HR',    roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people']},
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo']},
-    {id:'disciplinario',icon:'⚠️', label:'Disciplinario', roles:['supervisor','manager','people','head_people','ceo']},
+    {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
   ];
 
@@ -1906,7 +1906,7 @@ const MODULE_INFO={
   asistencia:{icon:'👤',label:'Asistencia'},nomina:{icon:'💰',label:'Nómina'},
   tickets:{icon:'🎫',label:'Tickets HR'},
   permutas:{icon:'🔄',label:'Permutas'},vacaciones:{icon:'🏖️',label:'Vacaciones'},
-  disciplinario:{icon:'⚠️',label:'Disciplinario'},equipo:{icon:'👥',label:'Equipo'},
+  disciplinario:{icon:'🧭',label:'Acciones People'},equipo:{icon:'👥',label:'Equipo'},
 };
 function ymd(d){
   // Usar hora de México (America/Mexico_City) para evitar que UTC adelante el día
@@ -11049,202 +11049,874 @@ async function _v_cancelar(id) {
   _v_cargando = false; _v_render();
 }
 
-// ══ DISCIPLINARIO ═══════════════════════════════════════════════════
+// ══ ACCIONES PEOPLE ═══════════════════════════════════════════════════
+// Reemplaza el bloque viejo de DISCIPLINARIO por este bloque completo.
+// Mantiene el id interno del módulo como "disciplinario" para no romper switchModule/_init.
+
 const _d_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _d_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _d_sb = supabase.createClient(_d_SB_URL, _d_SB_KEY);
 
-let _d_RECORDS = [];
+let _d_CASES = [];
+let _d_MATRIX = [];
 let _d_EMPLEADOS = [];
 let _d_cargando = false;
+let _d_vista = 'historial';
+let _d_detalleId = null;
+let _d_filtroTexto = '';
+let _d_filtroStatus = 'all';
 
 async function _d_cargarDatos() {
   try {
-    const { data: recs, error: e1 } = await _d_sb.from('disciplinary_records')
-      .select('*').order('infraction_date', {ascending:false});
-    if (e1) throw e1;
-    _d_RECORDS = recs || [];
-    const { data: emps, error: e2 } = await _d_sb.from('employees')
-      .select('id,full_name,campaign_id,supervisor_id,system_role').eq('status','active').order('full_name');
-    if (e2) throw e2;
+    const { data: matrix, error: eMatrix } = await _d_sb
+      .from('people_action_matrix')
+      .select('*')
+      .eq('is_active', true)
+      .order('matrix_no', { ascending: true });
+    if (eMatrix) throw eMatrix;
+
+    const { data: cases, error: eCases } = await _d_sb
+      .from('people_action_cases')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (eCases) throw eCases;
+
+    const { data: emps, error: eEmp } = await _d_sb
+      .from('employees')
+      .select('id,full_name,campaign_id,supervisor_id,system_role,status')
+      .eq('status', 'active')
+      .order('full_name', { ascending: true });
+    if (eEmp) throw eEmp;
+
+    _d_MATRIX = matrix || [];
+    _d_CASES = cases || [];
     _d_EMPLEADOS = emps || [];
     return true;
-  } catch(e) { console.error('Error disciplinario:', e); return false; }
+  } catch (e) {
+    console.error('Error cargando Acciones People:', e);
+    document.getElementById('content').innerHTML = `
+      <div class="card">
+        <div class="alert alert-red">
+          No se pudo cargar Acciones People: ${_d_esc(e.message || e)}
+        </div>
+      </div>
+    `;
+    return false;
+  }
 }
 
-function _d_severityBadge(s) {
-  const cfg = {high:{bg:'#FEE2E2',color:'#991B1B',label:'Alta'},medium:{bg:'#FEF9C3',color:'#854D0E',label:'Media'},low:{bg:'#F1F5F9',color:'#475569',label:'Baja'}};
-  const c = cfg[s] || cfg.low;
-  return `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:${c.bg};color:${c.color};font-weight:600">${c.label}</span>`;
+function _d_esc(v) {
+  return String(v ?? '').replace(/[&<>'"]/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  }[c]));
 }
 
-let _d_managerDrill = null; // id del supervisor cuyo equipo se está viendo en detalle (vista de manager)
+function _d_emp(id) {
+  return (_d_EMPLEADOS || []).find(e => e.id === id);
+}
+
+function _d_nombre(id) {
+  const e = _d_emp(id);
+  return e?.full_name || id || '—';
+}
+
+function _d_matrix(id) {
+  return (_d_MATRIX || []).find(m => m.id === id);
+}
+
+function _d_fmtDateTime(v) {
+  if (!v) return '—';
+  return new Date(v).toLocaleString('es-MX', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City'
+  });
+}
+
+function _d_levelLabel(level) {
+  const map = {
+    feedback_documented: 'Feedback documentado',
+    verbal: 'Amonestación verbal',
+    written_1: '1ra escrita',
+    written_2: '2da escrita',
+    last_warning: 'Última advertencia',
+    termination: 'Terminación / baja'
+  };
+  return map[level] || level || '—';
+}
+
+function _d_levelBadge(level) {
+  const cfg = {
+    feedback_documented: ['#F1F5F9', '#475569'],
+    verbal: ['#DBEAFE', '#1D4ED8'],
+    written_1: ['#FEF3C7', '#92400E'],
+    written_2: ['#FFEDD5', '#9A3412'],
+    last_warning: ['#FEE2E2', '#991B1B'],
+    termination: ['#111827', '#FFFFFF']
+  };
+  const [bg, color] = cfg[level] || cfg.feedback_documented;
+  return `<span class="pill" style="background:${bg};color:${color}"><span class="dot"></span>${_d_levelLabel(level)}</span>`;
+}
+
+function _d_statusLabel(status) {
+  const map = {
+    pending_review: 'Pendiente',
+    approved: 'Aprobado',
+    rejected: 'Rechazado',
+    cancelled: 'Cancelado',
+    voided: 'Anulado'
+  };
+  return map[status] || status || '—';
+}
+
+function _d_statusBadge(status) {
+  const cfg = {
+    pending_review: ['#FEF3C7', '#92400E'],
+    approved: ['#DCFCE7', '#166534'],
+    rejected: ['#FEE2E2', '#991B1B'],
+    cancelled: ['#F1F5F9', '#475569'],
+    voided: ['#F3E8FF', '#7E22CE']
+  };
+  const [bg, color] = cfg[status] || cfg.cancelled;
+  return `<span class="pill" style="background:${bg};color:${color}"><span class="dot"></span>${_d_statusLabel(status)}</span>`;
+}
+
+function _d_ackBadge(ack) {
+  const cfg = {
+    pending: ['#FEF3C7', '#92400E', 'Pendiente firma'],
+    signed: ['#DCFCE7', '#166534', 'Firmado'],
+    refused: ['#FEE2E2', '#991B1B', 'Se negó'],
+    not_required: ['#F1F5F9', '#475569', 'No requiere']
+  };
+  const [bg, color, label] = cfg[ack] || cfg.pending;
+  return `<span class="pill" style="background:${bg};color:${color}"><span class="dot"></span>${label}</span>`;
+}
+
+function _d_queueBadge(q) {
+  if (q === 'people') return `<span class="pill pill-purple"><span class="dot"></span>People</span>`;
+  return `<span class="pill pill-blue"><span class="dot"></span>Manager / People</span>`;
+}
+
+function _d_puedeSolicitar() {
+  return ['supervisor','manager','people','head_people'].includes(currentRole);
+}
+
+function _d_puedeRevisarCaso(caso) {
+  if (!caso || caso.status !== 'pending_review') return false;
+  const ro = ROLES[currentRole];
+  if (caso.requested_by === ro.id) return false;
+  if (['people','head_people'].includes(currentRole)) return true;
+  if (currentRole === 'manager' && caso.review_queue === 'manager_or_people') return true;
+  return false;
+}
+
+function _d_puedeCancelarCaso(caso) {
+  return caso && ['people','head_people'].includes(currentRole) && !['cancelled','voided'].includes(caso.status);
+}
+
+function _d_empleadosSolicitables() {
+  const ro = ROLES[currentRole];
+  const emps = (_d_EMPLEADOS || []).filter(e => e.status === 'active');
+
+  if (currentRole === 'supervisor') {
+    return emps.filter(e => e.system_role === 'agent' && e.supervisor_id === ro.id);
+  }
+
+  if (currentRole === 'manager') {
+    // Manager puede levantar a agentes y supervisores. El SQL manda esos casos a People si aplica.
+    return emps.filter(e => ['agent','supervisor'].includes(e.system_role));
+  }
+
+  if (['people','head_people'].includes(currentRole)) {
+    return emps.filter(e => e.system_role !== 'ceo');
+  }
+
+  return [];
+}
+
+function _d_tabs() {
+  const tabs = [];
+  if (_d_puedeSolicitar()) tabs.push(['nuevo', 'Nuevo caso']);
+  tabs.push(['pendientes', 'Pendientes']);
+  tabs.push(['historial', 'Historial']);
+  tabs.push(['matriz', 'Matriz']);
+  if (['manager','people','head_people','ceo'].includes(currentRole)) tabs.push(['reportes', 'Reportes']);
+
+  return `
+    <div class="tabs">
+      ${tabs.map(([id, label]) => `
+        <button class="tab ${_d_vista === id ? 'on' : ''}" onclick="_d_setVista('${id}')">${label}</button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function _d_setVista(v) {
+  _d_vista = v;
+  _d_detalleId = null;
+  _d_render();
+}
+
+function _d_kpisHTML() {
+  const total = _d_CASES.length;
+  const pendientes = _d_CASES.filter(c => c.status === 'pending_review').length;
+  const aprobados = _d_CASES.filter(c => c.status === 'approved').length;
+  const graves = _d_CASES.filter(c => c.is_grave || c.recommended_level === 'termination' || c.issued_level === 'termination').length;
+  const firmaPendiente = _d_CASES.filter(c => c.status === 'approved' && c.employee_ack_status === 'pending').length;
+
+  return `
+    <div class="kgrid kg4">
+      <div class="kbox"><div class="klabel">Total casos</div><div class="kval">${total}</div></div>
+      <div class="kbox warn"><div class="klabel">Pendientes</div><div class="kval">${pendientes}</div></div>
+      <div class="kbox ok"><div class="klabel">Aprobados</div><div class="kval">${aprobados}</div></div>
+      <div class="kbox danger"><div class="klabel">Firma pendiente</div><div class="kval">${firmaPendiente}</div><div class="kdelta">Graves: ${graves}</div></div>
+    </div>
+  `;
+}
+
+function _d_renderNuevo() {
+  if (!_d_puedeSolicitar()) {
+    return `<div class="card"><div class="alert alert-amber">No tienes permisos para levantar nuevos casos.</div></div>`;
+  }
+
+  const emps = _d_empleadosSolicitables();
+
+  return `
+    <div class="card">
+      <div class="card-title">Nuevo caso · Acción People</div>
+      <div class="alert alert-blue">
+        El supervisor o manager captura los hechos. La herramienta calcula el nivel recomendado y manda el caso a revisión.
+      </div>
+
+      <div class="form-row">
+        <label>Colaborador</label>
+        <select id="d-case-employee" onchange="_d_actualizarResumenNuevo()">
+          <option value="">Selecciona...</option>
+          ${emps.map(e => `<option value="${_d_esc(e.id)}">${_d_esc(e.full_name)} · ${_d_esc(e.id)} · ${_d_esc(e.system_role || '')}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>Criterio de matriz</label>
+        <select id="d-case-matrix" onchange="_d_actualizarResumenNuevo()">
+          <option value="">Selecciona...</option>
+          ${_d_MATRIX.map(m => `<option value="${m.id}">#${m.matrix_no} · ${_d_esc(m.infraction_type)}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="kgrid kg2">
+        <div class="form-row">
+          <label>Fecha del incidente</label>
+          <input type="date" id="d-case-date" max="${ymd(new Date())}" value="${ymd(new Date())}">
+        </div>
+        <div class="form-row">
+          <label>Hora del incidente</label>
+          <input type="time" id="d-case-time">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Evidencia / link</label>
+        <input type="url" id="d-case-evidence" placeholder="Link de interacción, Drive, captura, etc.">
+      </div>
+
+      <div class="form-row">
+        <label>Descripción objetiva de los hechos</label>
+        <textarea id="d-case-facts" rows="5" placeholder="Describe qué pasó, cuándo, dónde y cómo impactó. Evita opiniones; usa hechos observables."></textarea>
+      </div>
+
+      <div id="d-case-summary"></div>
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+        <button class="btn-primary" onclick="_d_solicitarCaso()">Enviar a revisión</button>
+      </div>
+    </div>
+  `;
+}
+
+function _d_actualizarResumenNuevo() {
+  const matrixId = document.getElementById('d-case-matrix')?.value;
+  const empId = document.getElementById('d-case-employee')?.value;
+  const box = document.getElementById('d-case-summary');
+  if (!box) return;
+
+  const m = _d_matrix(matrixId);
+  const emp = _d_emp(empId);
+
+  if (!m) {
+    box.innerHTML = '';
+    return;
+  }
+
+  let reviewText = 'Manager / People';
+  if (m.requires_people_review || m.is_grave || m.default_level === 'termination' || currentRole === 'manager' || (emp && emp.system_role !== 'agent')) {
+    reviewText = 'People';
+  }
+
+  box.innerHTML = `
+    <div class="card" style="background:#F8FAFC;margin-top:8px">
+      <div class="card-title" style="margin-bottom:8px">Resumen de matriz</div>
+      <div class="kv"><span class="k">Criterio</span><span class="v">${_d_esc(m.infraction_type)}</span></div>
+      <div class="kv"><span class="k">Nivel base</span><span class="v">${_d_levelBadge(m.default_level)}</span></div>
+      <div class="kv"><span class="k">Duración</span><span class="v">${_d_esc(m.duration_text || 'Sin vigencia')}</span></div>
+      <div class="kv"><span class="k">Revisión</span><span class="v">${reviewText}</span></div>
+      <div class="kv"><span class="k">Firma</span><span class="v">${m.requires_ack ? 'Sí requiere acuse' : 'No requiere'}</span></div>
+      ${m.is_grave ? `<div class="alert alert-red" style="margin-top:10px;margin-bottom:0">Falta grave · se manda directo a People.</div>` : ''}
+      ${m.behavior_examples ? `<div style="font-size:12px;color:#64748B;margin-top:10px;line-height:1.5"><b>Ejemplos:</b><br>${_d_esc(m.behavior_examples).replace(/\n/g, '<br>')}</div>` : ''}
+      ${m.escalation_condition ? `<div style="font-size:12px;color:#64748B;margin-top:10px;line-height:1.5"><b>Escalación:</b><br>${_d_esc(m.escalation_condition).replace(/\n/g, '<br>')}</div>` : ''}
+    </div>
+  `;
+}
+
+async function _d_solicitarCaso() {
+  const empId = document.getElementById('d-case-employee')?.value;
+  const matrixId = document.getElementById('d-case-matrix')?.value;
+  const date = document.getElementById('d-case-date')?.value;
+  const time = document.getElementById('d-case-time')?.value || null;
+  const evidence = document.getElementById('d-case-evidence')?.value?.trim() || null;
+  const facts = document.getElementById('d-case-facts')?.value?.trim();
+
+  if (!empId) { alert('Selecciona un colaborador.'); return; }
+  if (!matrixId) { alert('Selecciona un criterio de la matriz.'); return; }
+  if (!date) { alert('Selecciona la fecha del incidente.'); return; }
+  if (!facts) { alert('Describe los hechos de forma objetiva.'); return; }
+
+  const { error } = await _d_sb.rpc('request_people_action_case', {
+    p_employee_id: empId,
+    p_matrix_id: matrixId,
+    p_incident_date: date,
+    p_incident_time: time,
+    p_facts: facts,
+    p_evidence_url: evidence
+  });
+
+  if (error) {
+    console.error('Error completo al solicitar Acción People:', error);
+    alert(
+      'No se pudo enviar el caso:\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.hint ? '\n\nHint: ' + error.hint : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
+    return;
+  }
+
+  _d_cargando = true;
+  _d_render();
+  await _d_cargarDatos();
+  _d_cargando = false;
+  _d_vista = 'pendientes';
+  _d_render();
+  alert('Caso enviado a revisión.');
+}
+
+function _d_casesFiltrados(base) {
+  let lista = [...(base || [])];
+  const txt = (_d_filtroTexto || '').toLowerCase().trim();
+
+  if (_d_filtroStatus !== 'all') {
+    lista = lista.filter(c => c.status === _d_filtroStatus);
+  }
+
+  if (txt) {
+    lista = lista.filter(c => {
+      const emp = _d_emp(c.employee_id);
+      const m = _d_matrix(c.matrix_id);
+      return [
+        c.employee_id,
+        emp?.full_name,
+        m?.infraction_type,
+        c.facts,
+        c.recommended_level,
+        c.issued_level
+      ].some(v => String(v || '').toLowerCase().includes(txt));
+    });
+  }
+
+  return lista;
+}
+
+function _d_filtrosHTML() {
+  return `
+    <div class="date-filter-bar">
+      <span class="df-label">Buscar</span>
+      <input class="df-input" style="min-width:240px;font-family:var(--f)" placeholder="Agente, ID, infracción..." value="${_d_esc(_d_filtroTexto)}" oninput="_d_filtroTexto=this.value;_d_render()">
+      <span class="df-label">Status</span>
+      <select class="df-input" onchange="_d_filtroStatus=this.value;_d_render()">
+        ${[
+          ['all','Todos'],['pending_review','Pendiente'],['approved','Aprobado'],['rejected','Rechazado'],['cancelled','Cancelado'],['voided','Anulado']
+        ].map(([v,l]) => `<option value="${v}" ${_d_filtroStatus===v?'selected':''}>${l}</option>`).join('')}
+      </select>
+    </div>
+  `;
+}
+
+function _d_caseRows(lista, opts = {}) {
+  const showActions = opts.actions !== false;
+
+  return `
+    <div class="tbl-wrap">
+      <div style="overflow-x:auto">
+        <table style="min-width:1100px">
+          <thead>
+            <tr>
+              <th>Colaborador</th>
+              <th>Infracción</th>
+              <th>Nivel</th>
+              <th>Status</th>
+              <th>Revisión</th>
+              <th>Incidente</th>
+              <th>Solicitó</th>
+              <th>Aprobó/Rechazó</th>
+              <th>Acuse</th>
+              ${showActions ? '<th>Acciones</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${lista.length ? lista.map(c => {
+              const emp = _d_emp(c.employee_id);
+              const m = _d_matrix(c.matrix_id);
+              return `
+                <tr onclick="_d_abrirDetalle('${c.id}')" style="cursor:pointer">
+                  <td>
+                    <div class="agent-row-name">${_d_esc(emp?.full_name || c.employee_id)}</div>
+                    <div class="agent-row-id">${_d_esc(c.employee_id)}</div>
+                  </td>
+                  <td>
+                    <div style="font-weight:700;color:#0F172A">${_d_esc(m?.infraction_type || '—')}</div>
+                    ${c.is_grave ? `<div style="font-size:11px;color:#991B1B;font-weight:800;margin-top:3px">Falta grave</div>` : ''}
+                  </td>
+                  <td>
+                    ${_d_levelBadge(c.issued_level || c.recommended_level)}
+                    ${c.level_adjusted ? `<div style="font-size:10px;color:#D97706;font-weight:800;margin-top:3px">Ajustado</div>` : ''}
+                  </td>
+                  <td>${_d_statusBadge(c.status)}</td>
+                  <td>${_d_queueBadge(c.review_queue)}</td>
+                  <td style="font-family:'DM Mono',monospace">${fmtDateShort(c.incident_date)}</td>
+                  <td>
+                    <div class="agent-row-name">${_d_esc(_d_nombre(c.requested_by))}</div>
+                    <div class="agent-row-id">${_d_esc(c.requested_by || '—')}</div>
+                  </td>
+                  <td>
+                    <div class="agent-row-name">${_d_esc(c.reviewed_by ? _d_nombre(c.reviewed_by) : '—')}</div>
+                    <div class="agent-row-id">${_d_esc(c.reviewed_at ? _d_fmtDateTime(c.reviewed_at) : 'Sin revisión')}</div>
+                  </td>
+                  <td>${_d_ackBadge(c.employee_ack_status)}</td>
+                  ${showActions ? `
+                    <td onclick="event.stopPropagation()">
+                      <div style="display:flex;gap:6px;flex-wrap:wrap">
+                        ${_d_puedeRevisarCaso(c) ? `<button class="btn-green" onclick="_d_abrirRevision('${c.id}', true)">Aprobar</button><button class="btn-red" onclick="_d_abrirRevision('${c.id}', false)">Rechazar</button>` : ''}
+                        ${currentRole === 'agent' && c.employee_id === ROLES[currentRole].id && c.status === 'approved' && c.employee_ack_status === 'pending' ? `<button class="btn-cyan" onclick="_d_abrirAcuse('${c.id}')">Dar acuse</button>` : ''}
+                        ${_d_puedeCancelarCaso(c) ? `<button class="btn-ghost" onclick="_d_cancelarCaso('${c.id}')">Cancelar</button>` : ''}
+                      </div>
+                    </td>
+                  ` : ''}
+                </tr>
+              `;
+            }).join('') : `
+              <tr><td colspan="${showActions ? 10 : 9}" style="text-align:center;color:#94A3B8;padding:24px">Sin casos para mostrar.</td></tr>
+            `}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function _d_renderPendientes() {
+  const pendientes = _d_CASES.filter(c => c.status === 'pending_review');
+  const lista = _d_casesFiltrados(pendientes);
+
+  return `
+    <div class="card">
+      <div class="card-title">Pendientes de revisión</div>
+      <div class="alert alert-amber">
+        Manager puede aprobar casos de agentes cuando la cola sea Manager/People. People y Head People pueden revisar todo.
+      </div>
+      ${_d_filtrosHTML()}
+      ${_d_caseRows(lista)}
+    </div>
+  `;
+}
+
+function _d_renderHistorial() {
+  const lista = _d_casesFiltrados(_d_CASES);
+  return `
+    <div class="card">
+      <div class="card-title">Historial de Acciones People</div>
+      ${_d_filtrosHTML()}
+      ${_d_caseRows(lista)}
+    </div>
+  `;
+}
+
+function _d_renderMatriz() {
+  return `
+    <div class="card">
+      <div class="card-title">Matriz de criterios</div>
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:1050px">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Criterio</th>
+                <th>Nivel base</th>
+                <th>Duración</th>
+                <th>People</th>
+                <th>Grave</th>
+                <th>Escalación</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${_d_MATRIX.map(m => `
+                <tr onclick="_d_abrirMatrizDetalle('${m.id}')" style="cursor:pointer">
+                  <td style="font-family:'DM Mono',monospace">${m.matrix_no}</td>
+                  <td>
+                    <div class="agent-row-name">${_d_esc(m.infraction_type)}</div>
+                    <div style="font-size:11px;color:#64748B;margin-top:3px;max-width:440px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_d_esc(m.behavior_examples || '')}</div>
+                  </td>
+                  <td>${_d_levelBadge(m.default_level)}</td>
+                  <td>${_d_esc(m.duration_text || '—')}</td>
+                  <td>${m.requires_people_review ? '<span class="pill pill-purple"><span class="dot"></span>Sí</span>' : '<span class="pill pill-gray">No</span>'}</td>
+                  <td>${m.is_grave ? '<span class="pill pill-red"><span class="dot"></span>Grave</span>' : '<span class="pill pill-gray">No</span>'}</td>
+                  <td style="font-size:12px;color:#475569;max-width:300px">${_d_esc(m.escalation_condition || '—')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _d_renderReportes() {
+  const porStatus = _d_group(_d_CASES, c => _d_statusLabel(c.status));
+  const porNivel = _d_group(_d_CASES, c => _d_levelLabel(c.issued_level || c.recommended_level));
+  const porCamp = _d_group(_d_CASES, c => _d_emp(c.employee_id)?.campaign_id || 'Sin campaña');
+  const porSolicitante = _d_group(_d_CASES, c => _d_nombre(c.requested_by));
+
+  return `
+    ${_d_kpisHTML()}
+    ${_d_reportTable('Por status', porStatus)}
+    ${_d_reportTable('Por nivel', porNivel)}
+    ${_d_reportTable('Por campaña', porCamp)}
+    ${_d_reportTable('Por solicitante', porSolicitante)}
+  `;
+}
+
+function _d_group(lista, fn) {
+  const map = {};
+  (lista || []).forEach(x => {
+    const k = fn(x) || '—';
+    map[k] = (map[k] || 0) + 1;
+  });
+  return Object.entries(map).sort((a,b) => b[1]-a[1]).map(([key,total]) => ({key,total}));
+}
+
+function _d_reportTable(title, rows) {
+  return `
+    <div class="card">
+      <div class="card-title">${title}</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Grupo</th><th style="text-align:right">Casos</th></tr></thead>
+          <tbody>
+            ${rows.length ? rows.map(r => `
+              <tr><td>${_d_esc(r.key)}</td><td style="text-align:right;font-family:'DM Mono',monospace;font-weight:800">${r.total}</td></tr>
+            `).join('') : `<tr><td colspan="2" style="text-align:center;color:#94A3B8;padding:20px">Sin información</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
 
 function _d_render() {
   updateSidebarUser();
   const c = document.getElementById('content');
+
   if (_d_cargando) {
-    c.innerHTML = '<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:32px;height:32px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando...</div>';
-    return;
-  }
-  const ro = ROLES[currentRole];
-
-  // MANAGER: lista de supervisores, con drill-down al equipo de cada uno
-  if (currentRole === 'manager' && !_d_managerDrill) {
-    const sups = _d_EMPLEADOS.filter(e => e.system_role === 'supervisor');
-    const rows = sups.map(s => {
-      const equipo = _d_EMPLEADOS.filter(e => e.supervisor_id === s.id);
-      const recs = _d_RECORDS.filter(r => equipo.some(e => e.id === r.employee_id));
-      const activos = recs.filter(r => r.is_active).length;
-      return `<tr onclick="_d_managerDrill='${s.id}';_d_render()" style="cursor:pointer;border-top:1px solid #F1F5F9">
-        <td style="padding:10px 14px"><div style="font-size:13px;font-weight:600">${s.full_name}</div><div style="font-size:11px;color:#94A3B8">${s.id}</div></td>
-        <td style="padding:10px 14px;font-size:13px">${s.campaign_id||'—'}</td>
-        <td style="padding:10px 14px;font-size:13px">${equipo.length} agentes</td>
-        <td style="padding:10px 14px;font-size:13px">${recs.length} registros</td>
-        <td style="padding:10px 14px;font-size:13px;color:${activos>0?'#DC2626':'#16A34A'};font-weight:700">${activos} activos</td>
-      </tr>`;
-    }).join('');
-    c.innerHTML = `<div style="max-width:1000px;margin:0 auto">
-      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:12px">Supervisores <span style="font-weight:400;color:#94A3B8;font-size:11px">(clic para ver el detalle de cada equipo)</span></div>
-        <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:700px">
-          <thead style="background:#F8FAFC"><tr>
-            <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Supervisor</th>
-            <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Campaña</th>
-            <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Equipo</th>
-            <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Registros</th>
-            <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Activos</th>
-          </tr></thead><tbody>${rows||'<tr><td colspan="5" style="text-align:center;padding:30px;color:#94A3B8">No hay supervisores activos</td></tr>'}</tbody>
-        </table></div>
+    c.innerHTML = `
+      <div style="text-align:center;padding:60px;color:#94A3B8">
+        <div style="width:32px;height:32px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
+        Cargando Acciones People...
       </div>
-    </div>`;
+    `;
     return;
   }
 
-  // Determinar el set de registros visibles según el rol
-  let records, canCreate, volverManager = false;
-  if (currentRole === 'manager' && _d_managerDrill) {
-    const equipo = _d_EMPLEADOS.filter(e => e.supervisor_id === _d_managerDrill);
-    records = _d_RECORDS.filter(r => equipo.some(e => e.id === r.employee_id));
-    canCreate = false;
-    volverManager = true;
-  } else if (currentRole === 'supervisor') {
-    const equipo = _d_EMPLEADOS.filter(e => e.supervisor_id === ro.id);
-    records = _d_RECORDS.filter(r => equipo.some(e => e.id === r.employee_id));
-    canCreate = true;
-  } else if (['people','head_people'].includes(currentRole)) {
-    records = _d_RECORDS;
-    canCreate = true;
-  } else if (currentRole === 'ceo') {
-    records = _d_RECORDS;
-    canCreate = false;
-  } else {
-    records = _d_RECORDS.filter(r => r.employee_id === ro.id);
-    canCreate = false;
-  }
+  if (currentRole === 'agent' && !['historial','matriz'].includes(_d_vista)) _d_vista = 'historial';
+  if (!_d_puedeSolicitar() && _d_vista === 'nuevo') _d_vista = 'historial';
 
-  const activos = records.filter(r => r.is_active);
+  let body = '';
+  if (_d_vista === 'nuevo') body = _d_renderNuevo();
+  else if (_d_vista === 'pendientes') body = _d_renderPendientes();
+  else if (_d_vista === 'matriz') body = _d_renderMatriz();
+  else if (_d_vista === 'reportes') body = _d_renderReportes();
+  else body = _d_renderHistorial();
 
-  let rows = records.slice(0,50).map(r => {
-    const emp = _d_EMPLEADOS.find(e => e.id === r.employee_id);
-    return `<tr style="border-top:1px solid #F1F5F9">
-      <td style="padding:10px 14px"><div style="font-size:13px;font-weight:600">${emp?emp.full_name:r.employee_id}</div><div style="font-size:11px;color:#94A3B8">${r.employee_id}</div></td>
-      <td style="padding:10px 14px;font-size:13px">${r.infraction_type||'—'}</td>
-      <td style="padding:10px 14px;font-size:13px;color:#64748B">${r.infraction_date||'—'}</td>
-      <td style="padding:10px 14px">${_d_severityBadge(r.severity)}</td>
-      <td style="padding:10px 14px"><span style="font-size:11px;padding:3px 8px;border-radius:99px;background:${r.is_active?'#FEE2E2':'#F1F5F9'};color:${r.is_active?'#991B1B':'#64748B'}">${r.is_active?'Activo':'Cerrado'}</span></td>
-      <td style="padding:10px 14px;font-size:12px;color:#64748B;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${(r.description||'').slice(0,80)}</td>
-    </tr>`;
-  }).join('');
-
-  c.innerHTML = `<div style="max-width:1000px;margin:0 auto">
-    ${volverManager?`<button onclick="_d_managerDrill=null;_d_render()" style="border:1px solid #E2E8F0;border-radius:8px;padding:7px 14px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;margin-bottom:14px">← Volver a todos los supervisores</button>`:''}
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #E2E8F0"><div style="font-size:28px;font-weight:800">${records.length}</div><div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-top:4px">Total registros</div></div>
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #E2E8F0"><div style="font-size:28px;font-weight:800;color:#DC2626">${activos.length}</div><div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-top:4px">Activos</div></div>
-      <div style="background:#fff;border-radius:12px;padding:18px;border:1px solid #E2E8F0"><div style="font-size:28px;font-weight:800;color:#D97706">${records.filter(r=>r.severity==='high').length}</div><div style="font-size:11px;color:#64748B;text-transform:uppercase;margin-top:4px">Severidad alta</div></div>
-    </div>
-    <div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div style="font-weight:700;font-size:13px">Registros disciplinarios</div>
-        ${canCreate?`<button onclick="_d_abrirNuevo()" style="padding:7px 14px;background:#0F172A;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">+ Nuevo registro</button>`:''}
+  c.innerHTML = `
+    ${roleSwitcher()}
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+      <div>
+        <div style="font-size:22px;font-weight:900;letter-spacing:-.4px;color:#0F172A">Acciones People</div>
+        <div style="font-size:12px;color:#64748B;margin-top:3px">Gestión de acciones correctivas conforme a matriz, revisión y acuse.</div>
       </div>
-      ${records.length?`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:800px">
-        <thead style="background:#F8FAFC"><tr>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Empleado</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Infracción</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Fecha</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Severidad</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Status</th>
-          <th style="padding:8px 14px;text-align:left;font-size:11px;color:#64748B;font-weight:600">Descripción</th>
-        </tr></thead><tbody>${rows}</tbody>
-      </table></div>`:'<div style="text-align:center;padding:30px;color:#94A3B8">Sin registros disciplinarios</div>'}
+      ${_d_puedeSolicitar() ? `<button class="btn-primary" onclick="_d_setVista('nuevo')">+ Nuevo caso</button>` : ''}
     </div>
-  </div>`;
+    ${_d_tabs()}
+    ${body}
+  `;
+
+  if (_d_vista === 'nuevo') setTimeout(_d_actualizarResumenNuevo, 50);
 }
 
-function _d_abrirNuevo() {
-  const opts = _d_EMPLEADOS.map(e => `<option value="${e.id}">${e.full_name}${e.campaign_id?' ('+e.campaign_id+')':''}</option>`).join('');
-  document.getElementById('modalTitle').textContent = 'Nuevo Registro Disciplinario';
-  document.getElementById('modalSub').textContent = '';
+function _d_abrirMatrizDetalle(id) {
+  const m = _d_matrix(id);
+  if (!m) return;
+
+  document.getElementById('modalTitle').textContent = `Matriz #${m.matrix_no}`;
+  document.getElementById('modalSub').textContent = m.infraction_type;
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-section">
-      <label class="modal-label">EMPLEADO</label>
-      <select id="d-emp" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-        <option value="">Selecciona...</option>${opts}
-      </select>
+      <div class="ms-title">Criterio</div>
+      <div style="font-size:14px;font-weight:800;color:#0F172A">${_d_esc(m.infraction_type)}</div>
+      <div style="font-size:12px;color:#475569;line-height:1.6;margin-top:8px">${_d_esc(m.behavior_examples || '—').replace(/\n/g, '<br>')}</div>
     </div>
     <div class="modal-section">
-      <label class="modal-label">TIPO DE INFRACCIÓN</label>
-      <input type="text" id="d-tipo" placeholder="Ej: Retardo acumulado" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+      <div class="ms-title">Regla</div>
+      <div class="kv"><span class="k">Nivel base</span><span class="v">${_d_levelBadge(m.default_level)}</span></div>
+      <div class="kv"><span class="k">Niveles permitidos</span><span class="v">${(m.allowed_levels || []).map(_d_levelLabel).join(', ')}</span></div>
+      <div class="kv"><span class="k">Duración</span><span class="v">${_d_esc(m.duration_text || '—')}</span></div>
+      <div class="kv"><span class="k">People directo</span><span class="v">${m.requires_people_review ? 'Sí' : 'No'}</span></div>
+      <div class="kv"><span class="k">Falta grave</span><span class="v">${m.is_grave ? 'Sí' : 'No'}</span></div>
     </div>
     <div class="modal-section">
-      <label class="modal-label">SEVERIDAD</label>
-      <select id="d-sev" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-        <option value="low">Baja</option>
-        <option value="medium">Media</option>
-        <option value="high">Alta</option>
-      </select>
+      <div class="ms-title">Escalación / Nota</div>
+      <div style="font-size:12px;color:#475569;line-height:1.6">${_d_esc(m.escalation_condition || '—').replace(/\n/g, '<br>')}</div>
+      ${m.note ? `<div style="font-size:12px;color:#64748B;line-height:1.6;margin-top:10px"><b>Nota:</b><br>${_d_esc(m.note).replace(/\n/g, '<br>')}</div>` : ''}
     </div>
-    <div class="modal-section">
-      <label class="modal-label">FECHA</label>
-      <input type="date" id="d-fecha" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-    </div>
-    <div class="modal-section">
-      <label class="modal-label">DESCRIPCIÓN</label>
-      <textarea id="d-desc" rows="3" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)" placeholder="Describe la infracción..."></textarea>
-    </div>`;
-  document.getElementById('modalFooter').innerHTML = `
-    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-primary" onclick="_d_crearRegistro()">Guardar</button>`;
+  `;
+  document.getElementById('modalFooter').innerHTML = `<button class="btn-ghost" onclick="closeModal()">Cerrar</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
-  setTimeout(function(){ const el=document.getElementById('d-fecha'); if(el) el.value=ymd(NOW); },50);
 }
 
-async function _d_crearRegistro() {
-  const emp   = document.getElementById('d-emp')?.value;
-  const tipo  = document.getElementById('d-tipo')?.value?.trim();
-  const sev   = document.getElementById('d-sev')?.value;
-  const fecha = document.getElementById('d-fecha')?.value;
-  const desc  = document.getElementById('d-desc')?.value?.trim();
-  if (!emp)   { alert('Selecciona un empleado'); return; }
-  if (!tipo)  { alert('Escribe el tipo de infracción'); return; }
-  if (!fecha) { alert('Selecciona la fecha'); return; }
-  const ro = ROLES[currentRole];
-  const windowExpires = new Date(new Date(fecha).getTime() + 90*86400000).toISOString().slice(0,10);
-  const { error } = await _d_sb.from('disciplinary_records').insert({
-    id: crypto.randomUUID(), employee_id: emp,
-    infraction_type: tipo, infraction_date: fecha,
-    severity: sev, description: desc || null,
-    is_active: true, issued_by: ro.id,
-    window_days: 90, window_expires: windowExpires,
-  });
-  if (error) { alert('Error: ' + error.message); return; }
-  closeModal();
-  _d_cargando = true; _d_render();
-  await _d_cargarDatos();
-  _d_cargando = false; _d_render();
+function _d_abrirDetalle(id) {
+  const c = _d_CASES.find(x => x.id === id);
+  if (!c) return;
+  const emp = _d_emp(c.employee_id);
+  const m = _d_matrix(c.matrix_id);
+
+  document.getElementById('modalTitle').textContent = 'Detalle de Acción People';
+  document.getElementById('modalSub').textContent = `${emp?.full_name || c.employee_id} · ${_d_statusLabel(c.status)}`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <div class="ms-title">Colaborador</div>
+      <div class="kv"><span class="k">Nombre</span><span class="v">${_d_esc(emp?.full_name || '—')}</span></div>
+      <div class="kv"><span class="k">ID</span><span class="v">${_d_esc(c.employee_id)}</span></div>
+      <div class="kv"><span class="k">Campaña</span><span class="v">${_d_esc(emp?.campaign_id || '—')}</span></div>
+    </div>
+    <div class="modal-section">
+      <div class="ms-title">Caso</div>
+      <div class="kv"><span class="k">Infracción</span><span class="v">${_d_esc(m?.infraction_type || '—')}</span></div>
+      <div class="kv"><span class="k">Fecha incidente</span><span class="v">${fmtDate(c.incident_date)} ${c.incident_time ? '· ' + c.incident_time.slice(0,5) : ''}</span></div>
+      <div class="kv"><span class="k">Nivel recomendado</span><span class="v">${_d_levelBadge(c.recommended_level)}</span></div>
+      <div class="kv"><span class="k">Nivel aplicado</span><span class="v">${c.issued_level ? _d_levelBadge(c.issued_level) : '—'}</span></div>
+      <div class="kv"><span class="k">Status</span><span class="v">${_d_statusBadge(c.status)}</span></div>
+      <div class="kv"><span class="k">Acuse</span><span class="v">${_d_ackBadge(c.employee_ack_status)}</span></div>
+      <div class="kv"><span class="k">Vigencia</span><span class="v">${c.active_until ? fmtDate(c.active_from) + ' a ' + fmtDate(c.active_until) : '—'}</span></div>
+    </div>
+    <div class="modal-section">
+      <div class="ms-title">Hechos</div>
+      <div style="font-size:13px;color:#334155;line-height:1.6;white-space:pre-wrap">${_d_esc(c.facts)}</div>
+      ${c.evidence_url ? `<div style="margin-top:10px"><a href="${_d_esc(c.evidence_url)}" target="_blank" style="color:#0E7490;font-weight:800">Abrir evidencia</a></div>` : ''}
+    </div>
+    <div class="modal-section">
+      <div class="ms-title">Revisión</div>
+      <div class="kv"><span class="k">Solicitó</span><span class="v">${_d_esc(_d_nombre(c.requested_by))}</span></div>
+      <div class="kv"><span class="k">Fecha solicitud</span><span class="v">${_d_fmtDateTime(c.requested_at)}</span></div>
+      <div class="kv"><span class="k">Revisó</span><span class="v">${_d_esc(c.reviewed_by ? _d_nombre(c.reviewed_by) : '—')}</span></div>
+      <div class="kv"><span class="k">Fecha revisión</span><span class="v">${_d_fmtDateTime(c.reviewed_at)}</span></div>
+      ${c.review_notes ? `<div style="font-size:12px;color:#64748B;margin-top:8px"><b>Notas:</b><br>${_d_esc(c.review_notes)}</div>` : ''}
+      ${c.rejection_reason ? `<div class="alert alert-red" style="margin-top:8px;margin-bottom:0">${_d_esc(c.rejection_reason)}</div>` : ''}
+      ${c.level_adjusted ? `<div class="alert alert-amber" style="margin-top:8px;margin-bottom:0">Nivel ajustado: ${_d_esc(c.level_adjustment_reason || 'Sin motivo')}</div>` : ''}
+    </div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cerrar</button>
+    ${_d_puedeRevisarCaso(c) ? `<button class="btn-red" onclick="_d_abrirRevision('${c.id}', false)">Rechazar</button><button class="btn-green" onclick="_d_abrirRevision('${c.id}', true)">Aprobar</button>` : ''}
+    ${currentRole === 'agent' && c.employee_id === ROLES[currentRole].id && c.status === 'approved' && c.employee_ack_status === 'pending' ? `<button class="btn-cyan" onclick="_d_abrirAcuse('${c.id}')">Dar acuse</button>` : ''}
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
 }
+
+function _d_abrirRevision(id, approve) {
+  const c = _d_CASES.find(x => x.id === id);
+  if (!c) return;
+  const m = _d_matrix(c.matrix_id);
+  const niveles = ['feedback_documented','verbal','written_1','written_2','last_warning','termination'];
+
+  document.getElementById('modalTitle').textContent = approve ? 'Aprobar Acción People' : 'Rechazar Acción People';
+  document.getElementById('modalSub').textContent = `${_d_nombre(c.employee_id)} · ${m?.infraction_type || ''}`;
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <div class="ms-title">Resumen</div>
+      <div class="kv"><span class="k">Nivel recomendado</span><span class="v">${_d_levelBadge(c.recommended_level)}</span></div>
+      <div class="kv"><span class="k">Cola</span><span class="v">${_d_queueBadge(c.review_queue)}</span></div>
+      <div class="kv"><span class="k">Falta grave</span><span class="v">${c.is_grave ? 'Sí' : 'No'}</span></div>
+    </div>
+
+    ${approve ? `
+      <div class="form-row">
+        <label>Nivel a aplicar</label>
+        <select id="d-review-level" onchange="_d_toggleAdjustmentReason('${c.recommended_level}')">
+          ${niveles.map(n => `<option value="${n}" ${n === c.recommended_level ? 'selected' : ''}>${_d_levelLabel(n)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row" id="d-adjust-wrap" style="display:none">
+        <label>Motivo del ajuste de nivel</label>
+        <textarea id="d-adjust-reason" rows="3" placeholder="Explica por qué People/Manager ajustó el nivel recomendado."></textarea>
+      </div>
+    ` : ''}
+
+    <div class="form-row">
+      <label>${approve ? 'Notas de aprobación' : 'Motivo de rechazo'}</label>
+      <textarea id="d-review-notes" rows="4" placeholder="Agrega contexto para auditoría."></textarea>
+    </div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="${approve ? 'btn-green' : 'btn-red'}" onclick="_d_revisarCaso('${id}', ${approve})">${approve ? 'Aprobar' : 'Rechazar'}</button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+  if (approve) setTimeout(() => _d_toggleAdjustmentReason(c.recommended_level), 50);
+}
+
+function _d_toggleAdjustmentReason(recommended) {
+  const level = document.getElementById('d-review-level')?.value;
+  const wrap = document.getElementById('d-adjust-wrap');
+  if (!wrap) return;
+  wrap.style.display = level && level !== recommended ? 'block' : 'none';
+}
+
+async function _d_revisarCaso(id, approve) {
+  const level = approve ? document.getElementById('d-review-level')?.value : null;
+  const notes = document.getElementById('d-review-notes')?.value?.trim() || null;
+  const adjustment = approve ? document.getElementById('d-adjust-reason')?.value?.trim() || null : null;
+
+  if (!approve && !notes) {
+    alert('Captura el motivo de rechazo.');
+    return;
+  }
+
+  const { error } = await _d_sb.rpc('review_people_action_case', {
+    p_case_id: id,
+    p_approve: approve,
+    p_issued_level: level,
+    p_review_notes: notes,
+    p_adjustment_reason: adjustment
+  });
+
+  if (error) {
+    console.error('Error completo al revisar Acción People:', error);
+    alert(
+      'No se pudo revisar el caso:\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.hint ? '\n\nHint: ' + error.hint : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
+    return;
+  }
+
+  closeModal();
+  _d_cargando = true;
+  _d_render();
+  await _d_cargarDatos();
+  _d_cargando = false;
+  _d_render();
+}
+
+function _d_abrirAcuse(id) {
+  const c = _d_CASES.find(x => x.id === id);
+  if (!c) return;
+
+  document.getElementById('modalTitle').textContent = 'Acuse de Acción People';
+  document.getElementById('modalSub').textContent = _d_nombre(c.employee_id);
+  document.getElementById('modalBody').innerHTML = `
+    <div class="alert alert-amber">
+      Al firmar confirmas que fuiste notificado. Si no estás de acuerdo, puedes registrar negativa de firma con comentario.
+    </div>
+    <div class="modal-section">
+      <div class="ms-title">Caso</div>
+      <div class="kv"><span class="k">Nivel</span><span class="v">${_d_levelBadge(c.issued_level || c.recommended_level)}</span></div>
+      <div class="kv"><span class="k">Fecha incidente</span><span class="v">${fmtDate(c.incident_date)}</span></div>
+    </div>
+    <div class="form-row">
+      <label>Comentario opcional</label>
+      <textarea id="d-ack-notes" rows="4" placeholder="Comentario del colaborador."></textarea>
+    </div>
+  `;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn-red" onclick="_d_acusarCaso('${id}', false)">Me niego a firmar</button>
+    <button class="btn-green" onclick="_d_acusarCaso('${id}', true)">Firmar / aceptar</button>
+  `;
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+async function _d_acusarCaso(id, accept) {
+  const notes = document.getElementById('d-ack-notes')?.value?.trim() || null;
+
+  const { error } = await _d_sb.rpc('acknowledge_people_action_case', {
+    p_case_id: id,
+    p_accept: accept,
+    p_notes: notes
+  });
+
+  if (error) {
+    console.error('Error completo al registrar acuse:', error);
+    alert('No se pudo registrar el acuse:\n\n' + (error.message || 'Error desconocido'));
+    return;
+  }
+
+  closeModal();
+  _d_cargando = true;
+  _d_render();
+  await _d_cargarDatos();
+  _d_cargando = false;
+  _d_render();
+}
+
+async function _d_cancelarCaso(id) {
+  const reason = prompt('Motivo de cancelación/anulación:') || '';
+  if (!reason.trim()) return;
+
+  const { error } = await _d_sb.rpc('cancel_people_action_case', {
+    p_case_id: id,
+    p_reason: reason
+  });
+
+  if (error) {
+    console.error('Error completo al cancelar Acción People:', error);
+    alert('No se pudo cancelar/anular:\n\n' + (error.message || 'Error desconocido'));
+    return;
+  }
+
+  _d_cargando = true;
+  _d_render();
+  await _d_cargarDatos();
+  _d_cargando = false;
+  _d_render();
+}
+
 
 // ══ EQUIPO ═══════════════════════════════════════════════════════════
 const _e_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
