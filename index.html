@@ -11196,6 +11196,14 @@ function _d_queueBadge(q) {
   return `<span class="pill pill-blue"><span class="dot"></span>Manager / People</span>`;
 }
 
+function _d_rutaBadge(c) {
+  if (c?.auto_issued || c?.approval_required === false) {
+    return `<span class="pill pill-green"><span class="dot"></span>Emisión automática</span>`;
+  }
+
+  return _d_queueBadge(c?.review_queue);
+}
+
 function _d_puedeSolicitar() {
   return ['supervisor','manager','people','head_people'].includes(currentRole);
 }
@@ -11284,7 +11292,7 @@ function _d_renderNuevo() {
     <div class="card">
       <div class="card-title">Nuevo caso · Acción People</div>
       <div class="alert alert-blue">
-        El supervisor o manager captura los hechos. La herramienta calcula el nivel recomendado y manda el caso a revisión.
+        El supervisor o manager captura los hechos. La herramienta calcula el nivel recomendado y decide si se emite automático o si requiere revisión de People.
       </div>
 
       <div class="form-row">
@@ -11327,7 +11335,7 @@ function _d_renderNuevo() {
       <div id="d-case-summary"></div>
 
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
-        <button class="btn-primary" onclick="_d_solicitarCaso()">Enviar a revisión</button>
+        <button class="btn-primary" onclick="_d_solicitarCaso()">Crear Acción People</button>
       </div>
     </div>
   `;
@@ -11347,10 +11355,20 @@ function _d_actualizarResumenNuevo() {
     return;
   }
 
-  let reviewText = 'Manager / People';
-  if (m.requires_people_review || m.is_grave || m.default_level === 'termination' || currentRole === 'manager' || (emp && emp.system_role !== 'agent')) {
-    reviewText = 'People';
-  }
+  let reviewText = 'Emisión automática';
+const nivelBase = m.default_level;
+
+if (
+  m.is_grave ||
+  nivelBase === 'last_warning' ||
+  nivelBase === 'termination' ||
+  currentRole === 'manager' ||
+  currentRole === 'people' ||
+  currentRole === 'head_people' ||
+  (emp && emp.system_role !== 'agent')
+) {
+  reviewText = 'Revisión People';
+}
 
   box.innerHTML = `
     <div class="card" style="background:#F8FAFC;margin-top:8px">
@@ -11380,7 +11398,7 @@ async function _d_solicitarCaso() {
   if (!date) { alert('Selecciona la fecha del incidente.'); return; }
   if (!facts) { alert('Describe los hechos de forma objetiva.'); return; }
 
-  const { error } = await _d_sb.rpc('request_people_action_case', {
+  const { data: caseId, error } = await _d_sb.rpc('request_people_action_case', {
     p_employee_id: empId,
     p_matrix_id: matrixId,
     p_incident_date: date,
@@ -11402,12 +11420,23 @@ async function _d_solicitarCaso() {
   }
 
   _d_cargando = true;
+_d_render();
+
+await _d_cargarDatos();
+
+const creado = (_d_CASES || []).find(c => c.id === caseId);
+
+_d_cargando = false;
+
+if (creado?.status === 'approved' && creado?.auto_issued) {
+  _d_vista = 'historial';
   _d_render();
-  await _d_cargarDatos();
-  _d_cargando = false;
+  alert('Acción People emitida automáticamente. Queda pendiente el acuse del colaborador.');
+} else {
   _d_vista = 'pendientes';
   _d_render();
-  alert('Caso enviado a revisión.');
+  alert('Caso enviado a revisión de People.');
+}
 }
 
 function _d_casesFiltrados(base) {
@@ -11491,7 +11520,7 @@ function _d_caseRows(lista, opts = {}) {
                     ${c.level_adjusted ? `<div style="font-size:10px;color:#D97706;font-weight:800;margin-top:3px">Ajustado</div>` : ''}
                   </td>
                   <td>${_d_statusBadge(c.status)}</td>
-                  <td>${_d_queueBadge(c.review_queue)}</td>
+                  <td>${_d_rutaBadge(c)}</td>
                   <td style="font-family:'DM Mono',monospace">${fmtDateShort(c.incident_date)}</td>
                   <td>
                     <div class="agent-row-name">${_d_esc(_d_nombre(c.requested_by))}</div>
@@ -11767,7 +11796,7 @@ function _d_abrirRevision(id, approve) {
     <div class="modal-section">
       <div class="ms-title">Resumen</div>
       <div class="kv"><span class="k">Nivel recomendado</span><span class="v">${_d_levelBadge(c.recommended_level)}</span></div>
-      <div class="kv"><span class="k">Cola</span><span class="v">${_d_queueBadge(c.review_queue)}</span></div>
+      <div class="kv"><span class="k">Cola</span><span class="v">${_d_rutaBadge(c)}</span></div>
       <div class="kv"><span class="k">Falta grave</span><span class="v">${c.is_grave ? 'Sí' : 'No'}</span></div>
     </div>
 
