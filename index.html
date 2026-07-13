@@ -11318,27 +11318,56 @@ function _d_fmtDateTime(v) {
 
 function _d_levelLabel(level) {
   const map = {
+    feedback: 'Feedback documentado',
     feedback_documented: 'Feedback documentado',
+
     verbal: 'Amonestación verbal',
-    written_1: '1ra escrita',
-    written_2: '2da escrita',
+
+    first_written: 'Primera amonestación escrita',
+    written_1: 'Primera amonestación escrita',
+    escrita_1: 'Primera amonestación escrita',
+
+    second_written: 'Segunda amonestación escrita',
+    written_2: 'Segunda amonestación escrita',
+    escrita_2: 'Segunda amonestación escrita',
+
     last_warning: 'Última advertencia',
-    termination: 'Terminación / baja'
+    ultima_advertencia: 'Última advertencia',
+
+    termination: 'Baja / terminación',
+    baja: 'Baja / terminación'
   };
+
   return map[level] || level || '—';
 }
 
 function _d_levelBadge(level) {
+  const normalized = {
+    feedback_documented: 'feedback',
+    written_1: 'first_written',
+    escrita_1: 'first_written',
+    written_2: 'second_written',
+    escrita_2: 'second_written',
+    ultima_advertencia: 'last_warning',
+    baja: 'termination'
+  }[level] || level;
+
   const cfg = {
-    feedback_documented: ['#F1F5F9', '#475569'],
+    feedback: ['#F1F5F9', '#475569'],
     verbal: ['#DBEAFE', '#1D4ED8'],
-    written_1: ['#FEF3C7', '#92400E'],
-    written_2: ['#FFEDD5', '#9A3412'],
+    first_written: ['#FEF3C7', '#92400E'],
+    second_written: ['#FFEDD5', '#9A3412'],
     last_warning: ['#FEE2E2', '#991B1B'],
     termination: ['#111827', '#FFFFFF']
   };
-  const [bg, color] = cfg[level] || cfg.feedback_documented;
-  return `<span class="pill" style="background:${bg};color:${color}"><span class="dot"></span>${_d_levelLabel(level)}</span>`;
+
+  const [bg, color] = cfg[normalized] || cfg.feedback;
+
+  return `
+    <span class="pill" style="background:${bg};color:${color}">
+      <span class="dot"></span>${_d_levelLabel(normalized)}
+    </span>
+  `;
 }
 
 function _d_statusLabel(status) {
@@ -11868,18 +11897,7 @@ function _d_checked(value) {
 }
 
 function _d_levelLabelSafe(level) {
-  if (typeof _d_levelLabel === 'function') return _d_levelLabel(level);
-
-  const map = {
-    feedback: 'Feedback documentado',
-    verbal: 'Amonestación verbal',
-    first_written: 'Primera escrita',
-    second_written: 'Segunda escrita',
-    last_warning: 'Última advertencia',
-    termination: 'Baja / terminación'
-  };
-
-  return map[level] || level || '—';
+  return _d_levelLabel(level);
 }
 
 function _d_levelOptionsHTML(selectedLevels = []) {
