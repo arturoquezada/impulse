@@ -11173,6 +11173,54 @@ function _d_labelIncidencia(i) {
   return `${i.incident_date} · ${i.attendance_status || 'Falta/Ausencia'}`;
 }
 
+function _d_todayCdmxYMD() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+
+  const obj = {};
+  parts.forEach(p => { obj[p.type] = p.value; });
+
+  return `${obj.year}-${obj.month}-${obj.day}`;
+}
+
+function _d_addDaysYMD(fecha, days) {
+  const [y, m, d] = String(fecha).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+
+  return `${yy}-${mm}-${dd}`;
+}
+
+function _d_minIncidentDateYMD() {
+  return _d_addDaysYMD(_d_todayCdmxYMD(), -2);
+}
+
+function _d_puedeFechaFueraVentana() {
+  return ['people', 'head_people', 'ceo'].includes(currentRole);
+}
+
+function _d_fechaIncidentePermitida(fecha) {
+  if (!fecha) return false;
+
+  const hoy = _d_todayCdmxYMD();
+
+  if (fecha > hoy) return false;
+
+  if (_d_puedeFechaFueraVentana()) return true;
+
+  const min = _d_minIncidentDateYMD();
+
+  return fecha >= min && fecha <= hoy;
+}
+
 async function _d_onNuevoCambio() {
   _d_SELECTED_ATT_INCIDENT = null;
 
@@ -11203,7 +11251,7 @@ async function _d_cargarIncidenciasAsistencia() {
     <div class="modal-section">
       <div class="ms-title">Incidencias reales de asistencia</div>
       <div style="font-size:12px;color:#64748B">
-        Cargando incidencias reales de las últimas 48 horas...
+        Cargando incidencias reales de los últmos días...
       </div>
     </div>
   `;
@@ -11229,8 +11277,8 @@ async function _d_cargarIncidenciasAsistencia() {
   if (!_d_ATT_INCIDENTS.length) {
     box.innerHTML = `
       <div class="alert alert-amber">
-        No hay ${linkType === 'late' ? 'retardos' : 'faltas/ausencias'} reales para este colaborador dentro de las últimas 48 horas.
-        No se puede levantar esta Acción People con este criterio.
+      No hay ${linkType === 'late' ? 'retardos' : 'faltas/ausencias'} reales para este colaborador dentro de hoy, ayer o antier.
+      No se puede levantar esta Acción People con este criterio.
       </div>
     `;
     return;
@@ -11238,7 +11286,7 @@ async function _d_cargarIncidenciasAsistencia() {
 
   box.innerHTML = `
     <div class="modal-section">
-      <div class="ms-title">Incidencias reales de asistencia · últimas 48 horas</div>
+      <div class="ms-title">Incidencias reales de asistencia · últimos 3 días</div>
 
       <div style="font-size:12px;color:#64748B;margin-bottom:10px">
         Selecciona la incidencia que respalda esta Acción People.
@@ -11296,7 +11344,7 @@ function _d_resumenIncidenciaAsistenciaHTML() {
   if (!_d_SELECTED_ATT_INCIDENT) {
     return `
       <div class="alert alert-amber" style="margin-top:10px;margin-bottom:0">
-        Este criterio requiere seleccionar una incidencia real de asistencia de las últimas 48 horas.
+        Este criterio requiere seleccionar una incidencia real de asistencia de los últimos 3 días.
       </div>
     `;
   }
@@ -11538,6 +11586,10 @@ function _d_renderNuevo() {
       <div class="alert alert-blue">
         El supervisor o manager captura los hechos. La herramienta calcula el nivel recomendado y decide si se emite automático o si requiere revisión de People.
       </div>
+      <div class="alert alert-amber">
+  Solo se pueden levantar Acciones People con fecha de incidente de hoy, ayer o antier.
+  Casos especiales fuera de esta ventana deben ser gestionados por People.
+</div>
 
       <div class="form-row">
         <label>Colaborador</label>
@@ -11559,16 +11611,24 @@ function _d_renderNuevo() {
       </div>
       <div id="d-att-incidents-box"></div>
 
-      <div class="kgrid kg2">
-        <div class="form-row">
-          <label>Fecha del incidente</label>
-          <input type="date" id="d-case-date" max="${ymd(new Date())}" value="${ymd(new Date())}">
-        </div>
-        <div class="form-row">
-          <label>Hora del incidente</label>
-          <input type="time" id="d-case-time">
-        </div>
-      </div>
+<div class="kgrid kg2">
+  <div class="form-row">
+    <label>Fecha del incidente</label>
+    <input
+      type="date"
+      id="d-case-date"
+      min="${_d_puedeFechaFueraVentana() ? '' : _d_minIncidentDateYMD()}"
+      max="${_d_todayCdmxYMD()}"
+      value="${_d_todayCdmxYMD()}"
+      onchange="_d_actualizarResumenNuevo()"
+    >
+  </div>
+
+  <div class="form-row">
+    <label>Hora del incidente</label>
+    <input type="time" id="d-case-time">
+  </div>
+</div>
 
       <div class="form-row">
         <label>Evidencia / link</label>
@@ -11651,12 +11711,25 @@ async function _d_solicitarCaso() {
 if (!matrixId) { alert('Selecciona un criterio de la matriz.'); return; }
 
 if (_d_necesitaIncidenciaAsistencia() && !_d_SELECTED_ATT_INCIDENT) {
-  alert('Este criterio requiere seleccionar una incidencia real de asistencia de las últimas 48 horas.');
+  alert('Este criterio requiere seleccionar una incidencia real de asistencia de hoy, ayer o antier.');
   return;
 }
 
-if (!date) { alert('Selecciona la fecha del incidente.'); return; }
-if (!facts) { alert('Describe los hechos de forma objetiva.'); return; }
+if (!date) { 
+  alert('Selecciona la fecha del incidente.'); 
+  return; 
+}
+
+if (!_d_fechaIncidentePermitida(date)) {
+  alert('Solo puedes levantar Acciones People con fecha de incidente de hoy, ayer o antier. Casos especiales fuera de esta ventana deben ser gestionados por People.');
+  return;
+}
+
+if (!facts) { 
+  alert('Describe los hechos de forma objetiva.'); 
+  return; 
+}
+
 const { data: caseId, error } = await _d_sb.rpc('request_people_action_case', {
   p_employee_id: empId,
   p_matrix_id: matrixId,
