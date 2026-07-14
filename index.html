@@ -2909,7 +2909,7 @@ async function _a_cargarDatos() {
     // 2. Historial del rango activo del filtro de fechas
     await _a_cargarQDAYS(ro.id, _a_dateFilter.from, _a_dateFilter.to);
 
-   // 3. Equipo del supervisor (hoy)
+// 3. Equipo del supervisor (hoy)
 if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
   const { data: emps } = await _a_sb
     .from('employees')
