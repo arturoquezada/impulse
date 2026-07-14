@@ -3284,6 +3284,14 @@ async function _a_punchSB(tipo) {
 // ── OT RECORDS — conectado a Supabase ────────────────────────────────────────
 let _a_OT_RECORDS = [];
 
+// Vista especial dentro de Asistencia
+// null = vista normal
+// 'ot' = apartado completo de Tiempo Extra
+let _a_vistaEspecial = null;
+
+// Tab interna de Tiempo Extra
+let _a_otTab = 'pendientes';
+
 async function _a_cargarOTRecords() {
   const ro = ROLES[currentRole];
   const { data, error } = await _a_sb
@@ -3392,6 +3400,176 @@ function _a_calcOTPago(ot_mins, ot_semana_prev_mins, salary_monthly){
   };
 }
 
+function _a_openTiempoExtra(tab = 'pendientes') {
+  _a_vistaEspecial = 'ot';
+  _a_otTab = tab;
+
+  // Limpiar drilldowns para que no se quede atorado en un detalle
+  _a_drillAgent = null;
+  _a_drillSup = null;
+  _a_drillMgr = null;
+
+  _a_render();
+}
+
+function _a_closeTiempoExtra() {
+  _a_vistaEspecial = null;
+  _a_render();
+}
+
+function _a_setOTTab(tab) {
+  _a_otTab = tab;
+  _a_render();
+}
+
+function _a_otMinutes(r) {
+  return Number(r.minutes_extra || r.ot_mins || r.requested_minutes || r.approved_minutes || 0);
+}
+
+function _a_otNombre(r) {
+  return r.agent_name || r.full_name || r.employee_name || r.employee_id || '—';
+}
+
+function _a_otCamp(r) {
+  return r.agent_camp || r.campaign_id || '—';
+}
+
+function _a_otStatusNormalized(r) {
+  const s = String(r.status || '').trim().toLowerCase();
+
+  if (s === 'rejected') return 'declined';
+  if (s === 'cancelled') return 'declined';
+
+  return s || 'pending';
+}
+
+function _a_otCanReview(r) {
+  const status = _a_otStatusNormalized(r);
+
+  if (status !== 'pending' && status !== 'escalated_manager' && status !== 'escalated_ceo') {
+    return false;
+  }
+
+  if (status === 'pending' && ['supervisor', 'manager', 'head_people', 'people'].includes(currentRole)) {
+    return true;
+  }
+
+  if (status === 'escalated_manager' && ['manager', 'head_people', 'people'].includes(currentRole)) {
+    return true;
+  }
+
+  if (status === 'escalated_ceo' && ['ceo', 'head_people'].includes(currentRole)) {
+    return true;
+  }
+
+  return false;
+}
+
+function _a_otTipoLabel(r) {
+  const tipo = String(r.tipo_ot || r.ot_type || r.source || '').trim().toLowerCase();
+
+  if (tipo === 'pre_shift') return 'Pre-turno';
+  if (tipo === 'post_shift') return 'Post-turno';
+  if (tipo === 'rest_day') return 'Día descanso';
+  if (tipo === 'manual') return 'Manual';
+  if (tipo === 'detected') return 'Detectado';
+
+  return 'Tiempo extra';
+}
+
+function _a_otRegistrosPorRol() {
+  let records = [...(_a_OT_RECORDS || [])];
+
+  const ro = ROLES[currentRole];
+
+  if (currentRole === 'supervisor') {
+    records = records.filter(r => {
+      // Si ya tienes RLS, esto es extra. Si no, ayuda en front.
+      // Cuando no venga supervisor_id, dejamos pasar para no ocultar datos por error.
+      return !r.supervisor_id || r.supervisor_id === ro.id;
+    });
+  }
+
+  return records;
+}
+
+function _a_otRegistrosTab() {
+  const records = _a_otRegistrosPorRol();
+
+  if (_a_otTab === 'pendientes') {
+    return records.filter(r => ['pending', 'escalated_manager', 'escalated_ceo'].includes(_a_otStatusNormalized(r)));
+  }
+
+  if (_a_otTab === 'aprobadas') {
+    return records.filter(r => _a_otStatusNormalized(r) === 'approved');
+  }
+
+  if (_a_otTab === 'sin_autorizacion') {
+    return records.filter(r => {
+      const status = _a_otStatusNormalized(r);
+      const source = String(r.source || r.tipo_ot || r.ot_type || '').toLowerCase();
+
+      return (
+        status === 'unapproved' ||
+        status === 'detected' ||
+        source.includes('unapproved') ||
+        source.includes('detected')
+      );
+    });
+  }
+
+  if (_a_otTab === 'historico') {
+    return records;
+  }
+
+  return records;
+}
+
+function _a_otTabButton(tab, label, count) {
+  return `
+    <button
+      class="tab ${_a_otTab === tab ? 'on' : ''}"
+      onclick="_a_setOTTab('${tab}')"
+    >
+      ${label}${count !== null && count !== undefined ? ` · ${count}` : ''}
+    </button>
+  `;
+}
+
+function _a_otResumen() {
+  const records = _a_otRegistrosPorRol();
+
+  const pendientes = records.filter(r => ['pending', 'escalated_manager', 'escalated_ceo'].includes(_a_otStatusNormalized(r)));
+  const aprobadas = records.filter(r => _a_otStatusNormalized(r) === 'approved');
+  const declinadas = records.filter(r => ['declined', 'rejected'].includes(_a_otStatusNormalized(r)));
+  const sinAutorizacion = records.filter(r => {
+    const status = _a_otStatusNormalized(r);
+    const source = String(r.source || r.tipo_ot || r.ot_type || '').toLowerCase();
+
+    return (
+      status === 'unapproved' ||
+      status === 'detected' ||
+      source.includes('unapproved') ||
+      source.includes('detected')
+    );
+  });
+
+  const minPend = pendientes.reduce((s, r) => s + _a_otMinutes(r), 0);
+  const minAprob = aprobadas.reduce((s, r) => s + _a_otMinutes(r), 0);
+  const minSinAuth = sinAutorizacion.reduce((s, r) => s + _a_otMinutes(r), 0);
+
+  return {
+    records,
+    pendientes,
+    aprobadas,
+    declinadas,
+    sinAutorizacion,
+    minPend,
+    minAprob,
+    minSinAuth
+  };
+}
+
 function _a_otStatusLabel(status){
   return {
     pending:  {label:'Pendiente',  pill:'pill-amber', icon:'⏳'},
@@ -3406,55 +3584,64 @@ function _a_otMinsToStr(mins){
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-function _a_renderOTSection(rol){
-  if (!_a_OT_RECORDS.length) return `
-    <div class="card">
-      <div class="card-title">⏱️ Tiempo extra · LFT México</div>
-      <div style="text-align:center;padding:24px;color:#94A3B8;font-size:13px">Sin registros de tiempo extra en el período seleccionado</div>
-    </div>`;
+function _a_renderOTSection(rol) {
+  const r = _a_otResumen();
 
-  const pendientes = _a_OT_RECORDS.filter(r=>r.status==='pending').length;
-  const aprobados  = _a_OT_RECORDS.filter(r=>r.status==='approved');
-  const totalAprobMin = aprobados.reduce((s,r)=>s+r.minutes_extra,0);
-  const canReview = ['supervisor','manager'].includes(rol);
+  const totalPendientes = r.pendientes.length;
+  const totalAprobadas = r.aprobadas.length;
+  const totalSinAuth = r.sinAutorizacion.length;
 
-  let rows = '';
-  _a_OT_RECORDS.forEach(r => {
-    const st = _a_otStatusLabel(r.status);
-    const isPending = r.status === 'pending';
-    rows += `<tr>
-      <td><div class="agent-row-name">${r.agent_name}</div><div class="agent-row-id">${r.employee_id}</div></td>
-      <td>${fmtDate(r.work_date)}</td>
-      <td><span class="pill pill-gray">${r.agent_camp}</span></td>
-      <td style="font-family:'DM Mono',monospace;color:#6366F1;font-weight:700">${_a_otMinsToStr(r.minutes_extra)}</td>
-      <td><span class="pill ${st.pill}">${st.icon} ${st.label}</span></td>
-      <td style="font-size:11px;color:#64748B;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.notes||'—'}</td>
-      <td>
-        ${canReview && isPending ? `
-          <div style="display:flex;gap:6px">
-            <button onclick="_a_revisarOT('${r.id}','approved')" style="padding:4px 10px;background:#DCFCE7;color:#16A34A;border:1px solid #BBF7D0;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer">✅ Aprobar</button>
-            <button onclick="_a_revisarOT('${r.id}','declined')" style="padding:4px 10px;background:#FEE2E2;color:#DC2626;border:1px solid #FECACA;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer">❌ Declinar</button>
-          </div>` : `<span style="font-size:11px;color:#94A3B8">${r.approved_by ? 'Revisado' : '—'}</span>`}
-      </td>
-    </tr>`;
-  });
+  const border = totalSinAuth > 0
+    ? '#FCA5A5'
+    : totalPendientes > 0
+      ? '#FDE68A'
+      : '#E2E8F0';
 
-  return `<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <div>
-        <div class="card-title" style="margin-bottom:2px">⏱️ Tiempo extra · LFT México</div>
-        <div style="font-size:11px;color:#94A3B8">${_a_dateFilter.label} · ${_a_OT_RECORDS.length} registros</div>
+  return `
+    <div class="card" style="border-color:${border}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">⏱️ Tiempo Extra</div>
+          <div style="font-size:12px;color:#64748B;line-height:1.5">
+            Gestión de horas extra aprobadas, pendientes y detectadas sin autorización.
+          </div>
+        </div>
+
+        <button
+          class="btn-primary"
+          onclick="_a_openTiempoExtra('pendientes')"
+        >
+          Ver gestión
+        </button>
       </div>
-      <div style="display:flex;gap:12px">
-        ${pendientes > 0 ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:8px 14px;text-align:center"><div style="font-size:18px;font-weight:800;color:#D97706">${pendientes}</div><div style="font-size:10px;color:#92400E">Pendientes</div></div>` : ''}
-        <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:8px 14px;text-align:center"><div style="font-size:18px;font-weight:800;color:#16A34A">${_a_otMinsToStr(totalAprobMin)}</div><div style="font-size:10px;color:#166534">Total aprobado</div></div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px">
+        <div class="kpi-box incard">
+          <div class="kpi-lbl">Por revisar</div>
+          <div class="kpi-val" style="font-size:20px;color:#D97706">${_a_otMinsToStr(r.minPend)}</div>
+          <div style="font-size:11px;color:#94A3B8;margin-top:2px">
+            ${totalPendientes} registro${totalPendientes !== 1 ? 's' : ''}
+          </div>
+        </div>
+
+        <div class="kpi-box incard">
+          <div class="kpi-lbl">Aprobadas</div>
+          <div class="kpi-val" style="font-size:20px;color:#16A34A">${_a_otMinsToStr(r.minAprob)}</div>
+          <div style="font-size:11px;color:#94A3B8;margin-top:2px">
+            ${totalAprobadas} registro${totalAprobadas !== 1 ? 's' : ''}
+          </div>
+        </div>
+
+        <div class="kpi-box incard">
+          <div class="kpi-lbl">Sin autorización</div>
+          <div class="kpi-val" style="font-size:20px;color:${totalSinAuth > 0 ? '#DC2626' : '#16A34A'}">${_a_otMinsToStr(r.minSinAuth)}</div>
+          <div style="font-size:11px;color:#94A3B8;margin-top:2px">
+            ${totalSinAuth > 0 ? `${totalSinAuth} por revisar` : 'Al corriente'}
+          </div>
+        </div>
       </div>
     </div>
-    <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:700px">
-      <thead><tr><th>Agente</th><th>Fecha</th><th>Campaña</th><th>T. Extra</th><th>Status</th><th>Justificación</th><th>Acción</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div></div>
-  </div>`;
+  `;
 }
 
 // ── OVERTIME MODULE — compartido entre vistas ────────────────────────────────
@@ -3555,6 +3742,192 @@ function _a_renderOTSection(rol){
       <tbody>${rows||`<tr><td colspan="7" style="padding:16px;text-align:center;color:#94A3B8">Sin registros de overtime</td></tr>`}</tbody>
     </table></div></div>
   </div>`;
+}
+
+function _a_renderTiempoExtra() {
+  const r = _a_otResumen();
+
+  const pendientesCount = r.pendientes.length;
+  const aprobadasCount = r.aprobadas.length;
+  const sinAuthCount = r.sinAutorizacion.length;
+  const historicoCount = r.records.length;
+
+  const records = _a_otRegistrosTab();
+
+  const rows = records.map(ot => {
+    const status = _a_otStatusNormalized(ot);
+    const st = _a_otStatusLabel(status);
+    const mins = _a_otMinutes(ot);
+
+    const canReview = _a_otCanReview(ot);
+
+    const entrada = ot.start_time || ot.time_in || ot.clock_in || null;
+    const salida = ot.end_time || ot.time_out || ot.clock_out || null;
+
+    const rango = entrada || salida
+      ? `${entrada ? String(entrada).slice(0, 5) : '—'}–${salida ? String(salida).slice(0, 5) : '—'}`
+      : '—';
+
+    return `
+      <tr>
+        <td>
+          <div class="agent-row-name">${_a_otNombre(ot)}</div>
+          <div class="agent-row-id">${ot.employee_id || '—'}</div>
+        </td>
+
+        <td style="font-family:var(--fm);font-size:12px">
+          ${ot.work_date ? fmtDate(ot.work_date) : '—'}
+        </td>
+
+        <td>
+          <span class="pill pill-gray">${_a_otCamp(ot)}</span>
+        </td>
+
+        <td style="font-size:12px;color:#334155">
+          ${_a_otTipoLabel(ot)}
+          <div style="font-size:11px;color:#94A3B8;margin-top:2px;font-family:var(--fm)">
+            ${rango}
+          </div>
+        </td>
+
+        <td style="font-family:var(--fm);font-size:12px;font-weight:800;color:#6366F1">
+          ${_a_otMinsToStr(mins)}
+        </td>
+
+        <td>
+          <span class="pill ${st.pill}">${st.icon} ${st.label}</span>
+        </td>
+
+        <td style="font-size:11px;color:#64748B;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${ot.notes || ot.reason || ot.justification || '—'}
+        </td>
+
+        <td>
+          ${canReview ? `
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button
+                onclick="_a_revisarOT('${ot.id}','approved')"
+                style="padding:5px 10px;background:#DCFCE7;color:#16A34A;border:1px solid #BBF7D0;border-radius:7px;font-size:11px;font-weight:800;cursor:pointer"
+              >
+                ✅ Aprobar
+              </button>
+
+              <button
+                onclick="_a_revisarOT('${ot.id}','declined')"
+                style="padding:5px 10px;background:#FEE2E2;color:#DC2626;border:1px solid #FECACA;border-radius:7px;font-size:11px;font-weight:800;cursor:pointer"
+              >
+                ❌ Declinar
+              </button>
+            </div>
+          ` : `
+            <span style="font-size:11px;color:#94A3B8">
+              ${ot.reviewed_by || ot.approved_by ? 'Revisado' : '—'}
+            </span>
+          `}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    ${roleSwitcher()}
+
+    <div class="drilldown-header">
+      <button class="back-btn" onclick="_a_closeTiempoExtra()">← Volver</button>
+
+      <div>
+        <div style="font-size:16px;font-weight:800">⏱️ Tiempo Extra</div>
+        <div style="font-size:11px;color:#64748B;margin-top:2px">
+          ${_a_dateFilter?.label || 'Periodo actual'} · Gestión formal de horas extra
+        </div>
+      </div>
+
+      <span class="pill pill-gray">${historicoCount} registro${historicoCount !== 1 ? 's' : ''}</span>
+    </div>
+
+    <div class="kpi4">
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#D97706">${_a_otMinsToStr(r.minPend)}</div>
+        <div class="kpi-lbl">Por revisar</div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px">${pendientesCount} registro${pendientesCount !== 1 ? 's' : ''}</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#16A34A">${_a_otMinsToStr(r.minAprob)}</div>
+        <div class="kpi-lbl">Aprobadas</div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px">${aprobadasCount} registro${aprobadasCount !== 1 ? 's' : ''}</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:${sinAuthCount > 0 ? '#DC2626' : '#16A34A'}">${_a_otMinsToStr(r.minSinAuth)}</div>
+        <div class="kpi-lbl">Sin autorización</div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px">${sinAuthCount > 0 ? `${sinAuthCount} por revisar` : 'Al corriente'}</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-val">${historicoCount}</div>
+        <div class="kpi-lbl">Histórico</div>
+        <div style="font-size:11px;color:#94A3B8;margin-top:4px">Registros del periodo</div>
+      </div>
+    </div>
+
+    <div class="tabs" style="margin-bottom:14px">
+      ${_a_otTabButton('pendientes', 'Pendientes', pendientesCount)}
+      ${_a_otTabButton('aprobadas', 'Aprobadas', aprobadasCount)}
+      ${_a_otTabButton('sin_autorizacion', 'Sin autorización', sinAuthCount)}
+      ${_a_otTabButton('historico', 'Histórico / Nómina', historicoCount)}
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <div>
+          <div class="card-title" style="margin-bottom:2px">
+            ${_a_otTab === 'pendientes' ? 'Pendientes de revisión' :
+              _a_otTab === 'aprobadas' ? 'Horas extra aprobadas' :
+              _a_otTab === 'sin_autorizacion' ? 'Detectadas sin autorización' :
+              'Histórico de tiempo extra'}
+          </div>
+
+          <div style="font-size:11px;color:#94A3B8">
+            ${records.length} registro${records.length !== 1 ? 's' : ''} en esta vista
+          </div>
+        </div>
+
+        <button class="btn-ghost" onclick="_a_cargarOTRecords().then(()=>_a_render())">
+          Actualizar
+        </button>
+      </div>
+
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:980px">
+            <thead>
+              <tr>
+                <th>Agente</th>
+                <th>Fecha</th>
+                <th>Campaña</th>
+                <th>Tipo / Rango</th>
+                <th>Tiempo</th>
+                <th>Status</th>
+                <th>Justificación</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${rows || `
+                <tr>
+                  <td colspan="8" style="text-align:center;color:#94A3B8;padding:26px">
+                    Sin registros en esta vista.
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function _a_aprobarOT(id){
@@ -4117,22 +4490,49 @@ let _a_COMP_DATA={retardos:{ant:0,act:0},faltas:{ant:0,act:0},horas:{ant:0,act:0
 // ── RENDER ROOT ──
 function _a_render(){
   console.log('[Impulse] _a_render called, role='+currentRole+' content='+!!document.getElementById('content'));
+
   updateSidebarUser();
-  const c=document.getElementById('content');
-  if(_a_cargando){
-    c.innerHTML=`<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando asistencia...</div>`;
+
+  const c = document.getElementById('content');
+
+  if (_a_cargando) {
+    c.innerHTML = `
+      <div style="text-align:center;padding:60px;color:#94A3B8">
+        <div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
+        Cargando asistencia.
+      </div>
+    `;
     return;
   }
-  if(_a_drillAgent){c.innerHTML=_a_renderAgentDetail(_a_drillAgent);return}
-  if(_a_drillSup){c.innerHTML=_a_renderSupDetail(_a_drillSup);return}
-  if(_a_drillMgr){c.innerHTML=_a_renderMgrDetail(_a_drillMgr);return}
-  if(currentRole==='agent') c.innerHTML=_a_renderAgent();
-  else if(currentRole==='supervisor') c.innerHTML=_a_renderSupervisor();
-  else if(currentRole==='manager') c.innerHTML=_a_renderManager();
-  else if(currentRole==='workforce') c.innerHTML=_a_renderManager();
-  else if(currentRole==='people') c.innerHTML=_a_renderPeople();
-  else if(currentRole==='ceo') c.innerHTML=_a_renderCEO();
-  else c.innerHTML=_a_renderHeadPeople();
+
+  if (_a_drillAgent) {
+    c.innerHTML = _a_renderAgentDetail(_a_drillAgent);
+    return;
+  }
+
+  if (_a_drillSup) {
+    c.innerHTML = _a_renderSupDetail(_a_drillSup);
+    return;
+  }
+
+  if (_a_drillMgr) {
+    c.innerHTML = _a_renderMgrDetail(_a_drillMgr);
+    return;
+  }
+
+  // Vista formal de Tiempo Extra
+  if (_a_vistaEspecial === 'ot') {
+    c.innerHTML = _a_renderTiempoExtra();
+    return;
+  }
+
+  if (currentRole === 'agent') c.innerHTML = _a_renderAgent();
+  else if (currentRole === 'supervisor') c.innerHTML = _a_renderSupervisor();
+  else if (currentRole === 'manager') c.innerHTML = _a_renderManager();
+  else if (currentRole === 'workforce') c.innerHTML = _a_renderManager();
+  else if (currentRole === 'people') c.innerHTML = _a_renderPeople();
+  else if (currentRole === 'ceo') c.innerHTML = _a_renderCEO();
+  else c.innerHTML = _a_renderHeadPeople();
 }
 
 function updateSidebarUser(){
