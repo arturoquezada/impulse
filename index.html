@@ -3021,10 +3021,15 @@ if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].inclu
     }
 
     return {
-      id:       e.id,
-      name:     e.full_name,
-      camp:     e.campaign_id || '—',
-      daysOff:  e.days_off || [],
+  id:       e.id,
+  name:     e.full_name,
+  camp:     e.campaign_id || '—',
+
+  // Para poder ubicarlo siempre en la vista People/Supervisor
+  supId:    e.supervisor_id || null,
+  supervisor_id: e.supervisor_id || null,
+
+  daysOff:  e.days_off || [],
 
       shift:    exPermutaHorario?.shift_start_override?.slice(0, 5)
         || e.shift_start?.slice(0, 5)
@@ -3156,10 +3161,18 @@ _a_TEAM_ALL = allEmps || [];
           (s.attendance_status==='Falta injustificada' ? 'falta' :
            lateMin > 0 ? 'late' : 'on_time');
         // Equipo de este supervisor — excluir los que descansan hoy
-        const myTeam = (allEmps||[]).filter(a => a.supervisor_id === e.id);
-        const HOY_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
-        const myTeamActivo = myTeam.filter(a => !_a_esDescansoFecha(a.days_off, hoy));
-        const teamToday = myTeamActivo.map(a => todayAll.find(x=>x.employee_id===a.id)).filter(Boolean);
+        const myTeam = (allEmps||[]).filter(a =>
+  a.supervisor_id === e.id &&
+  a.system_role === 'agent'
+);
+
+// Estos son los que trabajan hoy, para KPIs de puntualidad.
+const myTeamActivo = myTeam.filter(a => !_a_esDescansoFecha(a.days_off, hoy));
+
+// Estos son todos los del equipo, incluyendo descansos.
+const teamToday = myTeamActivo
+  .map(a => todayAll.find(x => x.employee_id === a.id))
+  .filter(Boolean);
         return {
           id:    e.id,
           name:  e.full_name,
@@ -3185,8 +3198,8 @@ _a_TEAM_ALL = allEmps || [];
           bonusRisk: 0, costAusentismo: 0,
           noOut: teamToday.filter(s=>s.time_in&&!s.time_out).length,
           falta: status==='falta' ? {categoria:'falta_injustificada',estado:'falta_injustificada',motivo:'Sin registro',marcadaPor:'sistema',hora:'—'} : null,
-          _teamIds:     myTeamActivo.map(a=>a.id),
-          _teamCamps:   [...new Set(myTeamActivo.map(a=>a.campaign_id).filter(Boolean))],
+          _teamIds:     myTeam.map(a => a.id),
+          _teamCamps:   [...new Set(myTeam.map(a => a.campaign_id).filter(Boolean))],
           faltasTotal:  teamToday.filter(s=>s.attendance_status==='Falta injustificada').length,
           faltasPorSup: 0,
           faltasPorSistema: teamToday.filter(s=>s.attendance_status==='Falta injustificada').length,
