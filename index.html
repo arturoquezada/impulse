@@ -4210,24 +4210,55 @@ function _a_statusBadge(d) {
   return `<span class="pill pill-gray"><span class="dot"></span>Sin registro</span>`;
 }
 
+function _a_horarioAgenteLabel(a) {
+  const inicio = a?.shift || a?.shift_start || a?.horario_inicio || null;
+  const fin = a?.shiftEnd || a?.shift_end || a?.horario_fin || null;
 
-function _a_agentBadge(status, falta) {
-  if (status === 'vacaciones') {
-    return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
+  if (!inicio && !fin) return 'Horario: —';
+
+  const ini = inicio ? String(inicio).slice(0, 5) : '—';
+  const end = fin ? String(fin).slice(0, 5) : '—';
+
+  return `Horario: ${ini}–${end}`;
+}
+
+function _a_descansaHoyAgente(a, fecha) {
+  // Si ya viene calculado como descanso desde _a_cargarDatos, respetarlo.
+  if (a?.status === 'descanso') return true;
+
+  // Si hay helper de descanso normalizado, usar ese.
+  // Este helper entiende mejor español/inglés que .includes().
+  if (typeof _a_esDescansoFecha === 'function') {
+    return _a_esDescansoFecha(a?.daysOff || [], fecha);
   }
 
+  // Fallback viejo
+  const d = new Date(fecha + 'T12:00:00');
+  const slug = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][d.getDay()];
+  return (a?.daysOff || []).includes(slug);
+}
+
+function _a_agentBadge(status, falta) {
   if (status === 'descanso') {
     return `<span class="pill" style="background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0">🌙 Descanso</span>`;
+  }
+
+  if (status === 'vacaciones') {
+    return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
   }
 
   if (status === 'falta' && falta) {
     const cfg = _a_CATEGORIA_CONFIG[falta.categoria] || _a_CATEGORIA_CONFIG.falta_injustificada;
     const por = falta.marcadaPor === 'sistema' ? ' 🤖' : ' 👤';
-    const pend = falta.estado === 'pendiente_comprobante' ? ' ⏳' : '';
 
-    return `<span class="pill" style="background:${cfg.bg};color:${cfg.color};border:1px solid ${cfg.border}">
-      <span class="dot"></span>${cfg.label}${pend}${por}
-    </span>`;
+    const estado = String(falta.estado || '').toLowerCase();
+    const pend = ['pending', 'pendiente', 'pendiente_comprobante'].includes(estado) ? ' ⏳' : '';
+
+    return `
+      <span class="pill" style="background:${cfg.bg};color:${cfg.color};border:1px solid ${cfg.border}">
+        <span class="dot"></span>${cfg.label}${pend}${por}
+      </span>
+    `;
   }
 
   if (status === 'falta') {
@@ -4235,7 +4266,9 @@ function _a_agentBadge(status, falta) {
   }
 
   if (status === 'sin_punch') {
-    return `<span class="pill pill-amber" style="animation:pulse 1.5s infinite"><span class="dot"></span>Sin punch ⏳</span>`;
+    return `<span class="pill pill-amber" style="animation:pulse 1.5s infinite">
+      <span class="dot"></span>Sin punch ⏳
+    </span>`;
   }
 
   if (status === 'late') {
@@ -5796,56 +5829,125 @@ ${_a_renderCambioDescansoBox()}
 }
 
 // DRILL — supervisor desde manager/head
-function _a_renderSupDetail(supId){
-  const sup = _a_SUPS_REAL.find(s=>s.id===supId);
+function _a_renderSupDetail(supId) {
+  const sup = _a_SUPS_REAL.find(s => s.id === supId);
   const supName = sup ? sup.name : supId;
   const supCamp = sup ? sup.camp : '—';
+
+  const hoy = ymd(NOW);
+
   const myTeam = sup && sup._teamIds
     ? _a_TEAM.filter(a => sup._teamIds.includes(a.id))
     : _a_TEAM;
 
-  // Día de la semana en slug inglés — usa ymd(NOW) porque 'hoy' es local de _a_cargarDatos
-  const HOY_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(ymd(NOW) + 'T12:00:00').getDay()];
+  const onTime = myTeam.filter(a => !_a_descansaHoyAgente(a, hoy) && a.status === 'on_time').length;
+  const late   = myTeam.filter(a => !_a_descansaHoyAgente(a, hoy) && a.status === 'late').length;
+  const absent = myTeam.filter(a => !_a_descansaHoyAgente(a, hoy) && a.status === 'falta').length;
+  const rest   = myTeam.filter(a => _a_descansaHoyAgente(a, hoy)).length;
 
-  const onTime = myTeam.filter(a=>a.status==='on_time').length;
-  const late   = myTeam.filter(a=>a.status==='late').length;
-  const absent = myTeam.filter(a=>a.status==='falta').length;
   let rows = '';
-  myTeam.forEach(a=>{
-    const lateMin = a.lateMin || 0;
-    // Si el agente descansa hoy, forzar status descanso sin importar qué diga _a_TEAM
-    const descansaHoy = (a.daysOff || []).includes(HOY_DIA_SLUG);
+
+  myTeam.forEach(a => {
+    const descansaHoy = _a_descansaHoyAgente(a, hoy);
+
+    const lateMin = descansaHoy ? 0 : (a.lateMin || 0);
     const statusFinal = descansaHoy ? 'descanso' : a.status;
-    const faltaFinal  = descansaHoy ? null : a.falta;
-    rows+=`<tr onclick="_a_drillToAgent('${a.id}')">
-      <td><div class="agent-row-name">${a.name}</div><div class="agent-row-id">${a.id}</div></td>
-      <td style="font-family:var(--fm);font-size:12px">${descansaHoy?'—':a.entrada||'—'}</td>
-      <td style="font-family:var(--fm);font-size:12px">${descansaHoy?'—':a.salida||'—'}</td>
-      <td style="font-family:var(--fm);font-size:12px;color:${lateMin>0?'#B45309':'#94A3B8'}">${descansaHoy||lateMin===0?'—':lateMin+' min'}</td>
-      <td style="font-family:var(--fm);font-size:12px;color:#6366F1">${descansaHoy?'—':a.worked?_a_secsHHMM(a.worked):'—'}</td>
-      <td>${_a_agentBadge(statusFinal,faltaFinal)}</td>
-    </tr>`;
+    const faltaFinal = descansaHoy ? null : a.falta;
+
+    rows += `
+      <tr onclick="_a_drillToAgent('${a.id}')">
+        <td>
+          <div class="agent-row-name">${a.name}</div>
+          <div class="agent-row-id">${a.id}</div>
+          <div style="font-size:11px;color:#64748B;margin-top:3px;font-family:var(--fm)">
+            ${_a_horarioAgenteLabel(a)}
+          </div>
+        </td>
+
+        <td style="font-family:var(--fm);font-size:12px">
+          ${descansaHoy ? '—' : (a.entrada || '—')}
+        </td>
+
+        <td style="font-family:var(--fm);font-size:12px">
+          ${descansaHoy ? '—' : (a.salida || '—')}
+        </td>
+
+        <td style="font-family:var(--fm);font-size:12px;color:${lateMin > 0 ? '#B45309' : '#94A3B8'}">
+          ${descansaHoy || lateMin === 0 ? '—' : lateMin + ' min'}
+        </td>
+
+        <td style="font-family:var(--fm);font-size:12px;color:#6366F1">
+          ${descansaHoy ? '—' : (a.worked ? _a_secsHHMM(a.worked) : '—')}
+        </td>
+
+        <td>${_a_agentBadge(statusFinal, faltaFinal)}</td>
+      </tr>
+    `;
   });
+
   return `${roleSwitcher()}
-  <div class="drilldown-header">
-    <button class="back-btn" onclick="_a_drillSup=null;_a_render()">← Volver</button>
-    <div style="font-size:14px;font-weight:600">${supName}</div>
-    <span class="pill pill-gray">${supCamp}</span>
-  </div>
-  <div class="kpi4">
-    <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${onTime}</div><div class="kpi-lbl">A tiempo</div></div>
-    <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${late}</div><div class="kpi-lbl">Retardos</div></div>
-    <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${absent}</div><div class="kpi-lbl">Faltas</div></div>
-    <div class="kpi-box"><div class="kpi-val">${myTeam.length}</div><div class="kpi-lbl">Agentes</div></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Equipo de ${supName} · ${myTeam.length} agentes</div>
-    ${myTeam.length===0?'<div style="text-align:center;padding:30px;color:#94A3B8">Sin agentes cargados — los datos de asistencia del equipo se cargan cuando hay punches del día</div>':''}
-    <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:600px">
-      <thead><tr><th>Agente</th><th>Entrada</th><th>Salida</th><th>Min tarde</th><th>Trabajado</th><th>Status</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div></div>
-  </div>`;
+    <div class="drilldown-header">
+      <button class="back-btn" onclick="_a_drillSup=null;_a_render()">← Volver</button>
+      <div>
+        <div style="font-size:14px;font-weight:700">${supName}</div>
+        <div style="font-size:11px;color:#64748B;margin-top:2px">${supCamp}</div>
+      </div>
+      <span class="pill pill-gray">${myTeam.length} agentes</span>
+    </div>
+
+    <div class="kpi4">
+      <div class="kpi-box">
+        <div class="kpi-val">${myTeam.length}</div>
+        <div class="kpi-lbl">Agentes</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#16A34A">${onTime}</div>
+        <div class="kpi-lbl">A tiempo</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#D97706">${late}</div>
+        <div class="kpi-lbl">Retardos</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#64748B">${rest}</div>
+        <div class="kpi-lbl">Descansos</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Equipo de ${supName}</div>
+
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:760px">
+            <thead>
+              <tr>
+                <th>Agente</th>
+                <th>Entrada</th>
+                <th>Salida</th>
+                <th>Min tarde</th>
+                <th>Trabajado</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+
+            <tbody id="teamBody">
+              ${rows || `
+                <tr>
+                  <td colspan="6" style="text-align:center;color:#94A3B8;padding:20px">
+                    Sin agentes registrados para este supervisor
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 
