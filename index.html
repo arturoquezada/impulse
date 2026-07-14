@@ -2645,8 +2645,8 @@ let _a_PUNCHES_HOY  = [];  // ya no se usa (feed eliminado)
 async function _a_cargarQDAYS(empId, from, to) {
   const [empRes, summaryRes, notesRes, excepRes, vacRes] = await Promise.all([
     _a_sb
-    .from('employees')
-    .select('days_off, shift_start, shift_end')
+      .from('employees')
+      .select('days_off, shift_start, shift_end')
       .eq('id', empId)
       .maybeSingle(),
 
@@ -2667,8 +2667,8 @@ async function _a_cargarQDAYS(empId, from, to) {
       .lte('punch_date', to),
 
     _a_sb
-    .from('attendance_exceptions')
-    .select('exception_date, type, notes, status, shift_start_override, shift_end_override')
+      .from('attendance_exceptions')
+      .select('exception_date, type, notes, status, shift_start_override, shift_end_override')
       .eq('employee_id', empId)
       .gte('exception_date', from)
       .lte('exception_date', to),
@@ -2697,27 +2697,58 @@ async function _a_cargarQDAYS(empId, from, to) {
 
     const s = summary.find(x => x.punch_date === fecha);
     const n = notesData.find(x => x.punch_date === fecha);
-    const exListDia = excep.filter(x => x.exception_date === fecha && (x.status === 'approved' || !x.status));
-const ex = exListDia.find(x => !_a_esPermutaTrabajo(x.type) && !_a_esPermutaDescanso(x.type)) || exListDia[0];
 
-const exPermutaTrabajo = exListDia.find(x => _a_esPermutaTrabajo(x.type));
-const exPermutaDescanso = exListDia.find(x => _a_esPermutaDescanso(x.type));
-const exPermutaHorario = exListDia.find(x =>
-  String(x.type || '').trim().toLowerCase() === 'permuta_horario'
-);
+    // Todas las excepciones válidas del día.
+    // Incluye pending y approved, pero excluye rejected/cancelled.
+    const exListDiaAll = excep.filter(x =>
+      x.exception_date === fecha &&
+      !['rejected', 'cancelled'].includes(String(x.status || '').toLowerCase())
+    );
 
-const vac = vacaciones.find(v =>
-  v.start_date <= fecha && v.end_date >= fecha
-);
+    // Para modificar horario/descanso por permuta, solo usamos approved o sin status.
+    // Así una permuta pendiente no cambia el histórico todavía.
+    const exListDiaApproved = exListDiaAll.filter(x =>
+      x.status === 'approved' || !x.status
+    );
 
-const descansoBase = _a_esDescansoFecha(daysOff, fecha);
+    const exPermutaTrabajo = exListDiaApproved.find(x => _a_esPermutaTrabajo(x.type));
+    const exPermutaDescanso = exListDiaApproved.find(x => _a_esPermutaDescanso(x.type));
+    const exPermutaHorario = exListDiaApproved.find(x =>
+      String(x.type || '').trim().toLowerCase() === 'permuta_horario'
+    );
 
-// Si hay permuta_trabajo, aunque sea su descanso normal, ese día debe trabajar.
-// Si hay permuta_descanso, aunque sea día laboral normal, ese día descansa.
-const esDescanso = exPermutaTrabajo ? false : exPermutaDescanso ? true : descansoBase;
+    // Excepción de falta/permiso/incapacidad/vacación del día.
+    // Aquí sí tomamos pending para mostrar "Permiso pend.", "Falta inj. pend.", etc.
+    const ex = exListDiaAll.find(x =>
+      !_a_esPermutaTrabajo(x.type) &&
+      !_a_esPermutaDescanso(x.type) &&
+      String(x.type || '').trim().toLowerCase() !== 'permuta_horario'
+    ) || null;
 
-// Si hay permuta_trabajo, no debe tratarse como vacaciones aunque hubiera otra marca rara.
-const esVacacion = exPermutaTrabajo ? false : (!!vac || _a_esVacacionesType(ex?.type));
+    const vac = vacaciones.find(v =>
+      v.start_date <= fecha && v.end_date >= fecha
+    );
+
+    const descansoBase = _a_esDescansoFecha(daysOff, fecha);
+
+    // Si hay permuta_trabajo, aunque sea su descanso normal, ese día debe trabajar.
+    // Si hay permuta_descanso, aunque sea día laboral normal, ese día descansa.
+    const esDescanso = exPermutaTrabajo ? false : exPermutaDescanso ? true : descansoBase;
+
+    // Vacaciones solo si vienen aprobadas desde vacation_requests
+    // o si la excepción tipo vacaciones está aprobada.
+    const exType = String(ex?.type || s?.exception_type || '').trim().toLowerCase();
+    const exStatus = String(ex?.status || s?.exception_status || '').trim().toLowerCase();
+
+    const esVacacion = exPermutaTrabajo
+      ? false
+      : (
+          !!vac ||
+          (
+            _a_esVacacionesType(exType) &&
+            (exStatus === 'approved' || !exStatus)
+          )
+        );
 
     let tiempoExtraMin = 0;
 
@@ -2738,44 +2769,51 @@ const esVacacion = exPermutaTrabajo ? false : (!!vac || _a_esVacacionesType(ex?.
     }
 
     const tipoFalta = esVacacion
-  ? 'vacaciones'
-  : exPermutaDescanso
-    ? 'permuta_descanso'
-    : exPermutaTrabajo
-      ? 'permuta_trabajo'
-      : exPermutaHorario
-        ? 'permuta_horario'
-        : esDescanso
-          ? null
-          : ex?.type || s?.exception_type || null;
+      ? 'vacaciones'
+      : exPermutaDescanso
+        ? 'permuta_descanso'
+        : exPermutaTrabajo
+          ? 'permuta_trabajo'
+          : exPermutaHorario
+            ? 'permuta_horario'
+            : esDescanso
+              ? null
+              : ex?.type || s?.exception_type || null;
 
-const estatus = esVacacion
-  ? 'Vacaciones'
-  : exPermutaDescanso
-    ? 'Descanso por permuta'
-    : exPermutaTrabajo
-      ? (s?.attendance_status || (s ? 'Normal' : 'Sin registro'))
-      : esDescanso
-        ? 'Descanso'
-        : s?.attendance_status || (s ? 'Normal' : 'Sin registro');
-        const horarioInicio = exPermutaHorario?.shift_start_override
-  || s?.shift_start
-  || empRes.data?.shift_start
-  || null;
+    const estadoFalta = esVacacion
+      ? 'approved'
+      : ex?.status || s?.exception_status || null;
 
-const horarioFin = exPermutaHorario?.shift_end_override
-  || s?.shift_end
-  || empRes.data?.shift_end
-  || null;
+    const estatus = esVacacion
+      ? 'Vacaciones'
+      : exPermutaDescanso
+        ? 'Descanso por permuta'
+        : exPermutaTrabajo
+          ? (s?.attendance_status || (s ? 'Normal' : 'Sin registro'))
+          : esDescanso
+            ? 'Descanso'
+            : s?.attendance_status || (s ? 'Normal' : 'Sin registro');
+
+    const horarioInicio = exPermutaHorario?.shift_start_override
+      || s?.shift_start
+      || empRes.data?.shift_start
+      || null;
+
+    const horarioFin = exPermutaHorario?.shift_end_override
+      || s?.shift_end
+      || empRes.data?.shift_end
+      || null;
 
     dias.push({
       fecha,
-      horario_inicio: horarioInicio,
-horario_fin: horarioFin,
-horario_es_permuta: !!exPermutaHorario,
 
-shift_start_override: exPermutaHorario?.shift_start_override || null,
-shift_end_override: exPermutaHorario?.shift_end_override || null,
+      horario_inicio: horarioInicio,
+      horario_fin: horarioFin,
+      horario_es_permuta: !!exPermutaHorario,
+
+      shift_start_override: exPermutaHorario?.shift_start_override || null,
+      shift_end_override: exPermutaHorario?.shift_end_override || null,
+
       // Ya no usamos sábado/domingo como descanso automático.
       // Se queda en false para no bloquear sábados/domingos trabajados.
       weekend: false,
@@ -2817,21 +2855,29 @@ shift_end_override: exPermutaHorario?.shift_end_override || null,
           : false,
 
       estatus,
+
       tipo_falta: tipoFalta,
+      estado_falta: estadoFalta,
+
       motivo_falta: esVacacion
-  ? 'Vacaciones aprobadas'
-  : exPermutaDescanso
-    ? 'Descanso por permuta'
-    : exPermutaTrabajo
-      ? 'Trabajo por permuta'
-      : ex?.notes || null,
+        ? 'Vacaciones aprobadas'
+        : exPermutaDescanso
+          ? 'Descanso por permuta'
+          : exPermutaTrabajo
+            ? 'Trabajo por permuta'
+            : ex?.notes || s?.exception_notes || null,
+
       motivo_retardo: esDescanso || esVacacion ? null : n?.notes || null,
 
-shift_start_override: exPermutaHorario?.shift_start_override || null,
-shift_end_override: exPermutaHorario?.shift_end_override || null
+      // Campos nuevos de auditoría/cálculo si vienen desde attendance_daily_summary
+      time_in_for_calculation: s?.time_in_for_calculation || null,
+      early_arrival_minutes: s?.early_arrival_minutes || 0,
+      early_grace_minutes: s?.early_grace_minutes || 0,
+      approved_ot_minutes: s?.approved_ot_minutes || 0,
+      pre_shift_ot_minutes: s?.pre_shift_ot_minutes || 0,
+      unapproved_early_minutes: s?.unapproved_early_minutes || 0
     });
-    
-    
+
     cur.setDate(cur.getDate() + 1);
   }
 
@@ -4041,38 +4087,58 @@ function _a_roleSwitcherHTML(){
 
 // ── HELPERS ──
 function _a_statusBadge(d) {
-  if (String(d.tipo_falta || '').trim().toLowerCase() === 'permuta_horario') {
-  const h = d.shift_start_override && d.shift_end_override
-    ? ` ${String(d.shift_start_override).slice(0,5)}–${String(d.shift_end_override).slice(0,5)}`
-    : '';
+  const tipo = String(d.tipo_falta || '').trim().toLowerCase();
+  const estado = String(d.estado_falta || '').trim().toLowerCase();
 
-  return `<span class="pill pill-cyan"><span class="dot"></span>Horario por permuta${h}</span>`;
-}
+  const pendiente = estado === 'pending';
+  const aprobado = estado === 'approved';
+
+  if (tipo === 'permuta_horario') {
+    const h = d.shift_start_override && d.shift_end_override
+      ? ` ${String(d.shift_start_override).slice(0, 5)}–${String(d.shift_end_override).slice(0, 5)}`
+      : '';
+
+    return `<span class="pill pill-cyan"><span class="dot"></span>Horario por permuta${h}</span>`;
+  }
+
   if (_a_esPermutaDescanso(d.tipo_falta)) {
-  return `<span class="pill pill-purple"><span class="dot"></span>Descanso por permuta</span>`;
-}
+    return `<span class="pill pill-purple"><span class="dot"></span>Descanso por permuta</span>`;
+  }
 
-if (_a_esPermutaTrabajo(d.tipo_falta)) {
-  return `<span class="pill pill-cyan"><span class="dot"></span>Trabajo por permuta</span>`;
-}
+  if (_a_esPermutaTrabajo(d.tipo_falta)) {
+    return `<span class="pill pill-cyan"><span class="dot"></span>Trabajo por permuta</span>`;
+  }
+
   if (d.esVacacion || _a_esVacacionesType(d.tipo_falta)) {
-    return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
+    return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones${pendiente ? ' pend.' : ''}</span>`;
   }
 
   if (d.esDescanso) {
     return `<span class="pill" style="background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0">🌙 Descanso</span>`;
   }
 
-  if (d.tipo_falta && _a_esFaltaType(d.tipo_falta)) {
-    const label = d.tipo_falta === 'incapacidad'
-      ? 'Incapacidad'
-      : d.tipo_falta === 'permiso'
-        ? 'Permiso'
-        : d.tipo_falta === 'falta_justificada'
-          ? 'Falta just.'
-          : 'Falta inj.';
+  if (tipo === 'permiso') {
+    return `<span class="pill pill-blue"><span class="dot"></span>Permiso${pendiente ? ' pend.' : ''}</span>`;
+  }
 
-    return `<span class="pill pill-red"><span class="dot"></span>${label}</span>`;
+  if (tipo === 'incapacidad') {
+    return `<span class="pill pill-purple"><span class="dot"></span>Incapacidad${pendiente ? ' pend.' : ''}</span>`;
+  }
+
+  if (tipo === 'falta_justificada') {
+    return `<span class="pill pill-amber"><span class="dot"></span>Falta just.${pendiente ? ' pend.' : ''}</span>`;
+  }
+
+  if (tipo === 'falta_injustificada') {
+    return `<span class="pill pill-red"><span class="dot"></span>Falta inj.${pendiente ? ' pend.' : ''}</span>`;
+  }
+
+  if (tipo && _a_esFaltaType(tipo)) {
+    return `<span class="pill pill-red"><span class="dot"></span>${tipo}${pendiente ? ' pend.' : ''}</span>`;
+  }
+
+  if (d.estatus === 'early_unapproved' || d.unapproved_early_minutes > 0) {
+    return `<span class="pill pill-amber"><span class="dot"></span>Entrada anticipada</span>`;
   }
 
   if (d.es_retardo) {
