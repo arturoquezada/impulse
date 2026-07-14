@@ -2909,113 +2909,167 @@ async function _a_cargarDatos() {
     // 2. Historial del rango activo del filtro de fechas
     await _a_cargarQDAYS(ro.id, _a_dateFilter.from, _a_dateFilter.to);
 
-    // 3. Equipo del supervisor (hoy)
-    if (['supervisor','manager','people','head_people','workforce','ceo'].includes(currentRole)) {
-      const { data: emps } = await _a_sb
-        .from('employees')
-        .select('id, full_name, campaign_id, shift_start, shift_end, shift_hours, supervisor_id, days_off')
-        .eq('status','active')
-        .eq(currentRole === 'supervisor' ? 'supervisor_id' : 'status', currentRole === 'supervisor' ? ro.id : 'active');
+   // 3. Equipo del supervisor (hoy)
+if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
+  const { data: emps } = await _a_sb
+    .from('employees')
+    .select('id, full_name, campaign_id, shift_start, shift_end, shift_hours, supervisor_id, days_off, system_role')
+    .eq('status', 'active')
+    .eq(
+      currentRole === 'supervisor' ? 'supervisor_id' : 'status',
+      currentRole === 'supervisor' ? ro.id : 'active'
+    );
 
-      const empList = currentRole === 'supervisor'
-        ? (emps || [])
-        : (emps || []).filter(e => e.supervisor_id !== null);
+  const empList = currentRole === 'supervisor'
+    ? (emps || [])
+    : (emps || []).filter(e => e.supervisor_id !== null && e.system_role === 'agent');
 
-      // Cargar asistencia de hoy para el equipo
-      const empIds = empList.map(e => e.id);
-      let todaySummary = [];
-      if (empIds.length > 0) {
-        const { data: ts } = await _a_sb
-          .from('attendance_daily_summary')
-          .select('*')
-          .eq('punch_date', hoy)
-          .in('employee_id', empIds);
-        todaySummary = ts || [];
+  // Cargar asistencia de hoy para el equipo
+  const empIds = empList.map(e => e.id);
+
+  let todaySummary = [];
+  if (empIds.length > 0) {
+    const { data: ts } = await _a_sb
+      .from('attendance_daily_summary')
+      .select('*')
+      .eq('punch_date', hoy)
+      .in('employee_id', empIds);
+
+    todaySummary = ts || [];
+  }
+
+  // Cargar excepciones de hoy del equipo
+  let excepcionesHoy = [];
+  if (empIds.length > 0) {
+    const { data: ex } = await _a_sb
+      .from('attendance_exceptions')
+      .select('employee_id, type, notes, status, shift_start_override, shift_end_override')
+      .eq('exception_date', hoy)
+      .in('employee_id', empIds);
+
+    excepcionesHoy = (ex || []).filter(x =>
+      !['rejected', 'cancelled'].includes(String(x.status || '').toLowerCase())
+    );
+  }
+
+  _a_TEAM = empList.map(e => {
+    const s = todaySummary.find(x => x.employee_id === e.id);
+    const exList = excepcionesHoy.filter(x => x.employee_id === e.id);
+
+    const exPermutaTrabajo = exList.find(x =>
+      typeof _a_esPermutaTrabajo === 'function' &&
+      _a_esPermutaTrabajo(x.type) &&
+      (x.status === 'approved' || !x.status)
+    );
+
+    const exPermutaDescanso = exList.find(x =>
+      typeof _a_esPermutaDescanso === 'function' &&
+      _a_esPermutaDescanso(x.type) &&
+      (x.status === 'approved' || !x.status)
+    );
+
+    const exPermutaHorario = exList.find(x =>
+      String(x.type || '').trim().toLowerCase() === 'permuta_horario' &&
+      (x.status === 'approved' || !x.status)
+    );
+
+    const exHoy = exList.find(x =>
+      !(typeof _a_esPermutaTrabajo === 'function' && _a_esPermutaTrabajo(x.type)) &&
+      !(typeof _a_esPermutaDescanso === 'function' && _a_esPermutaDescanso(x.type)) &&
+      String(x.type || '').trim().toLowerCase() !== 'permuta_horario'
+    );
+
+    const lateMin = s ? (s.minutes_late || 0) : 0;
+
+    // OJO:
+    // Antes se usaba: (e.days_off || []).includes(HOY_DIA_SLUG)
+    // Eso falla si days_off viene en español o con mayúsculas.
+    // Ahora usamos el helper que normaliza domingo/sunday/dom/etc.
+    const descansoBase = typeof _a_esDescansoFecha === 'function'
+      ? _a_esDescansoFecha(e.days_off || [], hoy)
+      : (e.days_off || []).includes(HOY_DIA_SLUG);
+
+    // Permutas aprobadas pueden cambiar el descanso real del día.
+    const descansaHoy = exPermutaTrabajo
+      ? false
+      : exPermutaDescanso
+        ? true
+        : descansoBase;
+
+    let status = descansaHoy ? 'descanso' : 'sin_punch';
+
+    if (descansaHoy) {
+      status = 'descanso';
+    } else if (s) {
+      const ast = s.attendance_status;
+
+      if (ast === 'absent' || ast === 'excused_absence') {
+        status = 'falta';
+      } else if (ast === 'missing_checkout') {
+        status = 'on_time';
+      } else if (ast === 'no_show' || ast === 'late' || lateMin > 0) {
+        status = 'late';
+      } else if (ast === 'early_unapproved') {
+        status = 'late';
+      } else if (ast === 'on_time' || ast === 'early_arrival' || s.time_in) {
+        status = 'on_time';
       }
-
-      // Día de semana actual en slug inglés (para comparar con days_off)
-      // Calcular el día de la semana desde la fecha LOCAL ya cargada (hoy = 'YYYY-MM-DD')
-      // usando T12:00:00 para evitar desfases de UTC vs hora México
-      const HOY_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
-
-      // Cargar excepciones de hoy del equipo (para saber si la falta es del bot o del supervisor)
-      let excepcionesHoy = [];
-      if (empIds.length > 0) {
-        const { data: ex } = await _a_sb
-          .from('attendance_exceptions')
-          .select('employee_id, type, notes, status')
-          .eq('exception_date', hoy)
-          .in('employee_id', empIds);
-        excepcionesHoy = ex || [];
-      }
-      let vacacionesHoy = [];
-
-if (empIds.length > 0) {
-  const { data: vac } = await _a_sb
-    .from('vacation_requests')
-    .select('employee_id, start_date, end_date, status')
-    .eq('status', 'approved')
-    .lte('start_date', hoy)
-    .gte('end_date', hoy)
-    .in('employee_id', empIds);
-
-  vacacionesHoy = vac || [];
-}
-      _a_TEAM = empList.map(e => {
-        const s = todaySummary.find(x => x.employee_id === e.id);
-        const lateMin = s ? (s.minutes_late || 0) : 0;
-        const descansaHoy = _a_esDescansoFecha(e.days_off, hoy);
-        const exHoy = excepcionesHoy.find(x => x.employee_id === e.id);
-        const vacHoy = vacacionesHoy.find(x => x.employee_id === e.id);
-const esVacacionHoy = !!vacHoy || _a_esVacacionesType(exHoy?.type);
-        let status = descansaHoy ? 'descanso' : 'sin_punch';
-
-        if (!descansaHoy && esVacacionHoy) {
-  status = 'vacaciones';
-} else if (!descansaHoy && s) {
-  const ast = s.attendance_status;
-
-  if (ast === 'absent' || ast === 'excused_absence') status = 'falta';
-  else if (ast === 'missing_checkout') status = 'on_time';
-  else if (ast === 'no_show' || ast === 'late' || lateMin > 0) status = 'late';
-  else if (ast === 'on_time' || s.time_in) status = 'on_time';
-} else if (!descansaHoy && !s && exHoy) {
-  status = _a_esVacacionesType(exHoy.type) ? 'vacaciones' : 'falta';
-}
-        return {
-          id:         e.id,
-          name:       e.full_name,
-          camp:       e.campaign_id || '—',
-          daysOff:    e.days_off || [],
-          shift:      e.shift_start?.slice(0,5) || '—',
-          shiftEnd:   e.shift_end?.slice(0,5)   || '—',
-          shiftH:     Math.round(e.shift_hours || 9),
-          status,
-          late:       lateMin,
-          lateMin,
-          entrada:    s?.time_in?.slice(0,5)  || null,
-          salida:     s?.time_out?.slice(0,5) || null,
-          worked:     s ? Math.round((s.hours_worked||0)*3600) : null,
-          lateSecs:   lateMin * 60,
-          sanctions:  0, // se conectará con disciplinary_records
-          salary:     0, // se conectará con employees_payroll
-          retardos30: 0,
-          faltas30:   0,
-          falta:      status === 'falta' ? (() => {
-            const ex = exHoy || excepcionesHoy.find(x => x.employee_id === e.id);
-            const esBot = ex?.notes === 'Falta agregada por Bot';
-            return {
-              categoria: ex?.type || s?.exception_type || 'falta_injustificada',
-              estado:    ex?.status || s?.exception_status || 'falta_injustificada',
-              motivo:    ex?.notes || 'Sin registro',
-              marcadaPor: esBot ? 'sistema' : 'supervisor',
-              hora:'—', nota:''
-            };
-          })() : null,
-        };
-      });
+    } else if (!s && exHoy) {
+      // Sin punch pero con excepción registrada:
+      // permiso, incapacidad, falta justificada, falta injustificada, etc.
+      status = 'falta';
     }
 
+    return {
+      id:       e.id,
+      name:     e.full_name,
+      camp:     e.campaign_id || '—',
+      daysOff:  e.days_off || [],
+
+      shift:    exPermutaHorario?.shift_start_override?.slice(0, 5)
+        || e.shift_start?.slice(0, 5)
+        || '—',
+
+      shiftEnd: exPermutaHorario?.shift_end_override?.slice(0, 5)
+        || e.shift_end?.slice(0, 5)
+        || '—',
+
+      shiftH:   Math.round(e.shift_hours || 9),
+
+      status,
+
+      late:     descansaHoy ? 0 : lateMin,
+      lateMin:  descansaHoy ? 0 : lateMin,
+
+      entrada:  descansaHoy ? null : s?.time_in?.slice(0, 5) || null,
+      salida:   descansaHoy ? null : s?.time_out?.slice(0, 5) || null,
+
+      worked:   descansaHoy ? 0 : s ? Math.round((s.hours_worked || 0) * 3600) : null,
+      lateSecs: descansaHoy ? 0 : lateMin * 60,
+
+      sanctions: 0,
+      salary:    0,
+      retardos30: 0,
+      faltas30:   0,
+
+      falta: status === 'falta'
+        ? (() => {
+            const ex = exHoy || excepcionesHoy.find(x => x.employee_id === e.id);
+            const esBot = ex?.notes === 'Falta agregada por Bot';
+
+            return {
+              categoria: ex?.type || s?.exception_type || 'falta_injustificada',
+              estado:    ex?.status || s?.exception_status || 'pending',
+              motivo:    ex?.notes || s?.exception_notes || 'Sin registro',
+              marcadaPor: esBot ? 'sistema' : 'supervisor',
+              hora: '—',
+              nota: ''
+            };
+          })()
+        : null
+    };
+  });
+}
     // 4. KPIs globales para Head of People / People / Manager
     if (['people','head_people','manager','workforce','ceo'].includes(currentRole)) {
       // Todos los empleados activos
