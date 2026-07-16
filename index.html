@@ -2890,354 +2890,626 @@ async function _a_cargarDatos() {
     const ro = ROLES[currentRole];
     const hoy = ymd(NOW);
 
+    const _a_norm = (v) => String(v || '').trim().toLowerCase();
+
+    const _a_isRejected = (status) => {
+      const s = _a_norm(status);
+      return ['rejected', 'cancelled', 'canceled'].includes(s);
+    };
+
+    const _a_isApprovedOrEmpty = (status) => {
+      const s = _a_norm(status);
+      return s === 'approved' || s === '';
+    };
+
+    const _a_isAgentLike = (e) => {
+      return e?.system_role === 'agent' || (!e?.system_role && e?.supervisor_id);
+    };
+
+    const _a_isPermutaTrabajoLocal = (tipo) => {
+      return typeof _a_esPermutaTrabajo === 'function'
+        ? _a_esPermutaTrabajo(tipo)
+        : _a_norm(tipo) === 'permuta_trabajo';
+    };
+
+    const _a_isPermutaDescansoLocal = (tipo) => {
+      return typeof _a_esPermutaDescanso === 'function'
+        ? _a_esPermutaDescanso(tipo)
+        : _a_norm(tipo) === 'permuta_descanso';
+    };
+
+    const _a_isVacacionesLocal = (tipo) => {
+      return typeof _a_esVacacionesType === 'function'
+        ? _a_esVacacionesType(tipo)
+        : ['vacaciones', 'vacacion', 'vacación'].includes(_a_norm(tipo));
+    };
+
+    const _a_esDescansoLocal = (daysOff, fecha) => {
+      if (typeof _a_esDescansoFecha === 'function') {
+        return _a_esDescansoFecha(daysOff || [], fecha);
+      }
+
+      const d = new Date(fecha + 'T12:00:00');
+      const slug = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][d.getDay()];
+      return (daysOff || []).includes(slug);
+    };
+
+    const _a_chunks = (arr, size = 100) => {
+      const out = [];
+      for (let i = 0; i < arr.length; i += size) {
+        out.push(arr.slice(i, i + size));
+      }
+      return out;
+    };
+
+    async function _a_fetchTodaySummaries(ids) {
+      const cleanIds = [...new Set((ids || []).filter(Boolean))];
+      const out = [];
+
+      for (const chunk of _a_chunks(cleanIds, 100)) {
+        const { data, error } = await _a_sb
+          .from('attendance_daily_summary')
+          .select('*')
+          .eq('punch_date', hoy)
+          .in('employee_id', chunk);
+
+        if (error) throw error;
+        if (data) out.push(...data);
+      }
+
+      return out;
+    }
+
+    async function _a_fetchTodayExceptions(ids) {
+      const cleanIds = [...new Set((ids || []).filter(Boolean))];
+      const out = [];
+
+      for (const chunk of _a_chunks(cleanIds, 100)) {
+        const { data, error } = await _a_sb
+          .from('attendance_exceptions')
+          .select('employee_id, exception_date, type, notes, status, shift_start_override, shift_end_override')
+          .eq('exception_date', hoy)
+          .in('employee_id', chunk);
+
+        if (error) throw error;
+
+        if (data) {
+          out.push(...data.filter(x => !_a_isRejected(x.status)));
+        }
+      }
+
+      return out;
+    }
+
+    async function _a_fetchTodayVacations(ids) {
+      const cleanIds = [...new Set((ids || []).filter(Boolean))];
+      const out = [];
+
+      for (const chunk of _a_chunks(cleanIds, 100)) {
+        const { data, error } = await _a_sb
+          .from('vacation_requests')
+          .select('id, employee_id, start_date, end_date, status, approved_by, approved_at')
+          .eq('status', 'approved')
+          .lte('start_date', hoy)
+          .gte('end_date', hoy)
+          .in('employee_id', chunk);
+
+        if (error) throw error;
+        if (data) out.push(...data);
+      }
+
+      return out;
+    }
+
+    function _a_contextoEmpleadoHoy(e, summaries, exceptions, vacations) {
+      const s = (summaries || []).find(x => x.employee_id === e.id) || null;
+      const exList = (exceptions || []).filter(x => x.employee_id === e.id);
+
+      const exPermutaTrabajo = exList.find(x =>
+        _a_isPermutaTrabajoLocal(x.type) &&
+        _a_isApprovedOrEmpty(x.status)
+      );
+
+      const exPermutaDescanso = exList.find(x =>
+        _a_isPermutaDescansoLocal(x.type) &&
+        _a_isApprovedOrEmpty(x.status)
+      );
+
+      const exPermutaHorario = exList.find(x =>
+        _a_norm(x.type) === 'permuta_horario' &&
+        _a_isApprovedOrEmpty(x.status)
+      );
+
+      const exVacaciones = exList.find(x =>
+        _a_isVacacionesLocal(x.type) &&
+        _a_isApprovedOrEmpty(x.status)
+      );
+
+      const exNormal = exList.find(x =>
+        !_a_isPermutaTrabajoLocal(x.type) &&
+        !_a_isPermutaDescansoLocal(x.type) &&
+        _a_norm(x.type) !== 'permuta_horario'
+      ) || null;
+
+      const exFalta = exList.find(x =>
+        !_a_isPermutaTrabajoLocal(x.type) &&
+        !_a_isPermutaDescansoLocal(x.type) &&
+        _a_norm(x.type) !== 'permuta_horario' &&
+        !_a_isVacacionesLocal(x.type)
+      ) || null;
+
+      const vacHoy = (vacations || []).find(v =>
+        v.employee_id === e.id &&
+        v.status === 'approved' &&
+        v.start_date <= hoy &&
+        v.end_date >= hoy
+      ) || null;
+
+      const descansoBase = _a_esDescansoLocal(e.days_off || [], hoy);
+
+      const descansaHoy = exPermutaTrabajo
+        ? false
+        : exPermutaDescanso
+          ? true
+          : descansoBase;
+
+      const summaryType = s?.exception_type || null;
+      const summaryStatus = s?.exception_status || null;
+
+      const esVacacionPorSolicitud = !!vacHoy;
+      const esVacacionPorExcepcion = !!exVacaciones;
+      const esVacacionPorSummary =
+        _a_isVacacionesLocal(summaryType) &&
+        _a_isApprovedOrEmpty(summaryStatus);
+
+      const esVacacionHoy =
+        esVacacionPorSolicitud ||
+        esVacacionPorExcepcion ||
+        esVacacionPorSummary;
+
+      const lateMin = s ? (s.minutes_late || 0) : 0;
+
+      let status = descansaHoy ? 'descanso' : 'sin_punch';
+
+      // PRIORIDAD CORRECTA:
+      // 1. Descanso
+      // 2. Vacaciones aprobadas
+      // 3. Asistencia / faltas / retardos
+      if (descansaHoy) {
+        status = 'descanso';
+      } else if (esVacacionHoy) {
+        status = 'vacaciones';
+      } else if (s) {
+        const ast = _a_norm(s.attendance_status);
+
+        if (ast === 'absent' || ast === 'excused_absence') {
+          status = 'falta';
+        } else if (ast === 'missing_checkout') {
+          status = 'on_time';
+        } else if (ast === 'no_show' || ast === 'late' || lateMin > 0) {
+          status = 'late';
+        } else if (ast === 'early_unapproved') {
+          status = 'late';
+        } else if (ast === 'on_time' || ast === 'early_arrival' || s.time_in) {
+          status = 'on_time';
+        }
+      } else if (!s && exNormal) {
+        status = _a_isVacacionesLocal(exNormal.type) ? 'vacaciones' : 'falta';
+      }
+
+      const bloqueaMarcas = status === 'descanso' || status === 'vacaciones';
+
+      const faltaSource = exFalta || exNormal || null;
+      const esBot = (faltaSource?.notes || '') === 'Falta agregada por Bot';
+
+      const falta = status === 'falta'
+        ? {
+            categoria: faltaSource?.type || s?.exception_type || 'falta_injustificada',
+            estado: faltaSource?.status || s?.exception_status || 'pending',
+            motivo: faltaSource?.notes || s?.exception_notes || 'Sin registro',
+            marcadaPor: esBot ? 'sistema' : 'supervisor',
+            hora: '—',
+            nota: ''
+          }
+        : null;
+
+      return {
+        e,
+        s,
+        exList,
+        exNormal,
+        exFalta,
+        exPermutaTrabajo,
+        exPermutaDescanso,
+        exPermutaHorario,
+        vacHoy,
+        descansaHoy,
+        esVacacionHoy,
+        lateMin,
+        status,
+        bloqueaMarcas,
+        falta
+      };
+    }
+
+    function _a_buildTeamRow(e, summaries, exceptions, vacations) {
+      const ctx = _a_contextoEmpleadoHoy(e, summaries, exceptions, vacations);
+      const s = ctx.s;
+      const exPermutaHorario = ctx.exPermutaHorario;
+
+      const shiftStart =
+        exPermutaHorario?.shift_start_override ||
+        e.shift_start ||
+        null;
+
+      const shiftEnd =
+        exPermutaHorario?.shift_end_override ||
+        e.shift_end ||
+        null;
+
+      return {
+        id:       e.id,
+        name:     e.full_name,
+        camp:     e.campaign_id || '—',
+
+        // Importante para vista People/Supervisor
+        supId:    e.supervisor_id || null,
+        supervisor_id: e.supervisor_id || null,
+
+        daysOff:  e.days_off || [],
+
+        shift:    shiftStart ? String(shiftStart).slice(0, 5) : '—',
+        shiftEnd: shiftEnd ? String(shiftEnd).slice(0, 5) : '—',
+        shiftH:   Math.round(e.shift_hours || 9),
+
+        status:   ctx.status,
+
+        late:     ctx.bloqueaMarcas ? 0 : ctx.lateMin,
+        lateMin:  ctx.bloqueaMarcas ? 0 : ctx.lateMin,
+
+        entrada:  ctx.bloqueaMarcas
+          ? null
+          : s?.time_in
+            ? String(s.time_in).slice(0, 5)
+            : null,
+
+        salida:   ctx.bloqueaMarcas
+          ? null
+          : s?.time_out
+            ? String(s.time_out).slice(0, 5)
+            : null,
+
+        worked:   ctx.bloqueaMarcas
+          ? 0
+          : s
+            ? Math.round((s.hours_worked || 0) * 3600)
+            : null,
+
+        lateSecs: ctx.bloqueaMarcas ? 0 : ctx.lateMin * 60,
+
+        sanctions: 0,
+        salary: 0,
+        retardos30: 0,
+        faltas30: 0,
+
+        falta: ctx.falta
+      };
+    }
+
     // 1. Punch de hoy del usuario actual
-    const { data: punches } = await _a_sb
+    const { data: punches, error: punchErr } = await _a_sb
       .from('attendance_punches')
       .select('punch_type, punch_time')
       .eq('employee_id', ro.id)
       .eq('punch_date', hoy)
       .order('punch_time');
 
+    if (punchErr) throw punchErr;
+
+    const ps = _a_punchState[currentRole] || _a_punchState.agent;
+    ps.entrada = null;
+    ps.salida = null;
+
     if (punches && punches.length > 0) {
       const entrada = punches.find(p => p.punch_type === 'entrada');
       const salida  = punches.find(p => p.punch_type === 'salida');
-      const ps = _a_punchState[currentRole] || _a_punchState.agent;
-      ps.entrada = entrada ? entrada.punch_time.slice(0,5) : null;
-      ps.salida  = salida  ? salida.punch_time.slice(0,5)  : null;
+
+      ps.entrada = entrada ? String(entrada.punch_time).slice(0, 5) : null;
+      ps.salida  = salida  ? String(salida.punch_time).slice(0, 5)  : null;
     }
 
     // 2. Historial del rango activo del filtro de fechas
     await _a_cargarQDAYS(ro.id, _a_dateFilter.from, _a_dateFilter.to);
 
-// 3. Equipo del supervisor (hoy)
-if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
-  const { data: emps } = await _a_sb
-    .from('employees')
-    .select('id, full_name, campaign_id, shift_start, shift_end, shift_hours, supervisor_id, days_off, system_role')
-    .eq('status', 'active')
-    .eq(
-      currentRole === 'supervisor' ? 'supervisor_id' : 'status',
-      currentRole === 'supervisor' ? ro.id : 'active'
-    );
+    // 3. Equipo del supervisor / manager / people / head / workforce / ceo
+    if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
+      let empQuery = _a_sb
+        .from('employees')
+        .select('id, full_name, campaign_id, shift_start, shift_end, shift_hours, supervisor_id, days_off, system_role, position_title')
+        .eq('status', 'active');
 
-  const empList = currentRole === 'supervisor'
-    ? (emps || [])
-    : (emps || []).filter(e => e.supervisor_id !== null && e.system_role === 'agent');
-
-  // Cargar asistencia de hoy para el equipo
-  const empIds = empList.map(e => e.id);
-
-  let todaySummary = [];
-  if (empIds.length > 0) {
-    const { data: ts } = await _a_sb
-      .from('attendance_daily_summary')
-      .select('*')
-      .eq('punch_date', hoy)
-      .in('employee_id', empIds);
-
-    todaySummary = ts || [];
-  }
-
-  // Cargar excepciones de hoy del equipo
-  let excepcionesHoy = [];
-  if (empIds.length > 0) {
-    const { data: ex } = await _a_sb
-      .from('attendance_exceptions')
-      .select('employee_id, type, notes, status, shift_start_override, shift_end_override')
-      .eq('exception_date', hoy)
-      .in('employee_id', empIds);
-
-    excepcionesHoy = (ex || []).filter(x =>
-      !['rejected', 'cancelled'].includes(String(x.status || '').toLowerCase())
-    );
-  }
-
-  _a_TEAM = empList.map(e => {
-    const s = todaySummary.find(x => x.employee_id === e.id);
-    const exList = excepcionesHoy.filter(x => x.employee_id === e.id);
-
-    const exPermutaTrabajo = exList.find(x =>
-      typeof _a_esPermutaTrabajo === 'function' &&
-      _a_esPermutaTrabajo(x.type) &&
-      (x.status === 'approved' || !x.status)
-    );
-
-    const exPermutaDescanso = exList.find(x =>
-      typeof _a_esPermutaDescanso === 'function' &&
-      _a_esPermutaDescanso(x.type) &&
-      (x.status === 'approved' || !x.status)
-    );
-
-    const exPermutaHorario = exList.find(x =>
-      String(x.type || '').trim().toLowerCase() === 'permuta_horario' &&
-      (x.status === 'approved' || !x.status)
-    );
-
-    const exHoy = exList.find(x =>
-      !(typeof _a_esPermutaTrabajo === 'function' && _a_esPermutaTrabajo(x.type)) &&
-      !(typeof _a_esPermutaDescanso === 'function' && _a_esPermutaDescanso(x.type)) &&
-      String(x.type || '').trim().toLowerCase() !== 'permuta_horario'
-    );
-
-    const lateMin = s ? (s.minutes_late || 0) : 0;
-
-    // OJO:
-    // Antes se usaba: (e.days_off || []).includes(HOY_DIA_SLUG)
-    // Eso falla si days_off viene en español o con mayúsculas.
-    // Ahora usamos el helper que normaliza domingo/sunday/dom/etc.
-    const descansoBase = typeof _a_esDescansoFecha === 'function'
-      ? _a_esDescansoFecha(e.days_off || [], hoy)
-      : (e.days_off || []).includes(HOY_DIA_SLUG);
-
-    // Permutas aprobadas pueden cambiar el descanso real del día.
-    const descansaHoy = exPermutaTrabajo
-      ? false
-      : exPermutaDescanso
-        ? true
-        : descansoBase;
-
-    let status = descansaHoy ? 'descanso' : 'sin_punch';
-
-    if (descansaHoy) {
-      status = 'descanso';
-    } else if (s) {
-      const ast = s.attendance_status;
-
-      if (ast === 'absent' || ast === 'excused_absence') {
-        status = 'falta';
-      } else if (ast === 'missing_checkout') {
-        status = 'on_time';
-      } else if (ast === 'no_show' || ast === 'late' || lateMin > 0) {
-        status = 'late';
-      } else if (ast === 'early_unapproved') {
-        status = 'late';
-      } else if (ast === 'on_time' || ast === 'early_arrival' || s.time_in) {
-        status = 'on_time';
+      if (currentRole === 'supervisor') {
+        empQuery = empQuery.eq('supervisor_id', ro.id);
       }
-    } else if (!s && exHoy) {
-      // Sin punch pero con excepción registrada:
-      // permiso, incapacidad, falta justificada, falta injustificada, etc.
-      status = 'falta';
+
+      const { data: emps, error: empsErr } = await empQuery;
+      if (empsErr) throw empsErr;
+
+      const empList = currentRole === 'supervisor'
+        ? (emps || []).filter(e => _a_isAgentLike(e))
+        : (emps || []).filter(e => e.supervisor_id !== null && _a_isAgentLike(e));
+
+      const empIds = empList.map(e => e.id);
+
+      const [todaySummary, excepcionesHoy, vacacionesHoy] = await Promise.all([
+        _a_fetchTodaySummaries(empIds),
+        _a_fetchTodayExceptions(empIds),
+        _a_fetchTodayVacations(empIds)
+      ]);
+
+      _a_TEAM = empList.map(e =>
+        _a_buildTeamRow(e, todaySummary, excepcionesHoy, vacacionesHoy)
+      );
     }
 
-    return {
-  id:       e.id,
-  name:     e.full_name,
-  camp:     e.campaign_id || '—',
-
-  // Para poder ubicarlo siempre en la vista People/Supervisor
-  supId:    e.supervisor_id || null,
-  supervisor_id: e.supervisor_id || null,
-
-  daysOff:  e.days_off || [],
-
-      shift:    exPermutaHorario?.shift_start_override?.slice(0, 5)
-        || e.shift_start?.slice(0, 5)
-        || '—',
-
-      shiftEnd: exPermutaHorario?.shift_end_override?.slice(0, 5)
-        || e.shift_end?.slice(0, 5)
-        || '—',
-
-      shiftH:   Math.round(e.shift_hours || 9),
-
-      status,
-
-      late:     descansaHoy ? 0 : lateMin,
-      lateMin:  descansaHoy ? 0 : lateMin,
-
-      entrada:  descansaHoy ? null : s?.time_in?.slice(0, 5) || null,
-      salida:   descansaHoy ? null : s?.time_out?.slice(0, 5) || null,
-
-      worked:   descansaHoy ? 0 : s ? Math.round((s.hours_worked || 0) * 3600) : null,
-      lateSecs: descansaHoy ? 0 : lateMin * 60,
-
-      sanctions: 0,
-      salary:    0,
-      retardos30: 0,
-      faltas30:   0,
-
-      falta: status === 'falta'
-        ? (() => {
-            const ex = exHoy || excepcionesHoy.find(x => x.employee_id === e.id);
-            const esBot = ex?.notes === 'Falta agregada por Bot';
-
-            return {
-              categoria: ex?.type || s?.exception_type || 'falta_injustificada',
-              estado:    ex?.status || s?.exception_status || 'pending',
-              motivo:    ex?.notes || s?.exception_notes || 'Sin registro',
-              marcadaPor: esBot ? 'sistema' : 'supervisor',
-              hora: '—',
-              nota: ''
-            };
-          })()
-        : null
-    };
-  });
-}
-    // 4. KPIs globales para Head of People / People / Manager
-    if (['people','head_people','manager','workforce','ceo'].includes(currentRole)) {
-      // Todos los empleados activos
-      const { data: allEmps } = await _a_sb
+    // 4. KPIs globales para Head of People / People / Manager / Workforce / CEO
+    if (['people', 'head_people', 'manager', 'workforce', 'ceo'].includes(currentRole)) {
+      const { data: allEmps, error: allErr } = await _a_sb
         .from('employees')
-        .select('id, full_name, campaign_id, supervisor_id, system_role, shift_start, shift_end, position_title, days_off')
-        .eq('status','active');
+        .select('id, full_name, campaign_id, supervisor_id, system_role, shift_start, shift_end, shift_hours, position_title, days_off')
+        .eq('status', 'active');
 
-        const allAgents = (allEmps || []).filter(e => e.system_role === 'agent');
-const allIds = allAgents.map(e => e.id);
-const total = allIds.length;
-_a_TEAM_ALL = allEmps || [];
+      if (allErr) throw allErr;
 
-      // Campañas únicas de los empleados
-      _a_CAMPS_REAL = [...new Set((allEmps||[])
-        .map(e=>e.campaign_id)
-        .filter(Boolean)
+      const allEmployees = allEmps || [];
+      const allIds = allEmployees.map(e => e.id);
+
+      const [todayAll, exceptionsAll, vacationsAll] = await Promise.all([
+        _a_fetchTodaySummaries(allIds),
+        _a_fetchTodayExceptions(allIds),
+        _a_fetchTodayVacations(allIds)
+      ]);
+
+      const contextById = new Map(
+        allEmployees.map(e => [
+          e.id,
+          _a_contextoEmpleadoHoy(e, todayAll, exceptionsAll, vacationsAll)
+        ])
+      );
+
+      const allAgents = allEmployees.filter(e => _a_isAgentLike(e));
+      const agentCtx = allAgents.map(e => contextById.get(e.id)).filter(Boolean);
+      const expectedAgentCtx = agentCtx.filter(c =>
+        c.status !== 'descanso' &&
+        c.status !== 'vacaciones'
+      );
+
+      _a_TEAM_ALL = allEmployees;
+
+      _a_CAMPS_REAL = [...new Set(
+        allEmployees
+          .map(e => e.campaign_id)
+          .filter(Boolean)
       )].sort();
 
-      // Asistencia de hoy de todos (en chunks de 100 por límite de Supabase)
-      let todayAll = [];
-      if (allIds.length > 0) {
-        const chunkSize = 100;
-        for (let ci = 0; ci < allIds.length; ci += chunkSize) {
-          const chunk = allIds.slice(ci, ci + chunkSize);
-          const { data: ts } = await _a_sb
-            .from('attendance_daily_summary')
-            .select('employee_id, minutes_late, attendance_status, time_in, time_out, hours_worked')
-            .eq('punch_date', hoy)
-            .in('employee_id', chunk);
-          if (ts) todayAll = todayAll.concat(ts);
-        }
-      }
+      const total  = expectedAgentCtx.length;
+      const onTime = expectedAgentCtx.filter(c => c.status === 'on_time').length;
+      const late   = expectedAgentCtx.filter(c => c.status === 'late').length;
+      const absent = expectedAgentCtx.filter(c => c.status === 'falta').length;
+      const noOut  = expectedAgentCtx.filter(c =>
+        c.s?.time_in &&
+        !c.s?.time_out
+      ).length;
 
-      // KPIs globales
-      const onTime  = todayAll.filter(s => s.attendance_status === 'on_time' || (s.time_in && (s.minutes_late||0) === 0)).length;
-      const late    = todayAll.filter(s => s.attendance_status === 'late' || s.attendance_status === 'no_show' || (s.minutes_late||0) > 0).length;
-      const absent  = todayAll.filter(s => s.attendance_status === 'absent' || s.attendance_status === 'excused_absence').length;
-      const noOut   = todayAll.filter(s => s.time_in && !s.time_out).length;
       _a_KPI_GLOBAL = { total, onTime, late, absent, noOut };
 
       // Heatmap por campaña
       _a_CAMP_REAL = {};
-      (allEmps||[]).forEach(e => {
+
+      expectedAgentCtx.forEach(ctx => {
+        const e = ctx.e;
         const camp = e.campaign_id || 'admin';
-        if (!_a_CAMP_REAL[camp]) _a_CAMP_REAL[camp] = { total:0, onTime:0, late:0, absent:0 };
+
+        if (!_a_CAMP_REAL[camp]) {
+          _a_CAMP_REAL[camp] = {
+            total: 0,
+            onTime: 0,
+            late: 0,
+            absent: 0
+          };
+        }
+
         _a_CAMP_REAL[camp].total++;
-        const s = todayAll.find(x => x.employee_id === e.id);
-        if (s) {
-          if (s.attendance_status === 'absent' || s.attendance_status === 'excused_absence') _a_CAMP_REAL[camp].absent++;
-          else if ((s.minutes_late||0) > 0 || s.attendance_status === 'late' || s.attendance_status === 'no_show') _a_CAMP_REAL[camp].late++;
-          else if (s.time_in) _a_CAMP_REAL[camp].onTime++;
+
+        if (ctx.status === 'falta') {
+          _a_CAMP_REAL[camp].absent++;
+        } else if (ctx.status === 'late') {
+          _a_CAMP_REAL[camp].late++;
+        } else if (ctx.status === 'on_time') {
+          _a_CAMP_REAL[camp].onTime++;
         }
       });
 
       _a_CAMP_DATA = Object.entries(_a_CAMP_REAL).map(([key, d]) => {
-  const pct = d.total ? Math.round((d.onTime / d.total) * 100) : 0;
-  const salarioDiarioPromedio = 14800 / 30;
+        const pct = d.total ? Math.round((d.onTime / d.total) * 100) : 0;
+        const salarioDiarioPromedio = 14800 / 30;
 
-  return {
-    key,
-    name: key,
-    agents: d.total,
-    onTime: d.onTime,
-    late: d.late,
-    absent: d.absent,
-    pct,
-    trend: [d.late],
-    costAus: Math.round(d.absent * salarioDiarioPromedio),
-    costRet: Math.round(d.late * 12 * salarioDiarioPromedio / 60 / 8)
-  };
-});
+        return {
+          key,
+          name: key,
+          agents: d.total,
+          onTime: d.onTime,
+          late: d.late,
+          absent: d.absent,
+          pct,
+          trend: [d.late],
+          costAus: Math.round(d.absent * salarioDiarioPromedio),
+          costRet: Math.round(d.late * 12 * salarioDiarioPromedio / 60 / 8)
+        };
+      });
 
-      // Supervisores con asistencia de hoy — solo Operations Supervisor y Trainer
+      // Supervisores con asistencia de hoy
       const PUESTOS_SUP = ['Operations Supervisor', 'Trainer'];
-      const sups = (allEmps||[]).filter(e =>
+
+      const sups = allEmployees.filter(e =>
         e.system_role === 'supervisor' &&
         PUESTOS_SUP.includes(e.position_title)
       );
+
       _a_SUPS_REAL = sups.map(e => {
-        const s = todayAll.find(x => x.employee_id === e.id);
-        const lateMin = s ? (s.minutes_late||0) : 0;
-        const status = !s ? 'sin_punch' :
-          (s.attendance_status==='Falta injustificada' ? 'falta' :
-           lateMin > 0 ? 'late' : 'on_time');
-        // Equipo de este supervisor — excluir los que descansan hoy
-        const myTeam = (allEmps||[]).filter(a =>
-  a.supervisor_id === e.id &&
-  a.system_role === 'agent'
-);
+        const ctxSup = contextById.get(e.id) ||
+          _a_contextoEmpleadoHoy(e, todayAll, exceptionsAll, vacationsAll);
 
-// Estos son los que trabajan hoy, para KPIs de puntualidad.
-const myTeamActivo = myTeam.filter(a => !_a_esDescansoFecha(a.days_off, hoy));
+        const myTeam = allEmployees.filter(a =>
+          a.supervisor_id === e.id &&
+          _a_isAgentLike(a)
+        );
 
-// Estos son todos los del equipo, incluyendo descansos.
-const teamToday = myTeamActivo
-  .map(a => todayAll.find(x => x.employee_id === a.id))
-  .filter(Boolean);
+        const myTeamCtx = myTeam
+          .map(a => contextById.get(a.id))
+          .filter(Boolean);
+
+        const expectedTeamCtx = myTeamCtx.filter(c =>
+          c.status !== 'descanso' &&
+          c.status !== 'vacaciones'
+        );
+
+        const onTimeTeam = expectedTeamCtx.filter(c => c.status === 'on_time').length;
+        const lateTeam   = expectedTeamCtx.filter(c => c.status === 'late').length;
+        const absentTeam = expectedTeamCtx.filter(c => c.status === 'falta').length;
+        const noOutTeam  = expectedTeamCtx.filter(c => c.s?.time_in && !c.s?.time_out).length;
+
+        const hoursContracted = expectedTeamCtx.reduce((sum, c) => {
+          return sum + Number(c.e.shift_hours || 8);
+        }, 0);
+
+        const hoursWorked = Math.round(expectedTeamCtx.reduce((sum, c) => {
+          return sum + Number(c.s?.hours_worked || 0);
+        }, 0));
+
+        const camp = (() => {
+          if (e.campaign_id) return e.campaign_id;
+          if (!myTeam.length) return 'admin';
+
+          const freq = {};
+          myTeam.forEach(a => {
+            const c = a.campaign_id || 'admin';
+            freq[c] = (freq[c] || 0) + 1;
+          });
+
+          return Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
+        })();
+
         return {
-          id:    e.id,
-          name:  e.full_name,
-          camp:  (() => {
-            if (e.campaign_id) return e.campaign_id;
-            if (!myTeam.length) return 'admin';
-            const freq = {};
-            myTeam.forEach(a => { const c = a.campaign_id||'admin'; freq[c]=(freq[c]||0)+1; });
-            return Object.entries(freq).sort((a,b)=>b[1]-a[1])[0][0];
-          })(),
-          shift: e.shift_start ? e.shift_start.slice(0,5) : '—',
-          shiftEnd: e.shift_end ? e.shift_end.slice(0,5) : '—',
-          agents: myTeamActivo.length,  // solo los que trabajan hoy
-          onTime: teamToday.filter(s=>s.attendance_status==='on_time'||(s.time_in&&(s.minutes_late||0)===0)).length,
-          late:   teamToday.filter(s=>(s.minutes_late||0)>0||s.attendance_status==='late'||s.attendance_status==='no_show').length,
-          absent: teamToday.filter(s=>s.attendance_status==='absent'||s.attendance_status==='excused_absence').length,
-          status, lateMin,
-          entrada: s?.time_in?.slice(0,5) || null,
-          salida:  s?.time_out?.slice(0,5) || null,
-          avgQA: 0, retardos30: 0, faltas30: 0,
-          hoursContracted: myTeamActivo.length * 8,
-          hoursWorked: Math.round(teamToday.reduce((sum,s)=>sum+(s.hours_worked||0),0)),
-          bonusRisk: 0, costAusentismo: 0,
-          noOut: teamToday.filter(s=>s.time_in&&!s.time_out).length,
-          falta: status==='falta' ? {categoria:'falta_injustificada',estado:'falta_injustificada',motivo:'Sin registro',marcadaPor:'sistema',hora:'—'} : null,
-          _teamIds:     myTeam.map(a => a.id),
-          _teamCamps:   [...new Set(myTeam.map(a => a.campaign_id).filter(Boolean))],
-          faltasTotal:  teamToday.filter(s=>s.attendance_status==='Falta injustificada').length,
+          id: e.id,
+          name: e.full_name,
+          camp,
+
+          shift: e.shift_start ? String(e.shift_start).slice(0, 5) : '—',
+          shiftEnd: e.shift_end ? String(e.shift_end).slice(0, 5) : '—',
+
+          // Agentes esperados hoy, para métricas de puntualidad.
+          // El drilldown usa _teamIds y ahí sí van todos.
+          agents: expectedTeamCtx.length,
+
+          onTime: onTimeTeam,
+          late: lateTeam,
+          absent: absentTeam,
+
+          status: ctxSup.status,
+          lateMin: ctxSup.bloqueaMarcas ? 0 : ctxSup.lateMin,
+
+          entrada: ctxSup.bloqueaMarcas
+            ? null
+            : ctxSup.s?.time_in
+              ? String(ctxSup.s.time_in).slice(0, 5)
+              : null,
+
+          salida: ctxSup.bloqueaMarcas
+            ? null
+            : ctxSup.s?.time_out
+              ? String(ctxSup.s.time_out).slice(0, 5)
+              : null,
+
+          avgQA: 0,
+          qaProm: 0,
+          retardos30: 0,
+          faltas30: 0,
+
+          hoursContracted,
+          hoursWorked,
+
+          bonusRisk: lateTeam + (absentTeam * 2),
+          costAusentismo: Math.round(absentTeam * (14800 / 30)),
+
+          noOut: noOutTeam,
+
+          falta: ctxSup.falta,
+
+          // IMPORTANTE:
+          // Aquí van todos los agentes del supervisor, incluyendo descanso/vacaciones.
+          // Antes estaba con myTeamActivo y por eso desaparecían.
+          _teamIds: myTeam.map(a => a.id),
+          _teamCamps: [...new Set(myTeam.map(a => a.campaign_id).filter(Boolean))],
+
+          faltasTotal: absentTeam,
           faltasPorSup: 0,
-          faltasPorSistema: teamToday.filter(s=>s.attendance_status==='Falta injustificada').length,
-          atencionScore: 100,
+          faltasPorSistema: expectedTeamCtx.filter(c =>
+            c.falta?.marcadaPor === 'sistema'
+          ).length,
+
+          atencionScore: 100
         };
       });
 
       // Managers — sección separada con su equipo directo
-      const HOY_SLUG_M = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][new Date(hoy + 'T12:00:00').getDay()];
-      const managers = (allEmps||[]).filter(e => e.system_role === 'manager');
+      const managers = allEmployees.filter(e => e.system_role === 'manager');
+
       _a_MANAGERS_REAL = managers.map(mgr => {
-        const directos = (allEmps||[]).filter(e => e.supervisor_id === mgr.id);
-        // Todos los agentes bajo este manager (directos + sus equipos)
-        const todosAgentes = (allEmps||[]).filter(e => {
-          if (e.system_role !== 'agent') return false;
-          const sup = (allEmps||[]).find(s => s.id === e.supervisor_id);
-          return e.supervisor_id === mgr.id || (sup && sup.supervisor_id === mgr.id);
+        const directos = allEmployees.filter(e => e.supervisor_id === mgr.id);
+
+        const todosAgentes = allEmployees.filter(e => {
+          if (!_a_isAgentLike(e)) return false;
+
+          const sup = allEmployees.find(s => s.id === e.supervisor_id);
+
+          return e.supervisor_id === mgr.id ||
+            (sup && sup.supervisor_id === mgr.id);
         });
-        const activosHoy = todosAgentes.filter(a => !_a_esDescansoFecha(a.days_off, hoy));
-        const teamToday  = activosHoy.map(a => todayAll.find(x=>x.employee_id===a.id)).filter(Boolean);
+
+        const teamCtx = todosAgentes
+          .map(a => contextById.get(a.id))
+          .filter(Boolean);
+
+        const expectedTeamCtx = teamCtx.filter(c =>
+          c.status !== 'descanso' &&
+          c.status !== 'vacaciones'
+        );
+
         return {
-          id:       mgr.id,
-          name:     mgr.full_name,
-          puesto:   mgr.position_title || 'Manager',
-          camp:     mgr.campaign_id || 'admin',
+          id: mgr.id,
+          name: mgr.full_name,
+          puesto: mgr.position_title || 'Manager',
+          camp: mgr.campaign_id || 'admin',
+
           directos: directos.length,
-          _directosIds: directos.map(d=>d.id),
-          agentes:  activosHoy.length,
-          onTime:   teamToday.filter(s=>s.attendance_status==='on_time'||(s.time_in&&(s.minutes_late||0)===0)).length,
-          late:     teamToday.filter(s=>(s.minutes_late||0)>0||s.attendance_status==='late'||s.attendance_status==='no_show').length,
-          absent:   teamToday.filter(s=>s.attendance_status==='absent'||s.attendance_status==='excused_absence').length,
+          _directosIds: directos.map(d => d.id),
+
+          agentes: expectedTeamCtx.length,
+
+          onTime: expectedTeamCtx.filter(c => c.status === 'on_time').length,
+          late: expectedTeamCtx.filter(c => c.status === 'late').length,
+          absent: expectedTeamCtx.filter(c => c.status === 'falta').length
         };
       });
     }
 
-    await _a_cargarCambiosDescanso();
+    if (typeof _a_cargarCambiosDescanso === 'function') {
+      await _a_cargarCambiosDescanso();
+    }
+
     return true;
-  } catch(err) {
+  } catch (err) {
     console.error('Error cargando asistencia:', err);
     return false;
   }
