@@ -3097,6 +3097,22 @@ async function _a_cargarDatos() {
         status = _a_isVacacionesLocal(exNormal.type) ? 'vacaciones' : 'falta';
       }
 
+      const agenteParaTolerancia = {
+        ...e,
+        camp: e.campaign_id || '',
+        campaign_id: e.campaign_id || '',
+        puesto: e.position_title || '',
+        position_title: e.position_title || '',
+        lob: e.lob || e.lob_key || e.lob_name || '',
+        lob_key: e.lob_key || '',
+        lob_name: e.lob_name || '',
+        queue: e.queue || e.queue_name || '',
+        queue_name: e.queue_name || ''
+      };
+
+      const statusBase = status;
+      status = _a_statusPorPuntualidad(statusBase, lateMin, agenteParaTolerancia);
+
       const bloqueaMarcas = status === 'descanso' || status === 'vacaciones';
 
       const faltaSource = exFalta || exNormal || null;
@@ -3127,6 +3143,8 @@ async function _a_cargarDatos() {
         esVacacionHoy,
         lateMin,
         status,
+        statusBase,
+        toleranciaMin: _a_toleranciaRetardoMin(agenteParaTolerancia),
         bloqueaMarcas,
         falta
       };
@@ -3151,6 +3169,16 @@ async function _a_cargarDatos() {
         id:       e.id,
         name:     e.full_name,
         camp:     e.campaign_id || '—',
+        campaign_id: e.campaign_id || null,
+
+        // Campos para tolerancia dinámica
+        position_title: e.position_title || null,
+        puesto: e.position_title || null,
+        lob: e.lob || e.lob_key || e.lob_name || null,
+        lob_key: e.lob_key || null,
+        lob_name: e.lob_name || null,
+        queue: e.queue || e.queue_name || null,
+        queue_name: e.queue_name || null,
 
         // Importante para vista People/Supervisor
         supId:    e.supervisor_id || null,
@@ -3163,6 +3191,8 @@ async function _a_cargarDatos() {
         shiftH:   Math.round(e.shift_hours || 9),
 
         status:   ctx.status,
+        statusBase: ctx.statusBase,
+        toleranciaMin: ctx.toleranciaMin,
 
         late:     ctx.bloqueaMarcas ? 0 : ctx.lateMin,
         lateMin:  ctx.bloqueaMarcas ? 0 : ctx.lateMin,
@@ -3225,7 +3255,7 @@ async function _a_cargarDatos() {
     if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
       let empQuery = _a_sb
         .from('employees')
-        .select('id, full_name, campaign_id, shift_start, shift_end, shift_hours, supervisor_id, days_off, system_role, position_title')
+        .select('*')
         .eq('status', 'active');
 
       if (currentRole === 'supervisor') {
@@ -3256,7 +3286,7 @@ async function _a_cargarDatos() {
     if (['people', 'head_people', 'manager', 'workforce', 'ceo'].includes(currentRole)) {
       const { data: allEmps, error: allErr } = await _a_sb
         .from('employees')
-        .select('id, full_name, campaign_id, supervisor_id, system_role, shift_start, shift_end, shift_hours, position_title, days_off')
+        .select('*')
         .eq('status', 'active');
 
       if (allErr) throw allErr;
@@ -3292,16 +3322,17 @@ async function _a_cargarDatos() {
           .filter(Boolean)
       )].sort();
 
-      const total  = expectedAgentCtx.length;
-      const onTime = expectedAgentCtx.filter(c => c.status === 'on_time').length;
-      const late   = expectedAgentCtx.filter(c => c.status === 'late').length;
-      const absent = expectedAgentCtx.filter(c => c.status === 'falta').length;
-      const noOut  = expectedAgentCtx.filter(c =>
+      const total     = expectedAgentCtx.length;
+      const onTime    = expectedAgentCtx.filter(c => c.status === 'on_time').length;
+      const tolerance = expectedAgentCtx.filter(c => c.status === 'tolerance').length;
+      const late      = expectedAgentCtx.filter(c => c.status === 'late').length;
+      const absent    = expectedAgentCtx.filter(c => c.status === 'falta').length;
+      const noOut     = expectedAgentCtx.filter(c =>
         c.s?.time_in &&
         !c.s?.time_out
       ).length;
 
-      _a_KPI_GLOBAL = { total, onTime, late, absent, noOut };
+      _a_KPI_GLOBAL = { total, onTime, tolerance, late, absent, noOut };
 
       // Heatmap por campaña
       _a_CAMP_REAL = {};
@@ -3314,6 +3345,7 @@ async function _a_cargarDatos() {
           _a_CAMP_REAL[camp] = {
             total: 0,
             onTime: 0,
+            tolerance: 0,
             late: 0,
             absent: 0
           };
@@ -3325,13 +3357,15 @@ async function _a_cargarDatos() {
           _a_CAMP_REAL[camp].absent++;
         } else if (ctx.status === 'late') {
           _a_CAMP_REAL[camp].late++;
+        } else if (ctx.status === 'tolerance') {
+          _a_CAMP_REAL[camp].tolerance++;
         } else if (ctx.status === 'on_time') {
           _a_CAMP_REAL[camp].onTime++;
         }
       });
 
       _a_CAMP_DATA = Object.entries(_a_CAMP_REAL).map(([key, d]) => {
-        const pct = d.total ? Math.round((d.onTime / d.total) * 100) : 0;
+        const pct = d.total ? Math.round(((d.onTime + d.tolerance) / d.total) * 100) : 0;
         const salarioDiarioPromedio = 14800 / 30;
 
         return {
@@ -3339,6 +3373,7 @@ async function _a_cargarDatos() {
           name: key,
           agents: d.total,
           onTime: d.onTime,
+          tolerance: d.tolerance,
           late: d.late,
           absent: d.absent,
           pct,
@@ -3374,10 +3409,11 @@ async function _a_cargarDatos() {
           c.status !== 'vacaciones'
         );
 
-        const onTimeTeam = expectedTeamCtx.filter(c => c.status === 'on_time').length;
-        const lateTeam   = expectedTeamCtx.filter(c => c.status === 'late').length;
-        const absentTeam = expectedTeamCtx.filter(c => c.status === 'falta').length;
-        const noOutTeam  = expectedTeamCtx.filter(c => c.s?.time_in && !c.s?.time_out).length;
+        const onTimeTeam    = expectedTeamCtx.filter(c => c.status === 'on_time').length;
+        const toleranceTeam = expectedTeamCtx.filter(c => c.status === 'tolerance').length;
+        const lateTeam      = expectedTeamCtx.filter(c => c.status === 'late').length;
+        const absentTeam    = expectedTeamCtx.filter(c => c.status === 'falta').length;
+        const noOutTeam     = expectedTeamCtx.filter(c => c.s?.time_in && !c.s?.time_out).length;
 
         const hoursContracted = expectedTeamCtx.reduce((sum, c) => {
           return sum + Number(c.e.shift_hours || 8);
@@ -3408,16 +3444,17 @@ async function _a_cargarDatos() {
           shift: e.shift_start ? String(e.shift_start).slice(0, 5) : '—',
           shiftEnd: e.shift_end ? String(e.shift_end).slice(0, 5) : '—',
 
-          // Agentes esperados hoy, para métricas de puntualidad.
-          // El drilldown usa _teamIds y ahí sí van todos.
           agents: expectedTeamCtx.length,
 
           onTime: onTimeTeam,
+          tolerance: toleranceTeam,
           late: lateTeam,
           absent: absentTeam,
 
           status: ctxSup.status,
+          statusBase: ctxSup.statusBase,
           lateMin: ctxSup.bloqueaMarcas ? 0 : ctxSup.lateMin,
+          toleranciaMin: ctxSup.toleranciaMin,
 
           entrada: ctxSup.bloqueaMarcas
             ? null
@@ -3446,9 +3483,6 @@ async function _a_cargarDatos() {
 
           falta: ctxSup.falta,
 
-          // IMPORTANTE:
-          // Aquí van todos los agentes del supervisor, incluyendo descanso/vacaciones.
-          // Antes estaba con myTeamActivo y por eso desaparecían.
           _teamIds: myTeam.map(a => a.id),
           _teamCamps: [...new Set(myTeam.map(a => a.campaign_id).filter(Boolean))],
 
@@ -3498,6 +3532,7 @@ async function _a_cargarDatos() {
           agentes: expectedTeamCtx.length,
 
           onTime: expectedTeamCtx.filter(c => c.status === 'on_time').length,
+          tolerance: expectedTeamCtx.filter(c => c.status === 'tolerance').length,
           late: expectedTeamCtx.filter(c => c.status === 'late').length,
           absent: expectedTeamCtx.filter(c => c.status === 'falta').length
         };
@@ -4825,12 +4860,158 @@ function _a_roleSwitcherHTML(){
 }
 
 // ── HELPERS ──
+// ── Puntualidad / tolerancias dinámicas ───────────────────
+// Regla:
+// - Aplazo: 5 min
+// - Key Account Manager / KAM: 10 min
+// - Resto de campañas: 10 min
+// Si alguien es KAM, gana la regla de 10 min aunque esté en Aplazo.
+
+function _a_normText(v) {
+  return String(v || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function _a_toleranciaRetardoMin(a = {}) {
+  const camp = _a_normText(
+    a.camp ||
+    a.campaign_id ||
+    a.campaign ||
+    ''
+  );
+
+  const lob = _a_normText(
+    a.lob ||
+    a.lob_key ||
+    a.lob_name ||
+    a.queue ||
+    a.queue_name ||
+    a.position_title ||
+    a.puesto ||
+    ''
+  );
+
+  const combined = `${camp} ${lob}`;
+
+  // KAM gana sobre Aplazo
+  if (
+    combined.includes('key account manager') ||
+    combined.includes('key-account-manager') ||
+    combined.includes('key_account_manager') ||
+    combined.includes('kam')
+  ) {
+    return 10;
+  }
+
+  if (camp.includes('aplazo') || combined.includes('aplazo')) {
+    return 5;
+  }
+
+  return 10;
+}
+
+function _a_statusPorPuntualidad(status, lateMin = 0, a = {}) {
+  const st = String(status || '').trim().toLowerCase();
+  const min = Number(lateMin || 0);
+  const tolerancia = _a_toleranciaRetardoMin(a);
+
+  // Estos estados no se deben convertir por minutos tarde
+  if (['descanso', 'vacaciones', 'falta', 'sin_punch'].includes(st)) {
+    return st;
+  }
+
+  // 0 min = A tiempo
+  // 1 a tolerancia = En tolerancia
+  // tolerancia + 1 = Retardo
+  if (min > tolerancia) return 'late';
+  if (min > 0) return 'tolerance';
+
+  // Si viene late sin minutos, respetarlo para no ocultar un caso real
+  if (st === 'late') return 'late';
+  if (st === 'tolerance') return 'tolerance';
+
+  return st || 'on_time';
+}
+
+function _a_statusAgenteHoy(a, fecha) {
+  if (!a) return 'sin_punch';
+
+  const descansaHoy = typeof _a_descansaHoyAgente === 'function'
+    ? _a_descansaHoyAgente(a, fecha)
+    : a.status === 'descanso';
+
+  if (descansaHoy) return 'descanso';
+
+  return _a_statusPorPuntualidad(
+    a.status,
+    a.lateMin || a.late || 0,
+    a
+  );
+}
+
+function _a_toleranciaLabel(a = {}) {
+  return `${_a_toleranciaRetardoMin(a)} min`;
+}
+
+function _a_agenteContextoQDAYS() {
+  return _a_TEAM.find(x => x.id === _a_QDAYS_EMPLEADO_ID)
+    || _a_TEAM.find(x => x.id === ROLES[currentRole]?.id)
+    || {
+      id: _a_QDAYS_EMPLEADO_ID || ROLES[currentRole]?.id,
+      camp: ROLES[currentRole]?.camp || '',
+      campaign_id: ROLES[currentRole]?.camp || ''
+    };
+}
+
+function _a_lateMinDia(d) {
+  return Math.round(Number(d?.segundos_tarde || 0) / 60);
+}
+
+function _a_statusDiaConTolerancia(d, agenteCtx = _a_agenteContextoQDAYS()) {
+  if (!d) return 'sin_punch';
+
+  if (d.esDescanso) return 'descanso';
+  if (d.esVacacion || (typeof _a_esVacacionesType === 'function' && _a_esVacacionesType(d.tipo_falta))) {
+    return 'vacaciones';
+  }
+
+  const tipo = _a_normText(d.tipo_falta || '');
+
+  if (['falta_injustificada', 'falta_justificada'].includes(tipo)) {
+    return 'falta';
+  }
+
+  if (tipo && typeof _a_esFaltaType === 'function' && _a_esFaltaType(tipo)) {
+    return 'falta';
+  }
+
+  if (!d.entrada_at) {
+    return 'sin_punch';
+  }
+
+  return _a_statusPorPuntualidad(
+    d.estatus || (d.es_retardo ? 'late' : 'on_time'),
+    _a_lateMinDia(d),
+    agenteCtx
+  );
+}
+
+function _a_esRetardoDia(d, agenteCtx = _a_agenteContextoQDAYS()) {
+  return _a_statusDiaConTolerancia(d, agenteCtx) === 'late';
+}
+
 function _a_statusBadge(d) {
   const tipo = String(d.tipo_falta || '').trim().toLowerCase();
   const estado = String(d.estado_falta || '').trim().toLowerCase();
 
   const pendiente = estado === 'pending';
   const aprobado = estado === 'approved';
+
+  const agenteCtx = _a_agenteContextoQDAYS();
+  const statusFinal = _a_statusDiaConTolerancia(d, agenteCtx);
 
   if (tipo === 'permuta_horario') {
     const h = d.shift_start_override && d.shift_end_override
@@ -4880,7 +5061,13 @@ function _a_statusBadge(d) {
     return `<span class="pill pill-amber"><span class="dot"></span>Entrada anticipada</span>`;
   }
 
-  if (d.es_retardo) {
+  if (statusFinal === 'tolerance') {
+    return `<span class="pill" style="background:#FEF9C3;color:#854D0E;border:1px solid #FDE68A">
+      <span class="dot"></span>En tolerancia
+    </span>`;
+  }
+
+  if (statusFinal === 'late') {
     return `<span class="pill pill-amber"><span class="dot"></span>Retardo</span>`;
   }
 
@@ -4923,16 +5110,18 @@ function _a_descansaHoyAgente(a, fecha) {
   return (a?.daysOff || []).includes(slug);
 }
 
-function _a_agentBadge(status, falta) {
-  if (status === 'descanso') {
+function _a_agentBadge(status, falta, lateMin = 0, a = {}) {
+  const st = _a_statusPorPuntualidad(status, lateMin, a);
+
+  if (st === 'descanso') {
     return `<span class="pill" style="background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0">🌙 Descanso</span>`;
   }
 
-  if (status === 'vacaciones') {
+  if (st === 'vacaciones') {
     return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
   }
 
-  if (status === 'falta' && falta) {
+  if (st === 'falta' && falta) {
     const cfg = _a_CATEGORIA_CONFIG[falta.categoria] || _a_CATEGORIA_CONFIG.falta_injustificada;
     const por = falta.marcadaPor === 'sistema' ? ' 🤖' : ' 👤';
 
@@ -4946,17 +5135,23 @@ function _a_agentBadge(status, falta) {
     `;
   }
 
-  if (status === 'falta') {
+  if (st === 'falta') {
     return `<span class="pill pill-red"><span class="dot"></span>Falta 🤖</span>`;
   }
 
-  if (status === 'sin_punch') {
+  if (st === 'sin_punch') {
     return `<span class="pill pill-amber" style="animation:pulse 1.5s infinite">
       <span class="dot"></span>Sin punch ⏳
     </span>`;
   }
 
-  if (status === 'late') {
+  if (st === 'tolerance') {
+    return `<span class="pill" style="background:#FEF9C3;color:#854D0E;border:1px solid #FDE68A">
+      <span class="dot"></span>En tolerancia
+    </span>`;
+  }
+
+  if (st === 'late') {
     return `<span class="pill pill-amber"><span class="dot"></span>Retardo</span>`;
   }
 
@@ -4990,21 +5185,36 @@ function _a_miniTrend(vals){
 
 // ── QUINCENA TABLE SHARED ──
 function _a_quincenaTable(){
-  const todos=_a_filteredDays();
-  // KPIs: excluir fines de semana Y días de descanso
+  const todos = _a_filteredDays();
+  const agenteCtx = _a_agenteContextoQDAYS();
+
+  // KPIs: excluir descansos y vacaciones
   const validos = todos.filter(d => !d.esDescanso && !d.esVacacion);
-  const tw=validos.reduce((s,d)=>s+(d.segundos_trabajados||0),0);
-  const tl=validos.reduce((s,d)=>s+(d.segundos_tarde||0),0);
-  const tr=validos.filter(d=>d.es_retardo).length;
-  const te=validos.reduce((s,d)=>s+(d.tiempoExtraMin||0),0);
-  const pct=validos.length?Math.round(((validos.length-tr)/validos.length)*100):100;
-  let rows='';
-  todos.forEach((d)=>{
+
+  const tw = validos.reduce((s,d) => s + (d.segundos_trabajados || 0), 0);
+  const tl = validos.reduce((s,d) => s + (d.segundos_tarde || 0), 0);
+  const tr = validos.filter(d => _a_esRetardoDia(d, agenteCtx)).length;
+  const te = validos.reduce((s,d) => s + (d.tiempoExtraMin || 0), 0);
+
+  const puntualesOTolerancia = validos.filter(d => {
+    const st = _a_statusDiaConTolerancia(d, agenteCtx);
+    return st === 'on_time' || st === 'tolerance';
+  }).length;
+
+  const pct = validos.length
+    ? Math.round((puntualesOTolerancia / validos.length) * 100)
+    : 100;
+
+  let rows = '';
+
+  todos.forEach((d) => {
     const motivo = d.motivo_retardo || d.motivo_falta || '';
     const extraStr = d.tiempoExtraMin > 0 ? `+${d.tiempoExtraMin}m` : '—';
     const horarioTxt = _a_horarioDiaTxt(d);
+    const statusDia = _a_statusDiaConTolerancia(d, agenteCtx);
+    const lateMin = _a_lateMinDia(d);
 
-rows+=`<tr onclick="_a_openDayModal(${_a_QDAYS.filter(x=>!x.weekend).indexOf(d)})" style="cursor:pointer">
+    rows += `<tr onclick="_a_openDayModal(${_a_QDAYS.filter(x=>!x.weekend).indexOf(d)})" style="cursor:pointer">
   <td>${fmtDate(d.fecha)}</td>
 
   <td style="font-family:'DM Mono',monospace;color:${d.horario_es_permuta ? '#0E7490' : '#334155'};font-weight:${d.horario_es_permuta ? '800' : '600'}">
@@ -5019,13 +5229,14 @@ rows+=`<tr onclick="_a_openDayModal(${_a_QDAYS.filter(x=>!x.weekend).indexOf(d)}
   <td style="font-family:'DM Mono',monospace">${_a_fmtTime(d.entrada_at)}</td>
       <td style="font-family:'DM Mono',monospace">${_a_fmtTime(d.salida_at)}</td>
       <td style="font-family:'DM Mono',monospace">${_a_secsHHMM(d.segundos_trabajados)}</td>
-      <td style="font-family:'DM Mono',monospace;color:${d.segundos_tarde>0?'#B45309':'#94A3B8'}">${_a_secsMin(d.segundos_tarde)}</td>
+      <td style="font-family:'DM Mono',monospace;color:${lateMin > 0 ? '#B45309' : '#94A3B8'}">${_a_secsMin(d.segundos_tarde)}</td>
       <td style="font-family:'DM Mono',monospace;color:${d.tiempoExtraMin>0?'#6366F1':'#94A3B8'};font-weight:${d.tiempoExtraMin>0?'700':'400'}">${extraStr}</td>
       <td>${_a_statusBadge(d)}</td>
       <td style="font-size:12px;color:${d.motivo_retardo?'#92400E':d.motivo_falta?'#991B1B':'#94A3B8'};max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${motivo||'—'}</td>
     </tr>`;
   });
-  return{rows,tw,tl,tr,te,pct,count:validos.length};
+
+  return { rows, tw, tl, tr, te, pct, count: validos.length };
 }
 
 // ─────────────────────────────────────────────
@@ -5093,48 +5304,75 @@ function _a_renderAgent(){
 function _a_renderSupervisor(){
   const {entrada:en, salida:sa} = _a_getPunch();
   const r = ROLES['supervisor'];
-  const [shiftStart] = r.shift.split('–');
 
-  const onTime=_a_TEAM.filter(a=>a.status==='on_time').length;
-  const late=_a_TEAM.filter(a=>a.status==='late').length;
-  const absent=_a_TEAM.filter(a=>a.status==='falta').length;
-  const noOut=_a_TEAM.filter(a=>a.status!=='falta'&&!a.salida).length;
-  const pct=Math.round((onTime/_a_TEAM.length)*100);
-  const hoursContr=_a_TEAM.length*8;
-  const hoursWork=Math.round(_a_TEAM.filter(a=>a.worked).reduce((s,a)=>s+(a.worked||0),0)/3600);
-  const bonusRisk=_a_TEAM.filter(a=>a.retardos30>0||a.faltas30>0).length;
-  const riesgo=_a_TEAM.filter(a=>a.retardos30>=3||a.faltas30>=2);
+  const expectedTeam = _a_TEAM.filter(a => !['descanso','vacaciones'].includes(a.status));
 
-  let rows='';
-  _a_TEAM.forEach(a=>{
-    const riskLvl=a.retardos30>=4||a.faltas30>=3?'pill-red':a.retardos30>=2||a.faltas30>=2?'pill-amber':'pill-green';
-    const btnFalta = (a.status==='sin_punch')
+  const onTime = expectedTeam.filter(a => a.status === 'on_time').length;
+  const tolerance = expectedTeam.filter(a => a.status === 'tolerance').length;
+  const late = expectedTeam.filter(a => a.status === 'late').length;
+  const absent = expectedTeam.filter(a => a.status === 'falta').length;
+  const noOut = expectedTeam.filter(a => a.status !== 'falta' && a.entrada && !a.salida).length;
+
+  const baseTotal = expectedTeam.length || 1;
+  const pct = Math.round(((onTime + tolerance) / baseTotal) * 100);
+
+  const hoursContr = expectedTeam.length * 8;
+  const hoursWork = Math.round(expectedTeam.filter(a => a.worked).reduce((s,a)=>s+(a.worked||0),0)/3600);
+
+  const bonusRisk = _a_TEAM.filter(a => a.retardos30>0 || a.faltas30>0).length;
+  const riesgo = _a_TEAM.filter(a => a.retardos30>=3 || a.faltas30>=2);
+
+  let rows = '';
+
+  _a_TEAM.forEach(a => {
+    const statusFinal = _a_statusPorPuntualidad(a.status, a.lateMin || a.late || 0, a);
+    const bloqueaMarcas = ['descanso','vacaciones'].includes(statusFinal);
+    const lateMin = bloqueaMarcas ? 0 : Number(a.lateMin || a.late || 0);
+
+    const riskLvl = a.retardos30>=4 || a.faltas30>=3
+      ? 'pill-red'
+      : a.retardos30>=2 || a.faltas30>=2
+        ? 'pill-amber'
+        : 'pill-green';
+
+    const btnFalta = (statusFinal === 'sin_punch')
       ? `<button onclick="event.stopPropagation();_a_abrirModalFalta('${a.id}')"
            style="border:none;background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">
            ⚠️ Marcar falta</button>`
-      : a.status==='falta' && a.falta?.marcadaPor==='sistema'
+      : statusFinal === 'falta' && a.falta?.marcadaPor === 'sistema'
         ? `<button onclick="event.stopPropagation();_a_abrirModalFalta('${a.id}')"
              style="border:1px solid #DDD6FE;background:#F5F3FF;color:#6D28D9;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">
              📝 Agregar motivo</button>`
-      : a.status==='falta'
+      : statusFinal === 'falta'
         ? `<span style="font-size:10px;color:#64748B">👤 Supervisor</span>`
         : '—';
-    // Motivo de retardo
-    const retRec = _a_RETARDO_LOG.find(r=>r.agentId===a.id && r.fecha===_a_TODAY);
-    const btnRetardo = a.status==='late'
+
+    // Motivo de retardo solo aplica para retardo real, no tolerancia
+    const retRec = _a_RETARDO_LOG.find(r => r.agentId === a.id && r.fecha === _a_TODAY);
+
+    const btnRetardo = statusFinal === 'late'
       ? (retRec && !retRec.pendiente
           ? `<span style="font-size:11px;color:${retRec.marcadoPor==='sistema'?'#7E22CE':'#16A34A'}">${retRec.marcadoPor==='sistema'?'🤖':'👤'} ${retRec.motivo}</span>`
           : `<button onclick="event.stopPropagation();_a_abrirModalRetardo('${a.id}')"
                style="border:1px solid #FDE68A;background:#FFFBEB;color:#92400E;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">
                📝 Capturar motivo</button>`)
-      : '<span style="font-size:11px;color:#CBD5E1">—</span>';
-    rows+=`<tr onclick="_a_drillToAgent('${a.id}')">
-      <td><div class="agent-row-name">${a.name}</div><div class="agent-row-id">${a.id}</div></td>
-      <td style="font-family:'DM Mono',monospace;font-size:12px">${a.entrada||'—'}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:12px">${a.salida||'—'}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:12px;color:${a.lateMin>0?'#B45309':'#94A3B8'}">${a.lateMin>0?a.lateMin+' min':'—'}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:12px">${a.worked?_a_secsHHMM(a.worked):'—'}</td>
-      <td>${_a_agentBadge(a.status,a.falta)}</td>
+      : statusFinal === 'tolerance'
+        ? `<span style="font-size:11px;color:#854D0E">En tolerancia (${_a_toleranciaRetardoMin(a)} min)</span>`
+        : '<span style="font-size:11px;color:#CBD5E1">—</span>';
+
+    rows += `<tr onclick="_a_drillToAgent('${a.id}')">
+      <td>
+        <div class="agent-row-name">${a.name}</div>
+        <div class="agent-row-id">${a.id}</div>
+        <div style="font-size:10px;color:#64748B;margin-top:2px;font-family:var(--fm)">
+          ${_a_horarioAgenteLabel(a)} · Tol: ${_a_toleranciaRetardoMin(a)} min
+        </div>
+      </td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px">${bloqueaMarcas ? '—' : (a.entrada||'—')}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px">${bloqueaMarcas ? '—' : (a.salida||'—')}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px;color:${lateMin>0?'#B45309':'#94A3B8'}">${lateMin>0?lateMin+' min':'—'}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px">${bloqueaMarcas ? '—' : (a.worked?_a_secsHHMM(a.worked):'—')}</td>
+      <td>${_a_agentBadge(statusFinal, a.falta, lateMin, a)}</td>
       <td><span class="pill ${riskLvl}" style="font-size:10px">${a.retardos30}R · ${a.faltas30}F</span></td>
       <td>${btnRetardo}</td>
       <td>${btnFalta}</td>
@@ -5175,16 +5413,23 @@ function _a_renderSupervisor(){
   <div class="readonly-notice">👁️ <span>Las siguientes secciones son de tu equipo — <strong>solo lectura.</strong> No puedes marcar entrada/salida por un agente.</span></div>
   ${_a_dateFilterHTML()}
   ${_a_renderCambiosDescansoPendientes()}
+
   <!-- KPIs Hoy -->
-  <div class="kpi4">
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
     <div class="kpi-box"><div class="kpi-icon" style="background:#DCFCE7">✅</div><div class="kpi-val" style="color:#16A34A">${onTime}</div><div class="kpi-lbl">A tiempo · ${_a_dateFilter.label}</div>
-      <div class="kpi-bar"><div class="kpi-bar-f" style="width:${Math.round(onTime/_a_TEAM.length*100)}%;background:#16A34A"></div></div></div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:${Math.round(onTime/baseTotal*100)}%;background:#16A34A"></div></div></div>
+
+    <div class="kpi-box"><div class="kpi-icon" style="background:#FEF9C3">🟡</div><div class="kpi-val" style="color:#854D0E">${tolerance}</div><div class="kpi-lbl">En tolerancia</div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:${Math.round(tolerance/baseTotal*100)}%;background:#CA8A04"></div></div></div>
+
     <div class="kpi-box"><div class="kpi-icon" style="background:#FEF3C7">⏰</div><div class="kpi-val" style="color:#D97706">${late}</div><div class="kpi-lbl">Retardos · ${_a_dateFilter.label}</div>
-      <div class="kpi-bar"><div class="kpi-bar-f" style="width:${Math.round(late/_a_TEAM.length*100)}%;background:#D97706"></div></div></div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:${Math.round(late/baseTotal*100)}%;background:#D97706"></div></div></div>
+
     <div class="kpi-box"><div class="kpi-icon" style="background:#FEE2E2">🚫</div><div class="kpi-val" style="color:#DC2626">${absent}</div><div class="kpi-lbl">Faltas</div>
-      <div class="kpi-bar"><div class="kpi-bar-f" style="width:${Math.round(absent/_a_TEAM.length*100)}%;background:#DC2626"></div></div></div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:${Math.round(absent/baseTotal*100)}%;background:#DC2626"></div></div></div>
+
     <div class="kpi-box"><div class="kpi-icon" style="background:#F3E8FF">🔓</div><div class="kpi-val" style="color:#7E22CE">${noOut}</div><div class="kpi-lbl">Sin checkout</div>
-      <div class="kpi-bar"><div class="kpi-bar-f" style="width:${Math.round(noOut/_a_TEAM.length*100)}%;background:#7E22CE"></div></div></div>
+      <div class="kpi-bar"><div class="kpi-bar-f" style="width:${Math.round(noOut/baseTotal*100)}%;background:#7E22CE"></div></div></div>
   </div>
 
   <!-- Métricas adicionales supervisor -->
@@ -5195,20 +5440,26 @@ function _a_renderSupervisor(){
         <span class="kpi-val">${hoursWork}</span>
         <span style="font-size:13px;color:#94A3B8;margin-bottom:3px">/ ${hoursContr}h contratadas</span>
       </div>
-      <div class="kpi-bar" style="margin-top:8px"><div class="kpi-bar-f" style="width:${Math.round(hoursWork/hoursContr*100)}%;background:#3B82F6"></div></div>
-      <div class="kpi-delta ${hoursWork/hoursContr>=0.9?'up':'w'}">${Math.round(hoursWork/hoursContr*100)}% del tiempo contratado</div>
+      <div class="kpi-bar" style="margin-top:8px"><div class="kpi-bar-f" style="width:${hoursContr ? Math.round(hoursWork/hoursContr*100) : 0}%;background:#3B82F6"></div></div>
+      <div class="kpi-delta ${hoursContr && hoursWork/hoursContr>=0.9?'up':'w'}">${hoursContr ? Math.round(hoursWork/hoursContr*100) : 0}% del tiempo contratado</div>
     </div>
+
     <div class="kpi-box">
       <div class="kpi-lbl" style="margin-bottom:6px">Bonos en riesgo (mes)</div>
       <div class="kpi-val" style="color:${bonusRisk>3?'#DC2626':'#D97706'}">${bonusRisk}</div>
-      <div class="kpi-delta w">Aplazo — tienen retardo o falta</div>
+      <div class="kpi-delta w">Aplazo — retardo real o falta</div>
     </div>
+
     <div class="kpi-box">
-      <div class="kpi-lbl" style="margin-bottom:6px">Puntualidad del equipo</div>
+      <div class="kpi-lbl" style="margin-bottom:6px">Cumplimiento del equipo</div>
       <div class="kpi-val">${pct}%</div>
       <div class="kpi-bar" style="margin-top:8px"><div class="kpi-bar-f" style="width:${pct}%;background:${_a_barColor(pct)}"></div></div>
-      <div class="kpi-delta ${pct>=85?'up':pct>=70?'w':'dn'}">${onTime} de ${_a_TEAM.length} agentes</div>
+      <div class="kpi-delta ${pct>=85?'up':pct>=70?'w':'dn'}">${onTime + tolerance} de ${expectedTeam.length} dentro de tolerancia</div>
     </div>
+  </div>
+
+  <div class="alert alert-amber">
+    ⏱️ <span><strong>Regla de tolerancia:</strong> Aplazo 5 min · KAM 10 min · resto 10 min. KAM gana sobre Aplazo.</span>
   </div>
 
   ${riesgo.length?`
@@ -5221,7 +5472,7 @@ function _a_renderSupervisor(){
       <input class="search-box" placeholder="Buscar agente…" oninput="_a_filterTeam(this.value)"/>
     </div>
     <div class="tbl-wrap">
-      <div style="overflow-x:auto"><table style="min-width:620px" id="teamTable">
+      <div style="overflow-x:auto"><table style="min-width:780px" id="teamTable">
         <thead><tr><th>Agente</th><th>Entrada</th><th>Salida</th><th>Min tarde</th><th>Trabajado</th><th>Hoy</th><th>30 días</th><th>Motivo retardo</th><th>Falta</th></tr></thead>
         <tbody id="teamBody">${rows}</tbody>
       </table></div>
@@ -6466,15 +6717,29 @@ function _a_renderHeadPeople(){
 // DRILL — agente desde supervisor
 // ─────────────────────────────────────────────
 function _a_renderAgentDetail(agentId){
-  const a=_a_TEAM.find(x=>x.id===agentId)||_a_TEAM[0];
-  const {rows,tw,tl,tr,te,pct}=_a_quincenaTable();
+  const a = _a_TEAM.find(x => x.id === agentId) || _a_TEAM[0];
+  const {rows, tw, tl, tr, te, pct} = _a_quincenaTable();
+
+  const toleranciaMin = _a_toleranciaRetardoMin(a);
+  const statusFinal = _a_statusPorPuntualidad(a.status, a.lateMin || a.late || 0, a);
+  const lateMin = Number(a.lateMin || a.late || 0);
+
+  const mensajeTarde = lateMin > 0
+    ? statusFinal === 'late'
+      ? `<div class="alert alert-amber">⚠️ Llegó <strong>${lateMin} minutos tarde</strong> — tolerancia aplicada: ${toleranciaMin} min. Cuenta como retardo.</div>`
+      : statusFinal === 'tolerance'
+        ? `<div class="alert alert-green">✅ Llegó <strong>${lateMin} minutos tarde</strong>, dentro de la tolerancia de ${toleranciaMin} min. No cuenta como retardo.</div>`
+        : ''
+    : '';
+
   return`${_a_roleSwitcherHTML()}
   <div class="drilldown-header">
     <button class="back-btn" onclick="_a_backToTeam()">← Volver</button>
     <div style="font-size:14px;font-weight:600">${a.name}</div>
     <span class="pill pill-gray">${a.id}</span>
-    ${_a_agentBadge(a.status)}
+    ${_a_agentBadge(statusFinal, a.falta, lateMin, a)}
   </div>
+
   <div class="readonly-notice">👁️ <strong>Vista supervisor · Solo lectura.</strong> No puedes marcar entrada/salida.</div>
 
 ${_a_renderCambioDescansoBox()}
@@ -6484,13 +6749,14 @@ ${_a_renderCambioDescansoBox()}
     <div class="hoy-grid">
       <div class="hoy-box"><div class="hoy-box-label">🟢 Entrada</div>
         <div class="hoy-box-val ${a.entrada?'':'empty'}">${a.entrada||'——:——'}</div>
-        <div class="hoy-box-sub">Turno: ${a.shift}</div></div>
+        <div class="hoy-box-sub">Turno: ${a.shift} · Tol: ${toleranciaMin} min</div></div>
       <div class="hoy-box"><div class="hoy-box-label">🔴 Salida</div>
         <div class="hoy-box-val ${a.salida?'':'empty'}">${a.salida||'——:——'}</div>
         <div class="hoy-box-sub">${a.entrada&&!a.salida?'En turno':'—'}</div></div>
     </div>
-    ${a.lateMin>0?`<div class="alert alert-amber">⚠️ Llegó <strong>${a.lateMin} minutos tarde</strong> — tolerancia 0 min</div>`:''}
+    ${mensajeTarde}
   </div>
+
   <div class="card">
     <div class="q-nav">
       <button class="q-nav-btn" onclick="_a_navDate(-1,'${a.id}')">← Anterior</button>
@@ -6500,8 +6766,8 @@ ${_a_renderCambioDescansoBox()}
     <div class="q-summary">
       <div class="qs-box worked"><div class="qs-label">Trabajado</div><div class="qs-val">${_a_secsHHMM(tw)}</div></div>
       <div class="qs-box late-time"><div class="qs-label">Tiempo tarde</div><div class="qs-val">${_a_secsMin(tl)}</div></div>
-      <div class="qs-box retardos"><div class="qs-label">Retardos</div><div class="qs-val">${tr}</div></div>
-      <div class="qs-box puntual"><div class="qs-label">Puntualidad</div><div class="qs-val">${pct}%</div></div>
+      <div class="qs-box retardos"><div class="qs-label">Retardos reales</div><div class="qs-val">${tr}</div></div>
+      <div class="qs-box puntual"><div class="qs-label">Cumplimiento</div><div class="qs-val">${pct}%</div></div>
     </div>
     <div class="tbl-wrap">
       <div class="tbl-head-dark">Detalle por día</div>
@@ -6521,23 +6787,42 @@ function _a_renderSupDetail(supId) {
 
   const hoy = ymd(NOW);
 
-  const myTeam = sup && sup._teamIds
+  let myTeam = sup && sup._teamIds
     ? _a_TEAM.filter(a => sup._teamIds.includes(a.id))
     : _a_TEAM;
 
-  const onTime = myTeam.filter(a => !_a_descansaHoyAgente(a, hoy) && a.status === 'on_time').length;
-  const late   = myTeam.filter(a => !_a_descansaHoyAgente(a, hoy) && a.status === 'late').length;
-  const absent = myTeam.filter(a => !_a_descansaHoyAgente(a, hoy) && a.status === 'falta').length;
-  const rest   = myTeam.filter(a => _a_descansaHoyAgente(a, hoy)).length;
+  // Evitar duplicados por seguridad
+  const seen = new Set();
+  myTeam = myTeam.filter(a => {
+    if (seen.has(a.id)) return false;
+    seen.add(a.id);
+    return true;
+  });
+
+  const statusOf = (a) => _a_statusAgenteHoy(a, hoy);
+
+  const expectedTeam = myTeam.filter(a => {
+    const st = statusOf(a);
+    return st !== 'descanso' && st !== 'vacaciones';
+  });
+
+  const onTime = expectedTeam.filter(a => statusOf(a) === 'on_time').length;
+  const tolerance = expectedTeam.filter(a => statusOf(a) === 'tolerance').length;
+  const late = expectedTeam.filter(a => statusOf(a) === 'late').length;
+  const absent = expectedTeam.filter(a => statusOf(a) === 'falta').length;
+  const rest = myTeam.filter(a => statusOf(a) === 'descanso').length;
+  const vacations = myTeam.filter(a => statusOf(a) === 'vacaciones').length;
 
   let rows = '';
 
   myTeam.forEach(a => {
-    const descansaHoy = _a_descansaHoyAgente(a, hoy);
+    const statusFinal = statusOf(a);
 
-    const lateMin = descansaHoy ? 0 : (a.lateMin || 0);
-    const statusFinal = descansaHoy ? 'descanso' : a.status;
-    const faltaFinal = descansaHoy ? null : a.falta;
+    const bloqueaMarcas = ['descanso', 'vacaciones'].includes(statusFinal);
+    const lateMin = bloqueaMarcas ? 0 : Number(a.lateMin || a.late || 0);
+    const faltaFinal = statusFinal === 'falta' ? a.falta : null;
+
+    const toleranciaMin = _a_toleranciaRetardoMin(a);
 
     rows += `
       <tr onclick="_a_drillToAgent('${a.id}')">
@@ -6545,27 +6830,27 @@ function _a_renderSupDetail(supId) {
           <div class="agent-row-name">${a.name}</div>
           <div class="agent-row-id">${a.id}</div>
           <div style="font-size:11px;color:#64748B;margin-top:3px;font-family:var(--fm)">
-            ${_a_horarioAgenteLabel(a)}
+            ${_a_horarioAgenteLabel(a)} · Tol: ${toleranciaMin} min
           </div>
         </td>
 
         <td style="font-family:var(--fm);font-size:12px">
-          ${descansaHoy ? '—' : (a.entrada || '—')}
+          ${bloqueaMarcas ? '—' : (a.entrada || '—')}
         </td>
 
         <td style="font-family:var(--fm);font-size:12px">
-          ${descansaHoy ? '—' : (a.salida || '—')}
+          ${bloqueaMarcas ? '—' : (a.salida || '—')}
         </td>
 
         <td style="font-family:var(--fm);font-size:12px;color:${lateMin > 0 ? '#B45309' : '#94A3B8'}">
-          ${descansaHoy || lateMin === 0 ? '—' : lateMin + ' min'}
+          ${bloqueaMarcas || lateMin === 0 ? '—' : lateMin + ' min'}
         </td>
 
         <td style="font-family:var(--fm);font-size:12px;color:#6366F1">
-          ${descansaHoy ? '—' : (a.worked ? _a_secsHHMM(a.worked) : '—')}
+          ${bloqueaMarcas ? '—' : (a.worked ? _a_secsHHMM(a.worked) : '—')}
         </td>
 
-        <td>${_a_agentBadge(statusFinal, faltaFinal)}</td>
+        <td>${_a_agentBadge(statusFinal, faltaFinal, lateMin, a)}</td>
       </tr>
     `;
   });
@@ -6580,10 +6865,10 @@ function _a_renderSupDetail(supId) {
       <span class="pill pill-gray">${myTeam.length} agentes</span>
     </div>
 
-    <div class="kpi4">
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
       <div class="kpi-box">
-        <div class="kpi-val">${myTeam.length}</div>
-        <div class="kpi-lbl">Agentes</div>
+        <div class="kpi-val">${expectedTeam.length}</div>
+        <div class="kpi-lbl">Esperados hoy</div>
       </div>
 
       <div class="kpi-box">
@@ -6592,18 +6877,41 @@ function _a_renderSupDetail(supId) {
       </div>
 
       <div class="kpi-box">
+        <div class="kpi-val" style="color:#854D0E">${tolerance}</div>
+        <div class="kpi-lbl">En tolerancia</div>
+      </div>
+
+      <div class="kpi-box">
         <div class="kpi-val" style="color:#D97706">${late}</div>
         <div class="kpi-lbl">Retardos</div>
       </div>
 
       <div class="kpi-box">
-        <div class="kpi-val" style="color:#64748B">${rest}</div>
-        <div class="kpi-lbl">Descansos</div>
+        <div class="kpi-val" style="color:#DC2626">${absent}</div>
+        <div class="kpi-lbl">Faltas</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#64748B">${rest + vacations}</div>
+        <div class="kpi-lbl">Descanso/Vac.</div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">Equipo de ${supName}</div>
+      <div class="card-title">
+        Equipo de ${supName}
+        <span class="pill pill-green">${onTime} a tiempo</span>
+        <span class="pill" style="background:#FEF9C3;color:#854D0E;border:1px solid #FDE68A">${tolerance} tolerancia</span>
+        <span class="pill pill-amber">${late} retardos</span>
+      </div>
+
+      <div style="font-size:11px;color:#64748B;margin-bottom:12px;line-height:1.5">
+        Regla actual:
+        <b>Aplazo = 5 min</b> ·
+        <b>Key Account Manager / KAM = 10 min</b> ·
+        <b>Resto de campañas = 10 min</b>.
+        Si el agente es KAM, gana la regla de 10 min aunque esté dentro de Aplazo.
+      </div>
 
       <div class="tbl-wrap">
         <div style="overflow-x:auto">
@@ -6770,11 +7078,19 @@ function _a_filterTeam(val){
 // MODAL DÍA
 // ─────────────────────────────────────────────
 function _a_openDayModal(idx){
-  const d=_a_QDAYS.filter(x=>!x.weekend)[idx];
-  if(!d)return;
-  document.getElementById('modalTitle').textContent=`Detalle — ${fmtDate(d.fecha)}`;
-  document.getElementById('modalSub').textContent=d.tipo_falta||d.estatus||'Normal';
-  document.getElementById('modalBody').innerHTML=`
+  const d = _a_QDAYS.filter(x => !x.weekend)[idx];
+  if (!d) return;
+
+  const agenteCtx = _a_agenteContextoQDAYS();
+  const toleranciaMin = _a_toleranciaRetardoMin(agenteCtx);
+  const statusDia = _a_statusDiaConTolerancia(d, agenteCtx);
+  const esRetardoReal = statusDia === 'late';
+  const estaEnTolerancia = statusDia === 'tolerance';
+
+  document.getElementById('modalTitle').textContent = `Detalle — ${fmtDate(d.fecha)}`;
+  document.getElementById('modalSub').textContent = d.tipo_falta || d.estatus || 'Normal';
+
+  document.getElementById('modalBody').innerHTML = `
     <div class="modal-section">
       <div class="ms-title">Registro del día</div>
       <div class="kv"><span class="k">Fecha</span><span class="v">${fmtDate(d.fecha)}</span></div>
@@ -6784,23 +7100,28 @@ function _a_openDayModal(idx){
       <div class="kv"><span class="k">Tiempo tarde</span><span class="v" style="font-family:'DM Mono',monospace;color:${d.segundos_tarde>0?'#B45309':'#64748B'}">${_a_secsMin(d.segundos_tarde)}</span></div>
       ${d.tiempoExtraMin>0?`<div class="kv"><span class="k">Tiempo extra</span><span class="v" style="font-family:'DM Mono',monospace;color:#6366F1;font-weight:700">+${d.tiempoExtraMin} min</span></div>`:''}
     </div>
+
     <div class="modal-section">
       <div class="ms-title">Status</div>
       <div class="kv"><span class="k">Puntualidad</span><span class="v">${_a_statusBadge(d)}</span></div>
-      <div class="kv"><span class="k">Es retardo</span><span class="v">${d.es_retardo?'<span style="color:#DC2626;font-weight:700">Sí</span>':'No'}</span></div>
-      <div class="kv"><span class="k">Tolerancia</span><span class="v">0 minutos</span></div>
+      <div class="kv"><span class="k">Es retardo</span><span class="v">${esRetardoReal ? '<span style="color:#DC2626;font-weight:700">Sí</span>' : 'No'}</span></div>
+      <div class="kv"><span class="k">En tolerancia</span><span class="v">${estaEnTolerancia ? '<span style="color:#854D0E;font-weight:700">Sí</span>' : 'No'}</span></div>
+      <div class="kv"><span class="k">Tolerancia aplicada</span><span class="v">${toleranciaMin} minutos</span></div>
       <div class="kv"><span class="k">Tipo excepción</span><span class="v">${d.tipo_falta||'—'}</span></div>
       ${d.motivo_falta?`<div class="kv"><span class="k">Motivo de falta</span><span class="v" style="color:#991B1B;font-weight:600">${d.motivo_falta}</span></div>`:''}
       ${d.motivo_retardo?`<div class="kv"><span class="k">Motivo del retardo</span><span class="v" style="color:#92400E;font-weight:600">${d.motivo_retardo}</span></div>`:''}
     </div>
-    ${d.es_retardo?`<div class="modal-section" style="border-color:#FDE68A;background:#FFFBEB">
+
+    ${esRetardoReal?`<div class="modal-section" style="border-color:#FDE68A;background:#FFFBEB">
       <div class="ms-title" style="color:#92400E">⚠️ Impacto disciplinario</div>
       <div class="kv"><span class="k">Ventana activa</span><span class="v">30 días</span></div>
       <div class="kv"><span class="k">Retardos en ventana</span><span class="v" style="color:#DC2626">1 → Verbal</span></div>
       <div class="kv"><span class="k">Siguiente nivel</span><span class="v">2 retardos → 1ª escrita</span></div>
-    </div>`:''}`;
+    </div>`:''}
+  `;
 
   const puedeCorregir = ['supervisor','manager'].includes(currentRole);
+
   if (puedeCorregir) {
     document.getElementById('modalFooter').innerHTML = `
       <button class="btn-ghost" onclick="closeModal()">Cerrar</button>
@@ -6808,6 +7129,7 @@ function _a_openDayModal(idx){
   } else {
     document.getElementById('modalFooter').innerHTML = '<button class="btn-ghost" onclick="closeModal()">Cerrar</button>';
   }
+
   document.getElementById('modalBackdrop').style.display='flex';
 }
 
