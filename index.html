@@ -1931,20 +1931,79 @@ function closeModal(e){
   document.getElementById('modalBackdrop').style.display='none';
   document.getElementById('modalFooter').innerHTML='<button class="btn-ghost" onclick="closeModal()">Cerrar</button>';
 }
-function updateSidebarUser(){const ro=ROLES[currentRole];document.getElementById('sbAv').textContent=ro.av;document.getElementById('sbName').textContent=ro.name;document.getElementById('sbRole').textContent=ro.label;}
-function switchModule(mod){
-  activeModule=mod;
-  document.querySelectorAll('.sb-item').forEach(el=>el.classList.toggle('active',el.dataset.mod===mod));
-  document.getElementById('tbIcon').textContent=MODULE_INFO[mod].icon;
-  document.getElementById('tbTitle').textContent=MODULE_INFO[mod].label;
-  const _c=document.getElementById('content');
-  if(!_c){ console.error('[Impulse] #content NO EXISTE al cambiar a '+mod); return; }
-  _c.removeAttribute('style');
-  const fn=window['_init_'+mod];
-  console.log('[Impulse] switchModule('+mod+') fn='+typeof fn);
-  if(fn) fn();
-  else console.error('[Impulse] _init_'+mod+' no definido');
+
+function updateSidebarUser() {
+  const ro = ROLES[currentRole] || {};
+
+  const av = document.getElementById('sbAv');
+  const name = document.getElementById('sbName');
+  const role = document.getElementById('sbRole');
+
+  if (av) av.textContent = ro.av || '';
+  if (name) name.textContent = ro.name || '';
+  if (role) role.textContent = ro.label || '';
+
+  setTimeout(() => {
+    if (typeof _t_ensureTicketBell === 'function') {
+      _t_ensureTicketBell();
+    }
+
+    if (typeof _t_refreshTicketNotificationsUI === 'function') {
+      _t_refreshTicketNotificationsUI();
+    }
+
+    if (typeof _t_startTicketNotificationPolling === 'function') {
+      _t_startTicketNotificationPolling();
+    }
+  }, 0);
 }
+
+function switchModule(mod) {
+  activeModule = mod;
+
+  document.querySelectorAll('.sb-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.mod === mod)
+  );
+
+  const icon = document.getElementById('tbIcon');
+  const title = document.getElementById('tbTitle');
+
+  if (icon) icon.textContent = MODULE_INFO[mod]?.icon || '';
+  if (title) title.textContent = MODULE_INFO[mod]?.label || mod;
+
+  const _c = document.getElementById('content');
+
+  if (!_c) {
+    console.error('[Impulse] #content NO EXISTE al cambiar a ' + mod);
+    return;
+  }
+
+  _c.removeAttribute('style');
+
+  // Asegurar campana en cada cambio de módulo.
+  // Esto también cubre el arranque inicial, porque la app inicia con switchModule('asistencia').
+  setTimeout(() => {
+    if (typeof _t_ensureTicketBell === 'function') {
+      _t_ensureTicketBell();
+    }
+
+    if (typeof _t_refreshTicketNotificationsUI === 'function') {
+      _t_refreshTicketNotificationsUI();
+    }
+
+    if (typeof _t_startTicketNotificationPolling === 'function') {
+      _t_startTicketNotificationPolling();
+    }
+  }, 0);
+
+  const fn = window['_init_' + mod];
+
+  console.log('[Impulse] switchModule(' + mod + ') fn=' + typeof fn);
+
+  if (fn) fn();
+  else console.error('[Impulse] _init_' + mod + ' no definido');
+}
+
 function globalSwitchRole(r){currentRole=r;updateSidebarUser();const fn=window['_rerender_'+activeModule];if(fn)fn();}
 function roleSwitcher(){
   if(window._auth_loggedIn) return "";
@@ -8180,19 +8239,459 @@ let _t_cargando = false;
 let _t_vistaTickets = 'mis';
 let _t_detalleId = null;
 
-async function _t_cargarTickets() {
+// ── NOTIFICACIONES TICKETS HR · MVP FRONT ───────────────────
+// Fase 1: campanita global + badges visuales.
+// Guarda vistos por usuario/rol en localStorage.
+// Después podemos migrarlo a Supabase para multi-dispositivo.
+
+let _t_notifPollingStarted = false;
+let _t_notifPollingTimer = null;
+
+function _t_seenStorageKey() {
+  const ro = ROLES[currentRole] || {};
+  return `impulse_ticket_seen_${currentRole}_${ro.id || 'unknown'}`;
+}
+
+function _t_getSeenMap() {
+  try {
+    return JSON.parse(localStorage.getItem(_t_seenStorageKey()) || '{}') || {};
+  } catch(e) {
+    return {};
+  }
+}
+
+function _t_saveSeenMap(map) {
+  localStorage.setItem(_t_seenStorageKey(), JSON.stringify(map || {}));
+}
+
+function _t_ticketVersion(t) {
+  return String(
+    t?.updated_at ||
+    t?.resolved_at ||
+    t?.assigned_at ||
+    t?.first_response_at ||
+    t?.created_at ||
+    ''
+  );
+}
+
+function _t_ticketVisibleParaMi(t) {
+  const ro = ROLES[currentRole] || {};
+
+  if (!t) return false;
+
+  // People / Head People / CEO ven la bandeja completa.
+  if (typeof _t_puedeGestionar === 'function' && _t_puedeGestionar()) {
+    return true;
+  }
+
+  // Agentes/supervisores/managers, en este MVP, ven sus propios tickets.
+  return t.employee_id === ro.id;
+}
+
+function _t_ticketUnread(t) {
+  if (!_t_ticketVisibleParaMi(t)) return false;
+
+  const version = _t_ticketVersion(t);
+  if (!version) return false;
+
+  const seen = _t_getSeenMap();
+
+  return seen[t.id] !== version;
+}
+
+function _t_ticketUnreadCount(lista = _t_TICKETS) {
+  return (lista || []).filter(t => _t_ticketVisibleParaMi(t) && _t_ticketUnread(t)).length;
+}
+
+function _t_markTicketRead(id) {
+  const t = (_t_TICKETS || []).find(x => x.id === id);
+  if (!t) return;
+
+  const seen = _t_getSeenMap();
+  seen[id] = _t_ticketVersion(t);
+  _t_saveSeenMap(seen);
+
+  _t_refreshTicketNotificationsUI();
+}
+
+function _t_markAllTicketsRead() {
+  const seen = _t_getSeenMap();
+
+  (_t_TICKETS || [])
+    .filter(_t_ticketVisibleParaMi)
+    .forEach(t => {
+      seen[t.id] = _t_ticketVersion(t);
+    });
+
+  _t_saveSeenMap(seen);
+
+  _t_refreshTicketNotificationsUI();
+
+  if (activeModule === 'tickets') {
+    _t_render();
+  }
+}
+
+function _t_abrirTicket(id) {
+  _t_markTicketRead(id);
+  _t_detalleId = id;
+
+  if (activeModule !== 'tickets') {
+    switchModule('tickets');
+    return;
+  }
+
+  _t_render();
+}
+
+function _t_notifTipoLabel(t) {
+  const status = String(t?.status || 'pending').toLowerCase();
+
+  if (status === 'resolved') return 'Ticket resuelto';
+  if (status === 'cancelled') return 'Ticket cancelado';
+  if (status === 'in_progress') return 'Ticket en proceso';
+
+  const created = String(t?.created_at || '');
+  const updated = String(t?.updated_at || '');
+
+  if (updated && created && updated.slice(0, 19) !== created.slice(0, 19)) {
+    return 'Ticket actualizado';
+  }
+
+  return 'Nuevo ticket';
+}
+
+function _t_notifTimeLabel(t) {
+  const raw = t?.updated_at || t?.resolved_at || t?.assigned_at || t?.created_at;
+  if (!raw) return '';
+
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return '';
+
+  const diffMs = Date.now() - dt.getTime();
+  const diffMin = Math.max(0, Math.floor(diffMs / 60000));
+
+  if (diffMin < 1) return 'Ahora';
+  if (diffMin < 60) return `Hace ${diffMin} min`;
+
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `Hace ${diffH} h`;
+
+  return raw.slice(0, 10);
+}
+
+function _t_unreadTickets() {
+  return (_t_TICKETS || [])
+    .filter(t => _t_ticketVisibleParaMi(t) && _t_ticketUnread(t))
+    .sort((a, b) => {
+      const da = new Date(a.updated_at || a.resolved_at || a.assigned_at || a.created_at || 0);
+      const db = new Date(b.updated_at || b.resolved_at || b.assigned_at || b.created_at || 0);
+      return db - da;
+    });
+}
+
+function _t_toggleNotificationsPanel() {
+  const panel = document.getElementById('ticketNotifPanel');
+  if (!panel) return;
+
+  panel.style.display = panel.style.display === 'none' || !panel.style.display
+    ? 'block'
+    : 'none';
+}
+
+function _t_ensureTicketBell() {
+  let wrap = document.getElementById('ticketNotifWrap');
+
+  if (wrap) return wrap;
+
+  const topbar = document.querySelector('.topbar');
+  const tbDate = document.getElementById('tbDate');
+  const spacer = document.querySelector('.topbar .tb-sp');
+
+  if (!topbar) return null;
+
+  wrap = document.createElement('div');
+  wrap.id = 'ticketNotifWrap';
+  wrap.style.position = 'relative';
+  wrap.style.marginLeft = '8px';
+  wrap.style.marginRight = '8px';
+  wrap.style.zIndex = '120';
+
+  if (tbDate && tbDate.parentNode) {
+    tbDate.parentNode.insertBefore(wrap, tbDate);
+  } else if (spacer && spacer.parentNode) {
+    spacer.parentNode.insertBefore(wrap, spacer.nextSibling);
+  } else {
+    topbar.appendChild(wrap);
+  }
+
+  return wrap;
+}
+
+function _t_ensureTicketBell() {
+  let wrap = document.getElementById('ticketNotifWrap');
+
+  if (wrap) return wrap;
+
+  const topbar = document.querySelector('.topbar');
+  const tbDate = document.getElementById('tbDate');
+  const updateBanner = document.getElementById('updateBanner');
+
+  if (!topbar) {
+    console.warn('[Tickets HR] No existe .topbar todavía, no puedo pintar campana.');
+    return null;
+  }
+
+  wrap = document.createElement('div');
+  wrap.id = 'ticketNotifWrap';
+  wrap.style.position = 'relative';
+  wrap.style.marginRight = '8px';
+  wrap.style.zIndex = '120';
+
+  if (tbDate && tbDate.parentNode) {
+    tbDate.parentNode.insertBefore(wrap, tbDate);
+  } else if (updateBanner && updateBanner.parentNode) {
+    updateBanner.parentNode.insertBefore(wrap, updateBanner.nextSibling);
+  } else {
+    topbar.appendChild(wrap);
+  }
+
+  return wrap;
+}
+
+function _t_refreshTicketNotificationsUI() {
+  const unread = typeof _t_unreadTickets === 'function'
+    ? _t_unreadTickets()
+    : [];
+
+  const unreadCount = unread.length;
+
+  // Badge del sidebar en Tickets HR
+  const ticketItem = document.querySelector('.sb-item[data-mod="tickets"]');
+
+  if (ticketItem) {
+    let badge = ticketItem.querySelector('.ticket-nav-badge');
+
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'ticket-nav-badge';
+      badge.style.marginLeft = 'auto';
+      badge.style.background = '#DC2626';
+      badge.style.color = '#fff';
+      badge.style.minWidth = '18px';
+      badge.style.height = '18px';
+      badge.style.padding = '0 6px';
+      badge.style.borderRadius = '999px';
+      badge.style.fontSize = '10px';
+      badge.style.fontWeight = '900';
+      badge.style.display = 'inline-flex';
+      badge.style.alignItems = 'center';
+      badge.style.justifyContent = 'center';
+      badge.style.lineHeight = '1';
+
+      ticketItem.appendChild(badge);
+    }
+
+    if (unreadCount > 0) {
+      badge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  // Campanita global
+  const wrap = _t_ensureTicketBell();
+
+  if (!wrap) return;
+
+  const preview = unread.slice(0, 8).map(t => {
+    const categoria = typeof _t_categoriaLabel === 'function'
+      ? (_t_categoriaLabel(t.type) || 'Ticket')
+      : (t.type || 'Ticket');
+
+    const empleado = typeof _t_nombreEmpleado === 'function'
+      ? _t_nombreEmpleado(t.employee_id)
+      : (t.employee_id || '—');
+
+    return `
+      <div
+        onclick="_t_abrirTicket('${t.id}')"
+        style="padding:10px 12px;border-bottom:1px solid #F1F5F9;cursor:pointer;background:#fff"
+        onmouseover="this.style.background='#F8FAFC'"
+        onmouseout="this.style.background='#fff'"
+      >
+        <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:3px">
+          <div style="font-size:12px;font-weight:900;color:#0F172A">
+            ● ${_t_notifTipoLabel(t)}
+          </div>
+
+          <div style="font-size:10px;color:#94A3B8;white-space:nowrap">
+            ${_t_notifTimeLabel(t)}
+          </div>
+        </div>
+
+        <div style="font-size:11px;color:#64748B;line-height:1.4">
+          ${categoria}${t.subtype ? ' · ' + t.subtype : ''}
+        </div>
+
+        <div style="font-size:11px;color:#94A3B8;margin-top:2px">
+          ${empleado}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  wrap.innerHTML = `
+    <button
+      onclick="_t_toggleNotificationsPanel()"
+      style="
+        position:relative;
+        border:1px solid ${unreadCount ? '#FCA5A5' : '#E2E8F0'};
+        background:${unreadCount ? '#FFF1F2' : '#F8FAFC'};
+        color:${unreadCount ? '#991B1B' : '#64748B'};
+        padding:6px 10px;
+        border-radius:999px;
+        font-size:13px;
+        font-weight:900;
+        cursor:pointer;
+        font-family:var(--f);
+        display:flex;
+        align-items:center;
+        gap:6px;
+      "
+      title="Notificaciones de Tickets HR"
+    >
+      🔔
+      ${unreadCount ? `<span style="font-size:11px">${unreadCount > 99 ? '99+' : unreadCount}</span>` : ''}
+    </button>
+
+    <div
+      id="ticketNotifPanel"
+      style="
+        display:none;
+        position:absolute;
+        right:0;
+        top:38px;
+        width:340px;
+        max-width:calc(100vw - 32px);
+        background:#fff;
+        border:1px solid #E2E8F0;
+        border-radius:14px;
+        box-shadow:0 18px 40px rgba(15,23,42,.18);
+        z-index:100;
+        overflow:hidden;
+      "
+    >
+      <div style="padding:12px 14px;background:#0F172A;color:#fff;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:13px;font-weight:900">Notificaciones</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.6);margin-top:2px">Tickets HR</div>
+        </div>
+
+        ${unreadCount ? `
+          <button
+            onclick="_t_markAllTicketsRead()"
+            style="border:none;background:rgba(255,255,255,.12);color:#E0F2FE;border-radius:8px;padding:5px 8px;font-size:10px;font-weight:800;cursor:pointer"
+          >
+            Marcar todo leído
+          </button>
+        ` : ''}
+      </div>
+
+      <div style="max-height:360px;overflow-y:auto">
+        ${unreadCount ? preview : `
+          <div style="padding:28px 16px;text-align:center;color:#94A3B8">
+            <div style="font-size:24px;margin-bottom:6px">✅</div>
+            <div style="font-size:13px;font-weight:800;color:#334155">Sin notificaciones nuevas</div>
+            <div style="font-size:11px;margin-top:3px">Todo al corriente en Tickets HR.</div>
+          </div>
+        `}
+      </div>
+
+      ${unreadCount > 8 ? `
+        <div style="padding:8px 12px;background:#F8FAFC;font-size:11px;color:#64748B;text-align:center">
+          Y ${unreadCount - 8} notificación${unreadCount - 8 !== 1 ? 'es' : ''} más...
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+async function _t_refreshTicketNotifications() {
+  if (typeof _t_cargarTickets !== 'function') return;
+
+  try {
+    await _t_cargarTickets({ silent: true });
+
+    if (activeModule === 'tickets' && typeof _t_render === 'function') {
+      _t_render();
+    } else {
+      _t_refreshTicketNotificationsUI();
+    }
+  } catch(e) {
+    console.warn('No se pudieron refrescar notificaciones de tickets:', e);
+  }
+}
+
+function _t_startTicketNotificationPolling() {
+  if (_t_notifPollingStarted) {
+    _t_refreshTicketNotificationsUI();
+    return;
+  }
+
+  _t_notifPollingStarted = true;
+
+  // Primera carga ligera al entrar
+  setTimeout(() => {
+    _t_refreshTicketNotifications();
+  }, 1200);
+
+  // Polling cada minuto
+  _t_notifPollingTimer = setInterval(() => {
+    _t_refreshTicketNotifications();
+  }, 60000);
+}
+
+async function _t_cargarTickets(options = {}) {
   try {
     const ro = ROLES[currentRole];
-    let query = _t_sb.from('hr_tickets').select('*').order('created_at', {ascending:false});
-    if (currentRole === 'agent') query = query.eq('employee_id', ro.id);
+
+    let query = _t_sb
+      .from('hr_tickets')
+      .select('*')
+      .order('created_at', { ascending:false });
+
+    if (!_t_puedeGestionar()) {
+      query = query.eq('employee_id', ro.id);
+    }
+
     const { data, error } = await query;
     if (error) throw error;
+
     _t_TICKETS = data || [];
-    const { data: emps } = await _t_sb.from('employees').select('id,full_name,supervisor_id,status').eq('status','active');
+
+    const { data: emps, error: empError } = await _t_sb
+      .from('employees')
+      .select('id,full_name,supervisor_id,status,campaign_id,system_role,position_title')
+      .eq('status', 'active')
+      .order('full_name');
+
+    if (empError) throw empError;
+
     _t_EMPLEADOS = emps || [];
     _t_EMPLEADOS_FULL = emps || [];
+
+    if (typeof _t_refreshTicketNotificationsUI === 'function') {
+      _t_refreshTicketNotificationsUI();
+    }
+
     return true;
-  } catch(e) { console.error('Error tickets:', e); return false; }
+  } catch(e) {
+    console.error('Error tickets:', e);
+    return false;
+  }
 }
 
 function _t_nombreEmpleado(id) {
@@ -8377,19 +8876,48 @@ async function _t_crearTicket() {
   const categoria = document.getElementById('nt-categoria')?.value;
   const subtipo = document.getElementById('nt-subtipo')?.value;
   const desc = document.getElementById('nt-desc')?.value?.trim();
-  if (!desc) { alert('Escribe una descripción'); return; }
+
+  if (!desc) {
+    alert('Escribe una descripción');
+    return;
+  }
+
   const ro = ROLES[currentRole];
   const id = 'TKT-' + Date.now();
+  const now = new Date().toISOString();
+
   const { error } = await _t_sb.from('hr_tickets').insert({
-    id, employee_id: ro.id, type: _T_CATEGORIA_SLUG[categoria] || 'otros', subtype: subtipo, description: desc,
-    priority: 'normal', sla_hours: 48,
-    due_at: new Date(Date.now() + 48*3600000).toISOString(),
+    id,
+    employee_id: ro.id,
+    type: _T_CATEGORIA_SLUG[categoria] || 'otros',
+    subtype: subtipo,
+    description: desc,
+    priority: 'normal',
+    status: 'pending',
+    sla_hours: 48,
+    due_at: new Date(Date.now() + 48 * 3600000).toISOString(),
+    updated_at: now
   });
-  if (error) { alert('Error: ' + error.message); return; }
+
+  if (error) {
+    alert('Error: ' + error.message);
+    return;
+  }
+
   closeModal();
-  _t_cargando = true; _t_render();
+
+  // El creador ya lo vio, así que marcamos su ticket como leído para él.
+  const seen = _t_getSeenMap();
+  seen[id] = now;
+  _t_saveSeenMap(seen);
+
+  _t_cargando = true;
+  _t_render();
+
   await _t_cargarTickets();
-  _t_cargando = false; _t_render();
+
+  _t_cargando = false;
+  _t_render();
 }
 
 async function _t_resolverTicket(id) {
@@ -8449,51 +8977,66 @@ async function _t_confirmarResolver(id) {
   const t = _t_TICKETS.find(x => x.id === id);
 
   if (t?.type === 'correccion_asistencia') {
-    // Leer hora y marca del modal — People pudo haberlas ajustado
     const horaEditada = document.getElementById('tr-hora')?.value;
     const marcaEditada = document.getElementById('tr-punch-tipo')?.value;
-    if (!horaEditada) { alert('Indica la hora a aplicar'); return; }
+
+    if (!horaEditada) {
+      alert('Indica la hora a aplicar');
+      return;
+    }
+
     const tEditado = {
       ...t,
       correction_time: horaEditada + ':00',
       correction_punch_type: marcaEditada || t.correction_punch_type,
     };
+
     const { error: errCorr } = await _t_aplicarCorreccionAsistencia(tEditado);
+
     if (errCorr) {
       alert('No se pudo aplicar la corrección en Asistencia. El ticket NO se marcó como completado.\n\n' + errCorr.message);
       return;
     }
   }
 
+  const now = new Date().toISOString();
+
   const { error } = await _t_sb.from('hr_tickets').update({
-    status: 'resolved', resolution_notes: notas,
-    resolved_at: new Date().toISOString(),
+    status: 'resolved',
+    resolution_notes: notas,
+    resolved_at: now,
+    updated_at: now
   }).eq('id', id);
-  if (error) { alert('Error: ' + error.message); return; }
-  closeModal();
-  _t_detalleId = null;
-  await _t_cargarTickets(); _t_render();
 
-// Si fue corrección de asistencia, refrescar datos de asistencia en memoria,
-// pero NO renderizar Asistencia si seguimos dentro de Tickets.
-if (t?.type === 'correccion_asistencia' && t.target_employee_id) {
-  try {
-    if (typeof _a_cargarQDAYS === 'function') {
-      await _a_cargarQDAYS(t.target_employee_id, _a_dateFilter.from, _a_dateFilter.to);
-    }
-
-    if (typeof _a_cargarDatos === 'function') {
-      await _a_cargarDatos();
-    }
-
-    // Solo renderizar asistencia si realmente estamos parados en el módulo Asistencia.
-    if (activeModule === 'asistencia' && typeof _a_render === 'function') {
-      _a_render();
-    }
-  } catch (e) {
-    console.warn('Ticket resuelto, pero no se pudo refrescar asistencia en memoria:', e);
+  if (error) {
+    alert('Error: ' + error.message);
+    return;
   }
-}
+
+  closeModal();
+
+  _t_detalleId = null;
+
+  await _t_cargarTickets();
+  _t_render();
+
+  if (t?.type === 'correccion_asistencia' && t.target_employee_id) {
+    try {
+      if (typeof _a_cargarQDAYS === 'function') {
+        await _a_cargarQDAYS(t.target_employee_id, _a_dateFilter.from, _a_dateFilter.to);
+      }
+
+      if (typeof _a_cargarDatos === 'function') {
+        await _a_cargarDatos();
+      }
+
+      if (activeModule === 'asistencia' && typeof _a_render === 'function') {
+        _a_render();
+      }
+    } catch (e) {
+      console.warn('Ticket resuelto, pero no se pudo refrescar asistencia en memoria:', e);
+    }
+  }
 }
 
 /* ══ TICKETS HR · MVP PEOPLE OPS OVERRIDE ═══════════════════════════ */
@@ -8735,7 +9278,16 @@ function _t_filtrarTickets(lista) {
     const sla = _t_slaInfo(t);
 
     if (_t_filtros.estado === 'open' && !open) return false;
-    if (_t_filtros.estado !== 'all' && _t_filtros.estado !== 'open' && t.status !== _t_filtros.estado) return false;
+    if (_t_filtros.estado === 'unread' && !_t_ticketUnread(t)) return false;
+
+    if (
+      _t_filtros.estado !== 'all' &&
+      _t_filtros.estado !== 'open' &&
+      _t_filtros.estado !== 'unread' &&
+      t.status !== _t_filtros.estado
+    ) {
+      return false;
+    }
 
     if (_t_filtros.categoria !== 'all' && t.type !== _t_filtros.categoria) return false;
     if (_t_filtros.prioridad !== 'all' && (t.priority || 'normal') !== _t_filtros.prioridad) return false;
@@ -8752,7 +9304,8 @@ function _t_filtrarTickets(lista) {
         _t_supervisorNombre(t.employee_id),
         _t_categoriaLabel(t.type),
         t.subtype,
-        t.description
+        t.description,
+        t.resolution_notes
       ].join(' ').toLowerCase();
 
       if (!haystack.includes(q)) return false;
@@ -8767,15 +9320,19 @@ function _t_renderTabs() {
 
   const mis = _t_TICKETS.filter(t => t.employee_id === ROLES[currentRole].id).length;
   const abiertos = _t_TICKETS.filter(_t_esAbierto).length;
+  const unreadAll = _t_ticketUnreadCount(_t_TICKETS);
+  const unreadMis = _t_ticketUnreadCount(_t_TICKETS.filter(t => t.employee_id === ROLES[currentRole].id));
 
   return `
     <div class="tabs" style="margin-bottom:18px">
       <button class="tab ${_t_vistaTickets === 'bandeja' ? 'on' : ''}" onclick="_t_setVista('bandeja')">
-        Bandeja ${abiertos ? `(${abiertos})` : ''}
+        Bandeja ${abiertos ? `(${abiertos})` : ''}${unreadAll ? ` · ● ${unreadAll}` : ''}
       </button>
+
       <button class="tab ${_t_vistaTickets === 'mis' ? 'on' : ''}" onclick="_t_setVista('mis')">
-        Mis tickets ${mis ? `(${mis})` : ''}
+        Mis tickets ${mis ? `(${mis})` : ''}${unreadMis ? ` · ● ${unreadMis}` : ''}
       </button>
+
       <button class="tab ${_t_vistaTickets === 'reportes' ? 'on' : ''}" onclick="_t_setVista('reportes')">
         Reportes
       </button>
@@ -8791,6 +9348,7 @@ function _t_renderFiltros() {
       <label>Estado</label>
       <select onchange="_t_setFiltro('estado', this.value)" style="border:1px solid #E2E8F0;border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--f)">
         <option value="open" ${_t_filtros.estado === 'open' ? 'selected' : ''}>Abiertos</option>
+        <option value="unread" ${_t_filtros.estado === 'unread' ? 'selected' : ''}>Sin leer</option>
         <option value="all" ${_t_filtros.estado === 'all' ? 'selected' : ''}>Todos</option>
         <option value="pending" ${_t_filtros.estado === 'pending' ? 'selected' : ''}>Pendiente</option>
         <option value="in_progress" ${_t_filtros.estado === 'in_progress' ? 'selected' : ''}>En proceso</option>
@@ -8836,6 +9394,7 @@ function _t_renderKpisTickets(baseLista = _t_TICKETS) {
   const vencidos = abiertos.filter(t => _t_slaInfo(t).state === 'overdue');
   const vencenHoy = abiertos.filter(t => _t_slaInfo(t).state === 'today');
   const sinAsignar = abiertos.filter(t => !t.assigned_to);
+  const sinLeer = baseLista.filter(t => _t_ticketVisibleParaMi(t) && _t_ticketUnread(t));
   const resueltos = baseLista.filter(t => t.status === 'resolved');
 
   const slaOk = resueltos.filter(t => {
@@ -8846,10 +9405,15 @@ function _t_renderKpisTickets(baseLista = _t_TICKETS) {
   const slaPct = resueltos.length ? Math.round((slaOk / resueltos.length) * 100) : 0;
 
   return `
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
       <div class="kpi-box">
         <div class="kpi-val">${abiertos.length}</div>
         <div class="kpi-lbl">Abiertos</div>
+      </div>
+
+      <div class="kpi-box">
+        <div class="kpi-val" style="color:#DC2626">${sinLeer.length}</div>
+        <div class="kpi-lbl">Sin leer</div>
       </div>
 
       <div class="kpi-box">
@@ -8878,30 +9442,47 @@ function _t_renderKpisTickets(baseLista = _t_TICKETS) {
 function _t_ticketRow(t) {
   const sla = _t_slaInfo(t);
   const asignado = t.assigned_to ? _t_nombreCorto(t.assigned_to) : 'Sin asignar';
+  const unread = _t_ticketUnread(t);
 
   return `
-    <tr onclick="_t_detalleId='${t.id}';_t_render()" style="cursor:pointer">
+    <tr
+      onclick="_t_abrirTicket('${t.id}')"
+      style="cursor:pointer;background:${unread ? '#FFF7ED' : 'transparent'}"
+    >
       <td>
-        <div class="agent-row-name">${_t_categoriaLabel(t.type) || 'Ticket'}</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          ${unread ? `<span style="width:8px;height:8px;border-radius:50%;background:#DC2626;display:inline-block"></span>` : ''}
+          <div class="agent-row-name">${_t_categoriaLabel(t.type) || 'Ticket'}</div>
+          ${unread ? `<span class="pill" style="background:#FEE2E2;color:#991B1B">Nuevo</span>` : ''}
+        </div>
         <div class="agent-row-id">${t.subtype || t.id}</div>
       </td>
+
       <td>
         <div class="agent-row-name">${_t_nombreEmpleado(t.employee_id)}</div>
         <div class="agent-row-id">${_t_campaignEmpleado(t.employee_id)} · Sup: ${_t_nombreCorto(_t_emp(t.employee_id)?.supervisor_id)}</div>
       </td>
+
       <td>${_t_statusBadge(t.status)}</td>
+
       <td>
         <span style="font-size:11px;font-weight:700;color:${_t_prioColor(t.priority)}">
           ${_t_prioLabel(t.priority)}
         </span>
       </td>
+
       <td>
         <span style="font-size:11px;padding:3px 8px;border-radius:99px;background:${sla.bg};color:${sla.color};font-weight:700">
           ${sla.label}
         </span>
       </td>
+
       <td>${asignado}</td>
-      <td style="font-family:'DM Mono',monospace;font-size:11px;color:#64748B">${(t.created_at || '').slice(0, 10)}</td>
+
+      <td style="font-family:'DM Mono',monospace;font-size:11px;color:#64748B">
+        ${(t.created_at || '').slice(0, 10)}
+        ${t.updated_at ? `<div style="font-size:10px;color:#94A3B8;margin-top:2px">Act. ${t.updated_at.slice(0, 10)}</div>` : ''}
+      </td>
     </tr>
   `;
 }
@@ -9121,11 +9702,14 @@ function _t_render() {
 
 function _t_renderDetalle(id) {
   const t = _t_TICKETS.find(x => x.id === id);
+
   if (!t) {
     _t_detalleId = null;
     _t_render();
     return;
   }
+
+  _t_markTicketRead(id);
 
   const c = document.getElementById('content');
   const isSup = _t_puedeGestionar();
@@ -9149,7 +9733,7 @@ function _t_renderDetalle(id) {
             ['Creado', (t.created_at || '—').slice(0, 10)],
             ['SLA', `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:${sla.bg};color:${sla.color};font-weight:700">${sla.label}</span>`],
             ['Responsable', t.assigned_to ? _t_nombreEmpleado(t.assigned_to) : 'Sin asignar'],
-            ['Fecha límite', t.due_at ? t.due_at.slice(0, 16).replace('T', ' ') : '—']
+            ['Última actualización', t.updated_at ? t.updated_at.slice(0, 16).replace('T', ' ') : '—']
           ].map(([l, v]) => `
             <div>
               <div style="font-size:10px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${l}</div>
@@ -9176,8 +9760,8 @@ function _t_renderDetalle(id) {
         ` : ''}
 
         ${t.resolution_notes ? `
-          <div style="margin-top:16px">
-            <div style="font-size:10px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Respuesta de People</div>
+          <div style="margin-top:16px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:14px">
+            <div style="font-size:10px;color:#166534;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:900">Respuesta de People</div>
             <div style="font-size:13px;color:#334155;line-height:1.6">${t.resolution_notes}</div>
           </div>
         ` : ''}
@@ -9187,9 +9771,11 @@ function _t_renderDetalle(id) {
             ${!t.assigned_to || t.assigned_to !== ROLES[currentRole].id ? `
               <button onclick="_t_tomarTicket('${t.id}')" class="btn-primary">Tomar ticket</button>
             ` : ''}
+
             <button onclick="_t_resolverTicket('${t.id}')" class="btn-green">
               ${t.type === 'correccion_asistencia' ? '✅ Aplicar y completar' : '✅ Marcar como completado'}
             </button>
+
             <button onclick="_t_cancelarTicket('${t.id}')" class="btn-ghost">Cancelar ticket</button>
           </div>
         ` : ''}
