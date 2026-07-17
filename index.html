@@ -17395,31 +17395,25 @@ async function _e_guardarPassword() {
 async function _e_resetearPassword(empId, nombre) {
   if (!confirm(`¿Resetear la contraseña de ${nombre}?\n\nSe le asignará la contraseña temporal 0000 y se le pedirá cambiarla en su próximo login.`)) return;
 
-  // Buscar el auth_user_id del empleado
-  const { data: emp } = await _e_sb.from('employees').select('auth_user_id').eq('id', empId).maybeSingle();
-  if (!emp?.auth_user_id) {
-    alert('❌ Este empleado no tiene una cuenta de acceso vinculada. Contacta soporte.');
-    return;
-  }
-
-  // Llamar al endpoint de admin via Edge Function para resetear
-  const { data: session } = await _e_sb.auth.getSession();
-  const resp = await fetch('https://kpuqabxmpavxgbzxzlng.supabase.co/functions/v1/reset-password', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + session.session.access_token
-    },
-    body: JSON.stringify({ user_id: emp.auth_user_id })
+  const { data, error } = await _e_sb.rpc('reset_employee_password', {
+    p_employee_id: empId,
+    p_temp_password: '0000'
   });
 
-  const result = await resp.json();
-  if (!resp.ok || result.error) {
-    alert('❌ No se pudo resetear: ' + (result.error || 'Error desconocido'));
+  if (error) {
+    console.error('Error reseteando contraseña:', error);
+    alert(
+      '❌ No se pudo resetear la contraseña.\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
     return;
   }
+
   alert(`✅ Contraseña de ${nombre} reseteada a 0000.\nSe le pedirá cambiarla en su próximo login.`);
 }
+
 
 async function _e_abrirEditar(empId) {
   const e = _e_EMPLEADOS.find(x => x.id === empId);
