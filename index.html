@@ -4625,80 +4625,157 @@ function _a_forzarCategoria(cat){
 
 function _a_onMotivoChange(motivo){
   if(!motivo) return;
+
   const cat = _a__catForzada || _a_categoriaFromMotivo(motivo);
   _a__catForzada = null;
+
   _a_highlightCard(cat);
 
   const sel = document.getElementById('falta-motivo');
-  if(cat==='incapacidad' && sel){
-    // Bloquear si el motivo elegido es de incapacidad
+
+  if(cat === 'incapacidad' && sel){
     sel.disabled = true;
     sel.style.background = '#F1F5F9';
-    sel.style.color      = '#64748B';
-    sel.style.cursor     = 'not-allowed';
+    sel.style.color = '#64748B';
+    sel.style.cursor = 'not-allowed';
   }
 
-  const aviso = document.getElementById('aviso-incapacidad');
-  if(aviso) aviso.style.display = cat==='incapacidad' ? 'block' : 'none';
+  const avisoInc = document.getElementById('aviso-incapacidad');
+  if(avisoInc) avisoInc.style.display = cat === 'incapacidad' ? 'block' : 'none';
+
+  let avisoAprobacion = document.getElementById('aviso-aprobacion-ausencia');
+
+  if (!avisoAprobacion) {
+    const body = document.getElementById('modalBody');
+
+    if (body) {
+      body.insertAdjacentHTML('beforeend', `
+        <div
+          id="aviso-aprobacion-ausencia"
+          class="modal-section"
+          style="display:none;background:#FFFBEB;border-color:#FDE68A"
+        >
+          <div class="ms-title" style="color:#92400E">⏳ Requiere aprobación</div>
+          <div style="font-size:12px;color:#92400E;line-height:1.45">
+            Este registro quedará como <b>pendiente</b>. Manager o People deberán aprobarlo antes de que cuente como justificado.
+          </div>
+        </div>
+      `);
+
+      avisoAprobacion = document.getElementById('aviso-aprobacion-ausencia');
+    }
+  }
+
+  const requiereAprobacion = _a_requiereAprobacionSupervisor(cat);
+
+  if (avisoAprobacion) {
+    avisoAprobacion.style.display = requiereAprobacion ? 'block' : 'none';
+  }
+
   const btn = document.getElementById('btnGuardarFalta');
-  if(btn){ btn.disabled=false; btn.style.opacity='1'; btn.style.cursor='pointer'; }
+
+  if(btn){
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+    btn.textContent = requiereAprobacion ? 'Enviar a aprobación' : 'Registrar';
+  }
 }
 
 async function _a_guardarFalta(){
   const motivo = document.getElementById('falta-motivo')?.value;
-  if(!motivo){ alert('Selecciona un motivo'); return; }
+
+  if(!motivo){
+    alert('Selecciona un motivo');
+    return;
+  }
+
   const nota = document.getElementById('falta-nota')?.value || '';
-  // Usar categoría forzada manualmente si existe, sino la del motivo
+
   const catAuto = _a_categoriaFromMotivo(motivo);
   const cat = _a__catForzada || catAuto;
   _a__catForzada = null;
-  const a = _a_TEAM.find(x=>x.id===_a_faltaModal.agentId);
+
+  const a = _a_TEAM.find(x => x.id === _a_faltaModal.agentId);
+
   if(!a) return;
 
-  const estadoDisplay = cat==='incapacidad' ? 'pendiente_comprobante' : cat;
+  const requiereAprobacion = _a_requiereAprobacionSupervisor(cat);
+
+  const estadoDisplay =
+    requiereAprobacion
+      ? 'pending'
+      : cat === 'incapacidad'
+        ? 'pendiente_comprobante'
+        : cat;
+
   const hoy = ymd(NOW);
   const notaCompleta = nota ? `${motivo} — ${nota}` : motivo;
+  const actorId = ROLES[currentRole]?.id || null;
 
   const btn = document.getElementById('btnGuardarFalta');
-  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = requiereAprobacion ? 'Enviando...' : 'Guardando...';
+  }
 
   const { error } = await _a_sb.from('attendance_exceptions').upsert({
     employee_id: a.id,
     exception_date: hoy,
     type: cat,
     notes: notaCompleta,
-    status: 'pending',
+    status: requiereAprobacion ? 'pending' : 'approved',
+    requested_by: actorId,
+    requested_at: new Date().toISOString()
   }, { onConflict: 'employee_id,exception_date' });
 
   if (error) {
     console.error('Error guardando falta:', error);
-    alert('No se pudo guardar la falta en Supabase. Se quedó solo localmente — intenta de nuevo.\n\n' + error.message);
+    alert('No se pudo guardar en Supabase. Intenta de nuevo.\n\n' + error.message);
+
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = requiereAprobacion ? 'Enviar a aprobación' : 'Registrar';
+    }
+
+    return;
   }
 
   a.status = 'falta';
-  a.falta  = {
-    categoria:  cat,
-    estado:     estadoDisplay,
+
+  a.falta = {
+    categoria: cat,
+    estado: estadoDisplay,
     motivo,
     marcadaPor: 'supervisor',
-    hora: NOW.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:false}),
+    hora: NOW.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit', hour12:false }),
     nota,
     descuenta_nomina: true,
   };
 
   _a_FALTAS_LOG.unshift({
-    agentId: a.id, agentName: a.name,
-    fecha: hoy, categoria: cat,
-    motivo, marcadaPor:'supervisor',
-    supId: ROLES[currentRole].id,
+    agentId: a.id,
+    agentName: a.name,
+    fecha: hoy,
+    categoria: cat,
+    motivo,
+    marcadaPor: 'supervisor',
+    supId: actorId,
     hora: a.falta.hora,
     estado: estadoDisplay,
   });
 
-  // Refrescar el día desde Supabase para que el modal de "Detalle por día" lo refleje
   await _a_cargarQDAYS(a.id, _a_dateFilter.from, _a_dateFilter.to);
 
   closeModal();
+
+  alert(
+    requiereAprobacion
+      ? 'Solicitud enviada a aprobación de Manager / People.'
+      : 'Registro guardado correctamente.'
+  );
+
   _a_render();
 }
 
@@ -4777,32 +4854,68 @@ function _a_abrirModalFaltaSup(supId){
 
 async function _a_guardarFaltaSup(){
   const motivo = document.getElementById('falta-motivo')?.value;
-  if(!motivo){ alert('Selecciona un motivo'); return; }
+
+  if(!motivo){
+    alert('Selecciona un motivo');
+    return;
+  }
+
   const nota = document.getElementById('falta-nota')?.value || '';
-  const cat  = _a__catForzada || _a_categoriaFromMotivo(motivo);
+  const cat = _a__catForzada || _a_categoriaFromMotivo(motivo);
   _a__catForzada = null;
-  const s = _a_SUPS_REAL.find(x=>x.id===_a_faltaSupModal.supId);
+
+  const s = _a_SUPS_REAL.find(x => x.id === _a_faltaSupModal.supId);
+
   if(!s) return;
 
-  const estadoDisplay = cat==='incapacidad' ? 'pendiente_comprobante' : cat;
+  const estadoDisplay = cat === 'incapacidad' ? 'pendiente_comprobante' : cat;
   const hoy = ymd(NOW);
   const notaCompleta = nota ? `${motivo} — ${nota}` : motivo;
+  const actorId = ROLES[currentRole]?.id || null;
+
+  const btn = document.getElementById('btnGuardarFalta');
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Guardando...';
+  }
 
   const { error } = await _a_sb.from('attendance_exceptions').upsert({
     employee_id: s.id,
     exception_date: hoy,
     type: cat,
     notes: notaCompleta,
-    status: 'pending',
+    status: 'approved',
+    requested_by: actorId,
+    requested_at: new Date().toISOString(),
+    reviewed_by: actorId,
+    reviewed_at: new Date().toISOString()
   }, { onConflict: 'employee_id,exception_date' });
 
   if (error) {
     console.error('Error guardando falta de supervisor:', error);
     alert('No se pudo guardar en Supabase. Intenta de nuevo.\n\n' + error.message);
+
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Registrar';
+    }
+
+    return;
   }
 
   s.status = 'falta';
-  s.falta  = { categoria:cat, estado:estadoDisplay, motivo, marcadaPor:'manager', hora: NOW.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:false}), nota, descuenta_nomina:true };
+
+  s.falta = {
+    categoria: cat,
+    estado: estadoDisplay,
+    motivo,
+    marcadaPor: currentRole,
+    hora: NOW.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit', hour12:false }),
+    nota,
+    descuenta_nomina: true
+  };
+
   closeModal();
   _a_render();
 }
@@ -4853,9 +4966,829 @@ let _a_RIESGO=[];
 // Comparativa quincenas (head)
 let _a_COMP_DATA={retardos:{ant:0,act:0},faltas:{ant:0,act:0},horas:{ant:0,act:0},puntualidad:{ant:0,act:0},ausentismo_costo:{ant:0,act:0}};
 
+// ─────────────────────────────────────────────
+// AUDITORÍA DE ASISTENCIA
+// ─────────────────────────────────────────────
+
+let _a_AUDIT_ROWS = [];
+let _a_AUDIT_LOADING = false;
+
+let _a_AUDIT_FILTERS = {
+  from: ymd(new Date(new Date().setDate(new Date().getDate() - 6))),
+  to: ymd(new Date()),
+  status: 'all',
+  campaign: 'all',
+  supervisor: 'all',
+  search: ''
+};
+
+function _a_canAudit() {
+  return ['supervisor', 'manager', 'workforce', 'people', 'head_people', 'ceo'].includes(currentRole);
+}
+
+async function _a_openAuditoria() {
+  if (!_a_canAudit()) {
+    alert('No tienes permiso para ver Auditoría de Asistencia.');
+    return;
+  }
+
+  _a_vistaEspecial = 'audit';
+  _a_drillAgent = null;
+  _a_drillSup = null;
+  _a_drillMgr = null;
+
+  _a_AUDIT_LOADING = true;
+  _a_render();
+
+  await _a_loadAuditoria();
+
+  _a_AUDIT_LOADING = false;
+  _a_render();
+}
+
+function _a_closeAuditoria() {
+  _a_vistaEspecial = null;
+  _a_render();
+}
+
+async function _a_loadAuditoria() {
+  const { data, error } = await _a_sb.rpc('attendance_audit_range', {
+    p_from: _a_AUDIT_FILTERS.from,
+    p_to: _a_AUDIT_FILTERS.to
+  });
+
+  if (error) {
+    console.error('Error cargando auditoría:', error);
+    alert(
+      'No se pudo cargar la auditoría:\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.hint ? '\n\nHint: ' + error.hint : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
+    _a_AUDIT_ROWS = [];
+    return false;
+  }
+
+  _a_AUDIT_ROWS = data || [];
+  return true;
+}
+
+async function _a_applyAuditFilters() {
+  const from = document.getElementById('auditFrom')?.value;
+  const to = document.getElementById('auditTo')?.value;
+
+  if (!from || !to) {
+    alert('Selecciona fecha inicio y fecha fin.');
+    return;
+  }
+
+  if (from > to) {
+    alert('La fecha inicio no puede ser mayor a la fecha fin.');
+    return;
+  }
+
+  _a_AUDIT_FILTERS.from = from;
+  _a_AUDIT_FILTERS.to = to;
+
+  _a_AUDIT_LOADING = true;
+  _a_render();
+
+  await _a_loadAuditoria();
+
+  _a_AUDIT_LOADING = false;
+  _a_render();
+}
+
+function _a_setAuditFilter(k, v) {
+  _a_AUDIT_FILTERS[k] = v;
+
+  if (_a_vistaEspecial === 'audit') {
+    _a_refreshAuditUI();
+    return;
+  }
+
+  _a_render();
+}
+
+function _a_auditCampaigns() {
+  return [...new Set((_a_AUDIT_ROWS || []).map(r => r.campaign_id).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function _a_auditSupervisors() {
+  const map = {};
+
+  (_a_AUDIT_ROWS || []).forEach(r => {
+    if (!r.supervisor_id) return;
+    map[r.supervisor_id] = r.supervisor_name || r.supervisor_id;
+  });
+
+  return Object.entries(map)
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function _a_auditFilteredRows() {
+  const f = _a_AUDIT_FILTERS;
+  const q = String(f.search || '').trim().toLowerCase();
+
+  return (_a_AUDIT_ROWS || []).filter(r => {
+    if (f.status !== 'all' && r.audit_status !== f.status) return false;
+    if (f.campaign !== 'all' && r.campaign_id !== f.campaign) return false;
+    if (f.supervisor !== 'all' && r.supervisor_id !== f.supervisor) return false;
+
+    if (q) {
+      const txt = [
+        r.employee_id,
+        r.employee_name,
+        r.campaign_id,
+        r.supervisor_name,
+        r.audit_status,
+        r.pending_issue
+      ].join(' ').toLowerCase();
+
+      if (!txt.includes(q)) return false;
+    }
+
+    return true;
+  });
+}
+
+function _a_auditSummary(rows = _a_auditFilteredRows()) {
+  const c = {
+    total: rows.length,
+    completo: 0,
+    tolerancia: 0,
+    retardo: 0,
+    sin_entrada: 0,
+    sin_salida: 0,
+    falta_injustificada: 0,
+    justificadas: 0,
+    sin_horario: 0
+  };
+
+  rows.forEach(r => {
+    if (c[r.audit_status] !== undefined) c[r.audit_status]++;
+
+    if (['descanso', 'vacaciones', 'permiso', 'incapacidad'].includes(r.audit_status)) {
+      c.justificadas++;
+    }
+  });
+
+  c.pendientes = c.sin_entrada + c.sin_salida + c.sin_horario;
+
+  return c;
+}
+
+function _a_auditStatusBadge(status) {
+  const map = {
+    completo: ['pill-green', 'Completo'],
+    retardo: ['pill-amber', 'Retardo'],
+    tolerancia: ['pill-amber', 'Tolerancia'],
+    sin_entrada: ['pill-red', 'Sin entrada'],
+    sin_salida: ['pill-red', 'Sin salida'],
+    falta_injustificada: ['pill-red', 'Falta injustificada'],
+    permiso: ['pill-blue', 'Permiso'],
+    incapacidad: ['pill-purple', 'Incapacidad'],
+    vacaciones: ['pill-cyan', 'Vacaciones'],
+    descanso: ['pill-gray', 'Descanso'],
+    sin_horario: ['pill-gray', 'Sin horario']
+  };
+
+  const [cls, label] = map[status] || ['pill-gray', status || '—'];
+
+  return `<span class="pill ${cls}"><span class="dot"></span>${label}</span>`;
+}
+
+function _a_fmtAuditTime(v) {
+  if (!v) return '—';
+  return String(v).slice(0, 5);
+}
+
+function _a_exportAuditoriaCSV() {
+  const rows = _a_auditFilteredRows();
+
+  const headers = [
+    'Fecha',
+    'Employee ID',
+    'Nombre',
+    'Campaña',
+    'Supervisor',
+    'Horario',
+    'Entrada',
+    'Salida',
+    'Minutos tarde',
+    'Horas trabajadas',
+    'Estado',
+    'Pendiente'
+  ];
+
+  const body = rows.map(r => [
+    r.work_date,
+    r.employee_id,
+    r.employee_name,
+    r.campaign_id || '',
+    r.supervisor_name || '',
+    `${_a_fmtAuditTime(r.shift_start)}-${_a_fmtAuditTime(r.shift_end)}`,
+    _a_fmtAuditTime(r.time_in),
+    _a_fmtAuditTime(r.time_out),
+    r.minutes_late || 0,
+    r.hours_worked || 0,
+    r.audit_status || '',
+    r.pending_issue || ''
+  ]);
+
+  const csv = [headers, ...body]
+    .map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+
+  a.href = url;
+  a.download = `auditoria_asistencia_${_a_AUDIT_FILTERS.from}_a_${_a_AUDIT_FILTERS.to}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function _a_auditDrillToAgent(empId) {
+  _a_vistaEspecial = null;
+  _a_drillAgent = empId;
+  _a_drillSup = null;
+  _a_drillMgr = null;
+
+  _a_dateFilter.mode = 'custom';
+  _a_dateFilter.from = _a_AUDIT_FILTERS.from;
+  _a_dateFilter.to = _a_AUDIT_FILTERS.to;
+  _a_dateFilter.label = `${fmtDateShort(_a_AUDIT_FILTERS.from)} → ${fmtDateShort(_a_AUDIT_FILTERS.to)}`;
+
+  _a_cargando = true;
+  _a_render();
+
+  await _a_cargarQDAYS(empId, _a_AUDIT_FILTERS.from, _a_AUDIT_FILTERS.to);
+
+  _a_cargando = false;
+  _a_render();
+}
+
+function _a_injectAuditLauncher() {
+  if (!_a_canAudit()) return;
+
+  const c = document.getElementById('content');
+  if (!c || document.getElementById('auditLauncher')) return;
+
+  c.insertAdjacentHTML('afterbegin', `
+    <div id="auditLauncher" class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;border-left:4px solid #62D3F5">
+      <div>
+        <div style="font-size:13px;font-weight:900;color:#0F172A">🧾 Auditoría de Asistencia</div>
+        <div style="font-size:11px;color:#64748B;margin-top:2px">
+          Revisa días anteriores, entradas, salidas faltantes, retardos, faltas, permisos, vacaciones y descansos.
+        </div>
+      </div>
+
+      <button class="btn-primary" onclick="_a_openAuditoria()">Abrir auditoría</button>
+    </div>
+  `);
+}
+
+function _a_auditKpisHTML(s) {
+  return `
+    <div class="kpi4">
+      <div class="kpi-box"><div class="kpi-val">${s.total}</div><div class="kpi-lbl">Registros</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${s.completo}</div><div class="kpi-lbl">Completos</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${s.sin_entrada}</div><div class="kpi-lbl">Sin entrada</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${s.sin_salida}</div><div class="kpi-lbl">Sin salida</div></div>
+    </div>
+
+    <div class="kpi4">
+      <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${s.tolerancia}</div><div class="kpi-lbl">En tolerancia</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${s.retardo}</div><div class="kpi-lbl">Retardos reales</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${s.falta_injustificada}</div><div class="kpi-lbl">Faltas</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#0E7490">${s.justificadas}</div><div class="kpi-lbl">Justificados</div></div>
+    </div>
+  `;
+}
+
+function _a_auditTableRowsHTML(rows) {
+  return rows.map(r => {
+    const isAlert = ['sin_entrada', 'sin_salida', 'falta_injustificada'].includes(r.audit_status);
+    const detail = r.detail_label || r.exception_detail || '—';
+    const notes = r.detail_notes || '';
+
+    return `
+      <tr onclick="_a_auditDrillToAgent('${r.employee_id}')" style="${isAlert ? 'background:#FFF1F2' : ''};cursor:pointer">
+        <td style="font-family:'DM Mono',monospace;white-space:nowrap">${fmtDateShort(r.work_date)}</td>
+
+        <td>
+          <div class="agent-row-name">${r.employee_name || '—'}</div>
+          <div class="agent-row-id">${r.employee_id}</div>
+        </td>
+
+        <td>${r.campaign_id || '—'}</td>
+        <td>${r.supervisor_name || '—'}</td>
+
+        <td style="font-family:'DM Mono',monospace;white-space:nowrap">
+          ${_a_fmtAuditTime(r.shift_start)}–${_a_fmtAuditTime(r.shift_end)}
+        </td>
+
+        <td style="font-family:'DM Mono',monospace">${_a_fmtAuditTime(r.time_in)}</td>
+        <td style="font-family:'DM Mono',monospace">${_a_fmtAuditTime(r.time_out)}</td>
+
+        <td style="font-family:'DM Mono',monospace;text-align:center;color:${Number(r.minutes_late || 0) > 0 ? '#D97706' : '#64748B'}">
+          ${r.minutes_late || 0}
+        </td>
+
+        <td>${_a_auditStatusBadge(r.audit_status)}</td>
+
+        <td style="font-size:11px;color:${r.pending_issue ? '#DC2626' : '#94A3B8'}">
+          ${r.pending_issue || '—'}
+        </td>
+
+        <td style="font-size:11px;min-width:220px;max-width:320px">
+          <div style="font-weight:800;color:#0F172A">${detail}</div>
+          ${notes ? `<div style="color:#64748B;margin-top:3px;line-height:1.35">${notes}</div>` : ''}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function _a_refreshAuditUI() {
+  const rows = _a_auditFilteredRows();
+  const s = _a_auditSummary(rows);
+
+  const kpiWrap = document.getElementById('auditKpiWrap');
+  const tableBody = document.getElementById('auditTableBody');
+  const count = document.getElementById('auditResultCount');
+
+  if (kpiWrap) kpiWrap.innerHTML = _a_auditKpisHTML(s);
+
+  if (tableBody) {
+    tableBody.innerHTML = _a_auditTableRowsHTML(rows) || `
+      <tr>
+        <td colspan="11" style="text-align:center;color:#94A3B8;padding:28px">
+          Sin resultados con los filtros actuales.
+        </td>
+      </tr>
+    `;
+  }
+
+  if (count) {
+    count.textContent = `${rows.length} resultado${rows.length !== 1 ? 's' : ''}`;
+  }
+}
+
+
+
+function _a_renderAuditoria() {
+  const rows = _a_auditFilteredRows();
+  const s = _a_auditSummary(rows);
+  const campaigns = _a_auditCampaigns();
+  const supervisors = _a_auditSupervisors();
+
+  const statusOpts = [
+    ['all', 'Todos'],
+    ['sin_entrada', 'Sin entrada'],
+    ['sin_salida', 'Sin salida'],
+    ['retardo', 'Retardo'],
+    ['falta_injustificada', 'Falta injustificada'],
+    ['completo', 'Completo'],
+    ['permiso', 'Permiso'],
+    ['incapacidad', 'Incapacidad'],
+    ['vacaciones', 'Vacaciones'],
+    ['descanso', 'Descanso'],
+    ['sin_horario', 'Sin horario']
+  ];
+
+  return `
+    <div style="max-width:1280px;margin:0 auto">
+      <div class="drilldown-header">
+        <button class="back-btn" onclick="_a_closeAuditoria()">← Volver</button>
+        <div>
+          <div style="font-size:18px;font-weight:900;color:#0F172A">🧾 Auditoría de Asistencia</div>
+          <div style="font-size:12px;color:#64748B">
+            Validación histórica de entrada, salida, retardos, faltas, permisos, vacaciones, descansos y permutas.
+          </div>
+        </div>
+      </div>
+
+      <div class="date-filter-bar">
+        <span class="df-label">📅 Periodo</span>
+
+        <input class="df-input" type="date" id="auditFrom" value="${_a_AUDIT_FILTERS.from}" max="${ymd(new Date())}">
+        <span class="df-sep">→</span>
+        <input class="df-input" type="date" id="auditTo" value="${_a_AUDIT_FILTERS.to}" max="${ymd(new Date())}">
+
+        <button class="df-apply" onclick="_a_applyAuditFilters()">Aplicar</button>
+
+        <div class="df-sep">|</div>
+
+        <select class="df-input" onchange="_a_setAuditFilter('status', this.value)">
+          ${statusOpts.map(([v, l]) => `<option value="${v}" ${_a_AUDIT_FILTERS.status === v ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+
+        <select class="df-input" onchange="_a_setAuditFilter('campaign', this.value)">
+          <option value="all">Todas las campañas</option>
+          ${campaigns.map(c => `<option value="${c}" ${_a_AUDIT_FILTERS.campaign === c ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+
+        <select class="df-input" onchange="_a_setAuditFilter('supervisor', this.value)">
+          <option value="all">Todos los supervisores</option>
+          ${supervisors.map(sup => `<option value="${sup.id}" ${_a_AUDIT_FILTERS.supervisor === sup.id ? 'selected' : ''}>${sup.name}</option>`).join('')}
+        </select>
+
+        <input
+          id="auditSearch"
+          class="search-box"
+          style="width:220px"
+          placeholder="Buscar empleado..."
+          value="${_a_AUDIT_FILTERS.search || ''}"
+          oninput="_a_setAuditFilter('search', this.value)"
+        >
+
+        <button class="btn-ghost" onclick="_a_loadAuditoria().then(()=>_a_render())">🔄 Refrescar</button>
+        <button class="btn-primary" onclick="_a_exportAuditoriaCSV()">⬇️ CSV</button>
+      </div>
+
+      ${_a_AUDIT_LOADING ? `
+        <div style="text-align:center;padding:60px;color:#94A3B8">
+          <div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
+          Cargando auditoría.
+        </div>
+      ` : `
+        <div id="auditKpiWrap">
+          ${_a_auditKpisHTML(s)}
+        </div>
+
+        <div class="card">
+          <div class="card-title" style="justify-content:space-between">
+            <span>Detalle empleado-día</span>
+            <span id="auditResultCount" style="font-size:11px;color:#94A3B8;font-weight:600">
+              ${rows.length} resultado${rows.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          <div class="tbl-wrap">
+            <div style="overflow-x:auto">
+              <table style="min-width:1280px">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Empleado</th>
+                    <th>Campaña</th>
+                    <th>Supervisor</th>
+                    <th>Horario</th>
+                    <th>Entrada</th>
+                    <th>Salida</th>
+                    <th style="text-align:center">Tarde</th>
+                    <th>Estado</th>
+                    <th>Pendiente</th>
+                    <th>Detalle</th>
+                  </tr>
+                </thead>
+
+                <tbody id="auditTableBody">
+                  ${_a_auditTableRowsHTML(rows) || `
+                    <tr>
+                      <td colspan="11" style="text-align:center;color:#94A3B8;padding:28px">
+                        Sin resultados con los filtros actuales.
+                      </td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style="font-size:11px;color:#94A3B8;margin-top:10px">
+            Tip: da click en un empleado para abrir su detalle histórico en el mismo rango.
+          </div>
+        </div>
+      `}
+    </div>
+  `;
+}
+
+// ─────────────────────────────────────────────
+// APROBACIÓN DE PERMISOS / FALTAS JUSTIFICADAS
+// ─────────────────────────────────────────────
+
+let _a_PENDING_EXCEPTIONS = [];
+let _a_PENDING_EXC_LOADING = false;
+
+function _a_normAusenciaType(v) {
+  return String(v || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function _a_necesitaAprobacionAusencia(tipo) {
+  const t = _a_normAusenciaType(tipo);
+
+  return [
+    'permiso',
+    'falta_justificada',
+    'falta justificada',
+    'justified_absence',
+    'excused_absence'
+  ].includes(t);
+}
+
+function _a_requiereAprobacionSupervisor(tipo) {
+  return currentRole === 'supervisor' && _a_necesitaAprobacionAusencia(tipo);
+}
+
+function _a_canReviewAttendanceExceptions() {
+  return ['manager', 'people', 'head_people', 'ceo'].includes(currentRole);
+}
+
+function _a_exceptionTypeLabel(tipo) {
+  const t = _a_normAusenciaType(tipo);
+
+  const map = {
+    permiso: 'Permiso',
+    falta_justificada: 'Falta justificada',
+    'falta justificada': 'Falta justificada',
+    justified_absence: 'Falta justificada',
+    excused_absence: 'Permiso'
+  };
+
+  return map[t] || tipo || '—';
+}
+
+function _a_exceptionStatusPill(status) {
+  const s = _a_normAusenciaType(status);
+
+  if (s === 'approved') {
+    return `<span class="pill pill-green"><span class="dot"></span>Aprobado</span>`;
+  }
+
+  if (s === 'rejected') {
+    return `<span class="pill pill-red"><span class="dot"></span>Rechazado</span>`;
+  }
+
+  return `<span class="pill pill-amber"><span class="dot"></span>Pendiente</span>`;
+}
+
+async function _a_cargarPendientesExcepciones() {
+  if (!_a_canReviewAttendanceExceptions()) {
+    _a_PENDING_EXCEPTIONS = [];
+    return [];
+  }
+
+  _a_PENDING_EXC_LOADING = true;
+
+  const tipos = [
+    'permiso',
+    'falta_justificada',
+    'falta justificada',
+    'justified_absence',
+    'excused_absence'
+  ];
+
+  const { data, error } = await _a_sb
+    .from('attendance_exceptions')
+    .select('id, employee_id, exception_date, type, status, notes, requested_by, requested_at, created_at, reviewed_by, reviewed_at, review_notes')
+    .eq('status', 'pending')
+    .in('type', tipos)
+    .order('exception_date', { ascending: false })
+    .limit(100);
+
+  if (error) {
+    console.error('Error cargando permisos/faltas justificadas pendientes:', error);
+    _a_PENDING_EXCEPTIONS = [];
+    _a_PENDING_EXC_LOADING = false;
+    return [];
+  }
+
+  const rows = data || [];
+
+  const empIds = [...new Set(
+    rows.flatMap(r => [r.employee_id, r.requested_by]).filter(Boolean)
+  )];
+
+  let empMap = {};
+
+  if (empIds.length) {
+    const { data: emps, error: empErr } = await _a_sb
+      .from('employees')
+      .select('id, full_name, campaign_id, supervisor_id, system_role')
+      .in('id', empIds);
+
+    if (!empErr && emps) {
+      empMap = Object.fromEntries(emps.map(e => [e.id, e]));
+    }
+  }
+
+  _a_PENDING_EXCEPTIONS = rows.map(r => ({
+    ...r,
+    employee_name: empMap[r.employee_id]?.full_name || r.employee_id,
+    campaign_id: empMap[r.employee_id]?.campaign_id || '—',
+    requested_by_name: empMap[r.requested_by]?.full_name || r.requested_by || '—'
+  }));
+
+  _a_PENDING_EXC_LOADING = false;
+
+  return _a_PENDING_EXCEPTIONS;
+}
+
+function _a_renderPendientesExcepcionesCard() {
+  if (!_a_canReviewAttendanceExceptions()) return '';
+
+  if (_a_PENDING_EXC_LOADING) {
+    return `
+      <div class="card" id="attendanceExceptionApprovalCard" style="border-left:4px solid #F59E0B">
+        <div class="card-title">⏳ Permisos / faltas justificadas pendientes</div>
+        <div style="font-size:12px;color:#64748B">Cargando pendientes...</div>
+      </div>
+    `;
+  }
+
+  const rows = _a_PENDING_EXCEPTIONS || [];
+
+  if (!rows.length) {
+    return `
+      <div class="card" id="attendanceExceptionApprovalCard" style="border-left:4px solid #16A34A">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div>
+            <div class="card-title" style="margin-bottom:4px">✅ Permisos / faltas justificadas</div>
+            <div style="font-size:11px;color:#64748B">No hay solicitudes pendientes de aprobación.</div>
+          </div>
+          <button class="btn-ghost" onclick="_a_refrescarPendientesExcepciones()">🔄 Refrescar</button>
+        </div>
+      </div>
+    `;
+  }
+
+  const htmlRows = rows.map(r => `
+    <tr>
+      <td style="font-family:'DM Mono',monospace;white-space:nowrap">${fmtDateShort(r.exception_date)}</td>
+
+      <td>
+        <div class="agent-row-name">${r.employee_name || '—'}</div>
+        <div class="agent-row-id">${r.employee_id}</div>
+      </td>
+
+      <td>${r.campaign_id || '—'}</td>
+
+      <td>
+        <span class="pill pill-blue">
+          <span class="dot"></span>${_a_exceptionTypeLabel(r.type)}
+        </span>
+      </td>
+
+      <td>${_a_exceptionStatusPill(r.status)}</td>
+
+      <td style="font-size:11px;color:#64748B;max-width:360px;white-space:normal;line-height:1.35">
+        ${r.notes || '—'}
+        <div style="margin-top:4px;color:#94A3B8">
+          Solicitado por: ${r.requested_by_name || '—'}
+        </div>
+      </td>
+
+      <td style="white-space:nowrap;text-align:right">
+        <button
+          class="btn-green"
+          style="padding:6px 10px;font-size:11px"
+          onclick="_a_revisarExcepcionAsistencia('${r.id}', 'approved')"
+        >
+          Aprobar
+        </button>
+
+        <button
+          class="btn-red"
+          style="padding:6px 10px;font-size:11px;margin-left:4px"
+          onclick="_a_revisarExcepcionAsistencia('${r.id}', 'rejected')"
+        >
+          Rechazar
+        </button>
+      </td>
+    </tr>
+  `).join('');
+
+  return `
+    <div class="card" id="attendanceExceptionApprovalCard" style="border-left:4px solid #F59E0B">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">⏳ Permisos / faltas justificadas pendientes</div>
+          <div style="font-size:11px;color:#64748B">
+            Solicitudes cargadas por supervisores que requieren aprobación de Manager o People.
+          </div>
+        </div>
+
+        <button class="btn-ghost" onclick="_a_refrescarPendientesExcepciones()">🔄 Refrescar</button>
+      </div>
+
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:980px">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Empleado</th>
+                <th>Campaña</th>
+                <th>Tipo</th>
+                <th>Status</th>
+                <th>Detalle</th>
+                <th style="text-align:right">Acción</th>
+              </tr>
+            </thead>
+            <tbody>${htmlRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _a_injectPendientesExcepciones() {
+  if (!_a_canReviewAttendanceExceptions()) return;
+  if (_a_vistaEspecial) return;
+
+  const c = document.getElementById('content');
+  if (!c) return;
+
+  let wrap = document.getElementById('attendanceExceptionApprovalWrap');
+
+  if (!wrap) {
+    c.insertAdjacentHTML('afterbegin', `
+      <div id="attendanceExceptionApprovalWrap">
+        ${_a_renderPendientesExcepcionesCard()}
+      </div>
+    `);
+
+    wrap = document.getElementById('attendanceExceptionApprovalWrap');
+  }
+
+  if (!_a_PENDING_EXC_LOADING) {
+    _a_refrescarPendientesExcepciones(false);
+  }
+}
+
+async function _a_refrescarPendientesExcepciones(showLoading = true) {
+  const wrap = document.getElementById('attendanceExceptionApprovalWrap');
+
+  if (showLoading && wrap) {
+    _a_PENDING_EXC_LOADING = true;
+    wrap.innerHTML = _a_renderPendientesExcepcionesCard();
+  }
+
+  await _a_cargarPendientesExcepciones();
+
+  const freshWrap = document.getElementById('attendanceExceptionApprovalWrap');
+
+  if (freshWrap) {
+    freshWrap.innerHTML = _a_renderPendientesExcepcionesCard();
+  }
+}
+
+async function _a_revisarExcepcionAsistencia(exceptionId, decision) {
+  const label = decision === 'approved' ? 'aprobar' : 'rechazar';
+
+  const notes = prompt(
+    decision === 'approved'
+      ? 'Nota opcional para la aprobación:'
+      : 'Motivo del rechazo:'
+  ) || '';
+
+  if (!confirm(`¿Seguro que quieres ${label} esta solicitud?`)) return;
+
+  const { error } = await _a_sb.rpc('review_attendance_exception', {
+    p_exception_id: exceptionId,
+    p_decision: decision,
+    p_notes: notes
+  });
+
+  if (error) {
+    console.error('Error revisando permiso/falta justificada:', error);
+    alert(
+      'No se pudo actualizar la solicitud.\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
+    return;
+  }
+
+  await _a_refrescarPendientesExcepciones(false);
+
+  if (typeof _a_cargarDatos === 'function') {
+    await _a_cargarDatos();
+  }
+
+  _a_render();
+}
+
+
 // ── RENDER ROOT ──
 function _a_render(){
-  console.log('[Impulse] _a_render called, role='+currentRole+' content='+!!document.getElementById('content'));
+  console.log('[Impulse] _a_render called, role=' + currentRole + ' content=' + !!document.getElementById('content'));
 
   updateSidebarUser();
 
@@ -4886,9 +5819,13 @@ function _a_render(){
     return;
   }
 
-  // Vista formal de Tiempo Extra
   if (_a_vistaEspecial === 'ot') {
     c.innerHTML = _a_renderTiempoExtra();
+    return;
+  }
+
+  if (_a_vistaEspecial === 'audit') {
+    c.innerHTML = _a_renderAuditoria();
     return;
   }
 
@@ -4899,6 +5836,9 @@ function _a_render(){
   else if (currentRole === 'people') c.innerHTML = _a_renderPeople();
   else if (currentRole === 'ceo') c.innerHTML = _a_renderCEO();
   else c.innerHTML = _a_renderHeadPeople();
+
+  _a_injectAuditLauncher();
+  _a_injectPendientesExcepciones();
 }
 
 function updateSidebarUser(){
