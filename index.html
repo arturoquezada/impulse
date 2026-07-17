@@ -2368,7 +2368,38 @@ async function _a_cargarCambiosDescanso() {
 
     if (error) throw error;
 
-    _a_DAYOFF_REQS = data || [];
+    const rows = data || [];
+
+    const ids = [...new Set(
+      rows.flatMap(r => [
+        r.employee_id,
+        r.requested_by,
+        r.reviewed_by
+      ]).filter(Boolean)
+    )];
+
+    let empMap = {};
+
+    if (ids.length) {
+      const { data: emps, error: empErr } = await _a_sb
+        .from('employees')
+        .select('id, full_name, campaign_id, supervisor_id, system_role')
+        .in('id', ids);
+
+      if (empErr) {
+        console.warn('No se pudieron cargar nombres para cambios de descanso:', empErr);
+      } else {
+        empMap = Object.fromEntries((emps || []).map(e => [e.id, e]));
+      }
+    }
+
+    _a_DAYOFF_REQS = rows.map(r => ({
+      ...r,
+      employee_name: empMap[r.employee_id]?.full_name || r.employee_id,
+      requested_by_name: empMap[r.requested_by]?.full_name || r.requested_by || 'No registrado',
+      reviewed_by_name: empMap[r.reviewed_by]?.full_name || r.reviewed_by || null
+    }));
+
   } catch (e) {
     console.warn('No se pudieron cargar cambios temporales de descanso:', e);
     _a_DAYOFF_REQS = [];
@@ -2588,12 +2619,25 @@ function _a_renderCambiosDescansoPendientes() {
 
   const rows = pendientes.map(r => {
     const all = Array.isArray(_a_TEAM_ALL) ? _a_TEAM_ALL : [];
-const team = Array.isArray(_a_TEAM) ? _a_TEAM : [];
+    const team = Array.isArray(_a_TEAM) ? _a_TEAM : [];
 
-const emp = all.find(e => e.id === r.employee_id)
-  || team.find(e => e.id === r.employee_id);
+    const emp = all.find(e => e.id === r.employee_id)
+      || team.find(e => e.id === r.employee_id);
 
-    const nombre = emp?.full_name || emp?.name || r.employee_id;
+    const nombre = r.employee_name || emp?.full_name || emp?.name || r.employee_id;
+
+    const solicitadoFecha = r.requested_at
+      ? new Date(r.requested_at).toLocaleString('es-MX', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+      : '—';
+
+    const solicitadoPor = r.requested_by_name || r.requested_by || 'No registrado';
 
     return `
       <tr>
@@ -2601,10 +2645,31 @@ const emp = all.find(e => e.id === r.employee_id)
           <div class="agent-row-name">${nombre}</div>
           <div class="agent-row-id">${r.employee_id}</div>
         </td>
+
         <td>${_a_fechaLabel(r.original_rest_date)}</td>
+
         <td>${_a_fechaLabel(r.new_rest_date)}</td>
-        <td>${r.notes || '—'}</td>
-        <td>${r.requested_at ? new Date(r.requested_at).toLocaleString('es-MX') : '—'}</td>
+
+        <td style="max-width:360px;white-space:normal;line-height:1.35">
+          ${r.notes || '—'}
+        </td>
+
+        <td>
+          <div style="font-size:12px;font-weight:900;color:#0F172A">
+            ${solicitadoPor}
+          </div>
+
+          <div style="font-size:11px;color:#64748B;margin-top:3px">
+            ${solicitadoFecha}
+          </div>
+
+          ${r.requested_by ? `
+            <div style="font-size:10px;color:#94A3B8;margin-top:2px">
+              ${r.requested_by}
+            </div>
+          ` : ''}
+        </td>
+
         <td>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="btn-green" onclick="_a_revisarCambioDescanso('${r.id}', true)">Aprobar</button>
@@ -2625,14 +2690,14 @@ const emp = all.find(e => e.id === r.employee_id)
 
       <div class="tbl-wrap">
         <div style="overflow-x:auto">
-          <table style="min-width:850px">
+          <table style="min-width:980px">
             <thead>
               <tr>
                 <th>Colaborador</th>
                 <th>Trabajará descanso original</th>
                 <th>Nuevo descanso</th>
                 <th>Motivo</th>
-                <th>Solicitado</th>
+                <th>Solicitado por</th>
                 <th>Acción</th>
               </tr>
             </thead>
