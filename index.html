@@ -9502,17 +9502,39 @@ function _dd_supervisorRows(attRows, actions, tickets) {
 
   return Object.values(map).map(s => {
     const expected = _dd_expectedActions(s.rows);
+
     const issueCount = s.retardo + s.falta + s.sinSalida + s.sinEntrada;
-    const compliance = _dd_pct(s.actions, expected.totalExpected || 0);
+
+    // Si no había acciones esperadas, el cumplimiento debe ser 100%.
+    // No se castiga al supervisor por no cargar algo que no debía cargar.
+    const compliance = expected.totalExpected > 0
+      ? Math.min(100, _dd_pct(s.actions, expected.totalExpected))
+      : 100;
 
     let risk = 'Controlado';
-    if (issueCount >= 12 || compliance < 50) risk = 'Alto';
-    else if (issueCount >= 6 || compliance < 80) risk = 'Medio';
+
+    // Riesgo por gestión disciplinaria solo aplica si había acciones esperadas.
+    if (expected.totalExpected > 0 && compliance < 50) {
+      risk = 'Alto';
+    } else if (expected.totalExpected > 0 && compliance < 80) {
+      risk = 'Medio';
+    }
+
+    // Riesgo operativo por volumen de incidencias.
+    // Esto es separado del cumplimiento disciplinario.
+    if (issueCount >= 12) {
+      risk = 'Alto';
+    } else if (issueCount >= 6 && risk !== 'Alto') {
+      risk = 'Medio';
+    }
 
     return {
       ...s,
       hc: s.hcSet.size,
-      completeRate: _dd_pct(s.complete, s.rows.filter(r => !['descanso', 'vacaciones'].includes(r.audit_status)).length),
+      completeRate: _dd_pct(
+        s.complete,
+        s.rows.filter(r => !['descanso', 'vacaciones'].includes(r.audit_status)).length
+      ),
       expectedActions: expected.totalExpected,
       compliance,
       risk
