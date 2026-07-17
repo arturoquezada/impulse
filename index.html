@@ -9678,6 +9678,23 @@ async function _dd_loadData() {
     }
   };
 
+  data.payrollTickets = [];
+
+try {
+  const { data: payrollRows, error: payrollError } = await _a_sb.rpc('payroll_ticket_deepdive', {
+    p_from: from,
+    p_to: to
+  });
+
+  if (payrollError) {
+    console.warn('No se pudo cargar Deep Dive Nómina:', payrollError);
+  } else {
+    data.payrollTickets = payrollRows || [];
+  }
+} catch(e) {
+  console.warn('Error cargando Deep Dive Nómina:', e);
+}
+
   data.supervisors = _dd_supervisorRows(curRows, curActions, curTickets);
   data.narrative = _dd_generateNarrative(data);
   data.recommendations = _dd_generateRecommendations(data);
@@ -9872,6 +9889,169 @@ ${data.narrative}
   `;
 }
 
+function _dd_payrollOwnerLabel(v) {
+  const map = {
+    pending: 'Pendiente',
+    operations: 'Operaciones',
+    people: 'People',
+    agent: 'Agente',
+    none: 'Nadie / No aplica'
+  };
+
+  return map[v] || v || 'Pendiente';
+}
+
+function _dd_payrollSummary(rows = []) {
+  const total = rows.length;
+  const resolved = rows.filter(r => r.status === 'resolved').length;
+  const pendingClass = rows.filter(r => (r.error_owner || 'pending') === 'pending').length;
+
+  const byOwner = {
+    pending: 0,
+    operations: 0,
+    people: 0,
+    agent: 0,
+    none: 0
+  };
+
+  rows.forEach(r => {
+    const k = r.error_owner || 'pending';
+    byOwner[k] = (byOwner[k] || 0) + 1;
+  });
+
+  const resolutionHours = rows
+    .map(r => Number(r.resolution_hours || 0))
+    .filter(n => n > 0);
+
+  const avgResolution = resolutionHours.length
+    ? Math.round((resolutionHours.reduce((a, b) => a + b, 0) / resolutionHours.length) * 10) / 10
+    : 0;
+
+  return {
+    total,
+    resolved,
+    pendingClass,
+    byOwner,
+    avgResolution
+  };
+}
+
+function _dd_renderPayrollDeepDive(rows = []) {
+  const s = _dd_payrollSummary(rows);
+
+  const ownerRows = Object.entries(s.byOwner)
+    .map(([key, value]) => ({ key, label: _dd_payrollOwnerLabel(key), value }))
+    .sort((a, b) => b.value - a.value);
+
+  return `
+    <div class="card" style="border-left:4px solid #0F172A">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">💰 Deep Dive · Tickets de Nómina</div>
+          <div style="font-size:12px;color:#64748B">
+            Clasificación interna por causa raíz. Esto no es visible para agentes.
+          </div>
+        </div>
+      </div>
+
+      <div class="kpi4">
+        <div class="kpi-box incard">
+          <div class="kpi-val">${s.total}</div>
+          <div class="kpi-lbl">Tickets nómina</div>
+        </div>
+
+        <div class="kpi-box incard">
+          <div class="kpi-val" style="color:#16A34A">${s.resolved}</div>
+          <div class="kpi-lbl">Resueltos</div>
+        </div>
+
+        <div class="kpi-box incard">
+          <div class="kpi-val" style="color:#D97706">${s.pendingClass}</div>
+          <div class="kpi-lbl">Sin clasificar</div>
+        </div>
+
+        <div class="kpi-box incard">
+          <div class="kpi-val" style="color:#2563EB">${s.avgResolution}h</div>
+          <div class="kpi-lbl">Prom. resolución</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:360px 1fr;gap:14px">
+        <div class="card" style="box-shadow:none;background:#F8FAFC;margin-bottom:0">
+          <div class="card-title">Distribución por causa</div>
+
+          ${ownerRows.map(r => `
+            <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #E2E8F0;padding:9px 0">
+              <div style="font-size:12px;font-weight:800;color:#334155">${r.label}</div>
+              <div style="font-family:'DM Mono',monospace;font-weight:900">${r.value}</div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="tbl-wrap">
+          <div style="overflow-x:auto">
+            <table style="min-width:980px">
+              <thead>
+                <tr>
+                  <th>Ticket</th>
+                  <th>Agente</th>
+                  <th>Subtipo</th>
+                  <th>Status</th>
+                  <th>Error atribuido a</th>
+                  <th>Nota interna</th>
+                  <th>Revisado por</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                ${rows.length ? rows.map(r => `
+                  <tr>
+                    <td>
+                      <div class="agent-row-name">${r.ticket_id}</div>
+                      <div class="agent-row-id">${new Date(r.created_at).toLocaleDateString('es-MX')}</div>
+                    </td>
+
+                    <td>
+                      <div class="agent-row-name">${r.employee_name || r.employee_id || '—'}</div>
+                      <div class="agent-row-id">${r.campaign_id || '—'}</div>
+                    </td>
+
+                    <td>${r.subtype || '—'}</td>
+                    <td>${r.status || '—'}</td>
+
+                    <td>
+                      <span class="pill ${r.error_owner === 'pending' ? 'pill-amber' : 'pill-blue'}">
+                        ${_dd_payrollOwnerLabel(r.error_owner)}
+                      </span>
+                    </td>
+
+                    <td style="max-width:280px;white-space:normal;line-height:1.35">
+                      ${r.internal_notes || '—'}
+                    </td>
+
+                    <td>
+                      <div style="font-size:12px;font-weight:800;color:#334155">${r.reviewed_by_name || '—'}</div>
+                      <div style="font-size:11px;color:#94A3B8">
+                        ${r.reviewed_at ? new Date(r.reviewed_at).toLocaleDateString('es-MX') : ''}
+                      </div>
+                    </td>
+                  </tr>
+                `).join('') : `
+                  <tr>
+                    <td colspan="7" style="text-align:center;color:#94A3B8;padding:24px">
+                      Sin tickets de nómina en este periodo.
+                    </td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function _dd_render() {
   const c = document.getElementById('content');
   if (!c) return;
@@ -9966,6 +10146,7 @@ function _dd_render() {
       </div>
 
       ${_dd_renderPresentation(data)}
+      ${_dd_renderPayrollDeepDive(data.payrollTickets || [])}
 
       ${_dd_renderSupervisorTable(data.supervisors)}
 
@@ -10029,6 +10210,7 @@ let _t_cargando = false;
 let _t_vistaTickets = 'mis';
 let _t_detalleId = null;
 
+
 // ── NOTIFICACIONES TICKETS HR · MVP FRONT ───────────────────
 // Fase 1: campanita global + badges visuales.
 // Guarda vistos por usuario/rol en localStorage.
@@ -10036,6 +10218,148 @@ let _t_detalleId = null;
 
 let _t_notifPollingStarted = false;
 let _t_notifPollingTimer = null;
+
+function _t_canManagePayrollReview() {
+  return ['people', 'head_people', 'ceo'].includes(currentRole);
+}
+
+function _t_esTicketNomina(t) {
+  const type = String(t?.type || '').toLowerCase();
+  const label = String(typeof _t_categoriaLabel === 'function' ? _t_categoriaLabel(t?.type) : '').toLowerCase();
+
+  return type === 'nomina' || type === 'nómina' || label.includes('nomina') || label.includes('nómina');
+}
+
+var _t_PAYROLL_REVIEWS = window._t_PAYROLL_REVIEWS || {};
+window._t_PAYROLL_REVIEWS = _t_PAYROLL_REVIEWS;
+
+function _t_payrollReview(ticketId) {
+  if (!window._t_PAYROLL_REVIEWS) {
+    window._t_PAYROLL_REVIEWS = {};
+  }
+
+  _t_PAYROLL_REVIEWS = window._t_PAYROLL_REVIEWS;
+
+  return _t_PAYROLL_REVIEWS[ticketId] || {
+    ticket_id: ticketId,
+    error_owner: 'pending',
+    internal_notes: ''
+  };
+}
+
+function _t_payrollOwnerLabel(v) {
+  const map = {
+    pending: 'Pendiente',
+    operations: 'Operaciones',
+    people: 'People',
+    agent: 'Agente',
+    none: 'Nadie / No aplica'
+  };
+
+  return map[v] || v || 'Pendiente';
+}
+
+function _t_payrollEsc(v) {
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function _t_renderPayrollReviewBox(t) {
+  if (!_t_canManagePayrollReview()) return '';
+  if (!_t_esTicketNomina(t)) return '';
+
+  const r = _t_payrollReview(t.id);
+  const owner = r.error_owner || 'pending';
+
+  return `
+    <div style="margin-top:16px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <div>
+          <div style="font-size:12px;font-weight:900;color:#0F172A">
+            🔒 Análisis interno de Nómina
+          </div>
+          <div style="font-size:11px;color:#64748B;margin-top:2px">
+            Esto no lo ve el agente. Solo alimenta Deep Dive.
+          </div>
+        </div>
+
+        ${r.reviewed_at ? `
+          <div style="font-size:11px;color:#64748B;text-align:right">
+            Última revisión:<br>
+            <b>${new Date(r.reviewed_at).toLocaleString('es-MX', {
+              day:'2-digit',
+              month:'2-digit',
+              year:'numeric',
+              hour:'2-digit',
+              minute:'2-digit'
+            })}</b>
+          </div>
+        ` : ''}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr;gap:10px">
+        <div>
+          <label style="display:block;font-size:10px;font-weight:900;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">
+            ¿De quién fue el error?
+          </label>
+
+          <select id="payroll-owner-${t.id}" style="width:100%;padding:9px 10px;border:1px solid #CBD5E1;border-radius:8px;font-size:13px;font-family:var(--f);background:#fff">
+            <option value="pending" ${owner === 'pending' ? 'selected' : ''}>Pendiente de clasificar</option>
+            <option value="operations" ${owner === 'operations' ? 'selected' : ''}>Operaciones</option>
+            <option value="people" ${owner === 'people' ? 'selected' : ''}>People</option>
+            <option value="agent" ${owner === 'agent' ? 'selected' : ''}>Agente</option>
+            <option value="none" ${owner === 'none' ? 'selected' : ''}>Nadie / No aplica</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="display:block;font-size:10px;font-weight:900;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">
+            Nota interna
+          </label>
+
+          <textarea id="payroll-notes-${t.id}" rows="3" style="width:100%;padding:9px 10px;border:1px solid #CBD5E1;border-radius:8px;font-size:13px;font-family:var(--f);resize:vertical;background:#fff" placeholder="Ej. Ajuste no cargado, cambio de descanso no actualizado, confusión del agente, etc.">${_t_payrollEsc(r.internal_notes || '')}</textarea>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end">
+          <button class="btn-primary" onclick="_t_guardarPayrollReview('${t.id}')">
+            Guardar análisis interno
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function _t_guardarPayrollReview(ticketId) {
+  const owner = document.getElementById(`payroll-owner-${ticketId}`)?.value || 'pending';
+  const notes = document.getElementById(`payroll-notes-${ticketId}`)?.value || '';
+
+  const { data, error } = await _t_sb.rpc('upsert_hr_ticket_payroll_review', {
+    p_ticket_id: ticketId,
+    p_error_owner: owner,
+    p_internal_notes: notes
+  });
+
+  if (error) {
+    console.error('Error guardando análisis interno de nómina:', error);
+    alert(
+      'No se pudo guardar el análisis interno.\n\n' +
+      (error.message || 'Error desconocido') +
+      (error.details ? '\n\nDetalle: ' + error.details : '') +
+      (error.code ? '\n\nCódigo: ' + error.code : '')
+    );
+    return;
+  }
+
+  await _t_cargarTickets();
+  _t_render();
+
+  alert('✅ Análisis interno guardado.');
+}
 
 function _t_seenStorageKey() {
   const ro = ROLES[currentRole] || {};
@@ -10472,6 +10796,28 @@ async function _t_cargarTickets(options = {}) {
 
     _t_EMPLEADOS = emps || [];
     _t_EMPLEADOS_FULL = emps || [];
+
+    _t_PAYROLL_REVIEWS = {};
+
+    if (_t_canManagePayrollReview()) {
+      const payrollIds = (_t_TICKETS || [])
+        .filter(_t_esTicketNomina)
+        .map(t => t.id)
+        .filter(Boolean);
+
+      if (payrollIds.length) {
+        const { data: reviews, error: revError } = await _t_sb
+          .from('hr_ticket_payroll_reviews')
+          .select('*')
+          .in('ticket_id', payrollIds);
+
+        if (revError) {
+          console.warn('No se pudieron cargar clasificaciones internas de nómina:', revError);
+        } else {
+          _t_PAYROLL_REVIEWS = Object.fromEntries((reviews || []).map(r => [r.ticket_id, r]));
+        }
+      }
+    }
 
     if (typeof _t_refreshTicketNotificationsUI === 'function') {
       _t_refreshTicketNotificationsUI();
@@ -11417,7 +11763,7 @@ function _t_renderReportes() {
   `;
 }
 
-async function _t_cargarTickets() {
+async function _t_cargarTickets(options = {}) {
   try {
     const ro = ROLES[currentRole];
 
@@ -11445,6 +11791,34 @@ async function _t_cargarTickets() {
 
     _t_EMPLEADOS = emps || [];
     _t_EMPLEADOS_FULL = emps || [];
+
+    window._t_PAYROLL_REVIEWS = {};
+    _t_PAYROLL_REVIEWS = window._t_PAYROLL_REVIEWS;
+
+    if (_t_canManagePayrollReview()) {
+      const payrollIds = (_t_TICKETS || [])
+        .filter(_t_esTicketNomina)
+        .map(t => t.id)
+        .filter(Boolean);
+
+      if (payrollIds.length) {
+        const { data: reviews, error: revError } = await _t_sb
+          .from('hr_ticket_payroll_reviews')
+          .select('*')
+          .in('ticket_id', payrollIds);
+
+        if (revError) {
+          console.warn('No se pudieron cargar clasificaciones internas de nómina:', revError);
+        } else {
+          window._t_PAYROLL_REVIEWS = Object.fromEntries((reviews || []).map(r => [r.ticket_id, r]));
+          _t_PAYROLL_REVIEWS = window._t_PAYROLL_REVIEWS;
+        }
+      }
+    }
+
+    if (typeof _t_refreshTicketNotificationsUI === 'function') {
+      _t_refreshTicketNotificationsUI();
+    }
 
     return true;
   } catch(e) {
@@ -11504,6 +11878,8 @@ function _t_renderDetalle(id) {
   const c = document.getElementById('content');
   const isSup = _t_puedeGestionar();
   const sla = _t_slaInfo(t);
+  const payrollReviewHTML = _t_renderPayrollReviewBox(t);
+  
 
   c.innerHTML = `
     <div style="max-width:760px;margin:0 auto">
@@ -11549,12 +11925,14 @@ function _t_renderDetalle(id) {
           </div>
         ` : ''}
 
-        ${t.resolution_notes ? `
-          <div style="margin-top:16px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:14px">
-            <div style="font-size:10px;color:#166534;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:900">Respuesta de People</div>
-            <div style="font-size:13px;color:#334155;line-height:1.6">${t.resolution_notes}</div>
-          </div>
-        ` : ''}
+        ${payrollReviewHTML}
+
+${t.resolution_notes ? `
+  <div style="margin-top:16px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:14px">
+    <div style="font-size:10px;color:#166534;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:900">Respuesta de People</div>
+    <div style="font-size:13px;color:#334155;line-height:1.6">${t.resolution_notes}</div>
+  </div>
+` : ''}
 
         ${isSup && !['resolved', 'cancelled'].includes(t.status) ? `
           <div style="margin-top:18px;display:flex;gap:8px;flex-wrap:wrap">
