@@ -1723,7 +1723,7 @@ function _buildAppShell() {
     {id:'nomina',       icon:'💰', label:'Nómina',        roles:['supervisor','manager','people','head_people','ceo']},
     {id:'tickets',      icon:'🎫', label:'Tickets HR',    roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people']},
-    {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo']},
+    {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
   ];
@@ -12170,6 +12170,111 @@ function _v_renderAgent() {
   </div>`;
 }
 
+function _v_renderMisVacacionesPanel() {
+  const ro = ROLES[currentRole] || {};
+  const empId = ro.id;
+  const emp = _v_AGENTES.find(a => a.id === empId);
+
+  if (!empId || !emp) {
+    return `
+      <div class="card">
+        <div class="card-title" style="margin-bottom:4px">🏖️ Mis vacaciones</div>
+        <div style="font-size:12px;color:#DC2626">
+          No se encontró tu perfil de empleado activo. Revisa que tu usuario tenga employee_id y que estés activo en employees.
+        </div>
+      </div>
+    `;
+  }
+
+  const bal = _v_getBalance(empId, emp?.hire_date);
+  const anios = _v_calcAnios(emp?.hire_date);
+  const misSols = _v_SOLICITUDES.filter(s => s.employee_id === empId);
+
+  const statusLabel = {
+    pending: '⏳ Pendiente',
+    approved: '✅ Aprobada',
+    rejected: '❌ Rechazada',
+    cancelled: '🚫 Cancelada'
+  };
+
+  const statusColor = {
+    pending: '#D97706',
+    approved: '#16A34A',
+    rejected: '#DC2626',
+    cancelled: '#64748B'
+  };
+
+  const rows = misSols.slice(0, 6).map(s => `
+    <tr>
+      <td>${fmtDate(s.start_date)}</td>
+      <td>${fmtDate(s.end_date)}</td>
+      <td style="text-align:center;font-family:'DM Mono',monospace">${s.days_requested}</td>
+      <td>
+        <span style="font-size:12px;font-weight:600;color:${statusColor[s.status] || '#64748B'}">
+          ${statusLabel[s.status] || s.status}
+        </span>
+      </td>
+      <td style="font-size:11px;color:#64748B;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        ${s.notes || '—'}
+      </td>
+      ${s.status === 'pending'
+        ? `<td><button onclick="_v_cancelar('${s.id}')" style="font-size:11px;padding:3px 8px;border:1px solid #FECACA;border-radius:6px;background:#FEF2F2;color:#DC2626;cursor:pointer">Cancelar</button></td>`
+        : '<td>—</td>'
+      }
+    </tr>
+  `).join('');
+
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">🏖️ Mis vacaciones</div>
+          <div style="font-size:11px;color:#64748B">
+            ${emp.full_name || empId} · ${empId}<br>
+            Antigüedad: <b>${anios}</b> año${anios !== 1 ? 's' : ''} · Ingreso: <b>${emp?.hire_date || '—'}</b>
+          </div>
+        </div>
+
+        ${bal.available > 0
+          ? `<button onclick="_v_abrirSolicitud()" class="btn-primary">+ Solicitar vacaciones</button>`
+          : `<span style="font-size:12px;color:#94A3B8">Sin días disponibles</span>`
+        }
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+        <div class="kpi-box incard"><div class="kpi-val">${bal.earned}</div><div class="kpi-lbl">Días del periodo</div></div>
+        <div class="kpi-box incard"><div class="kpi-val" style="color:#DC2626">${bal.used}</div><div class="kpi-lbl">Días tomados</div></div>
+        <div class="kpi-box incard"><div class="kpi-val" style="color:#D97706">${bal.pending}</div><div class="kpi-lbl">En solicitud</div></div>
+        <div class="kpi-box incard"><div class="kpi-val" style="color:#16A34A">${bal.available}</div><div class="kpi-lbl">Disponibles</div></div>
+      </div>
+
+      ${misSols.length ? `
+        <div class="tbl-wrap">
+          <div style="overflow-x:auto">
+            <table style="min-width:720px">
+              <thead>
+                <tr>
+                  <th>Inicio</th>
+                  <th>Fin</th>
+                  <th style="text-align:center">Días</th>
+                  <th>Status</th>
+                  <th>Nota</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      ` : `
+        <div style="text-align:center;padding:22px;color:#94A3B8">
+          Aún no tienes solicitudes registradas.
+        </div>
+      `}
+    </div>
+  `;
+}
+
 function _v_renderSupervisor() {
   const ro = ROLES[currentRole];
   const miEquipo = _v_AGENTES.filter(a => a.supervisor_id === ro.id);
@@ -12179,25 +12284,51 @@ function _v_renderSupervisor() {
 
   let rows = miEquipo.map(a => {
     const bal = _v_getBalance(a.id, a.hire_date);
-    const solsAg = solsEquipo.filter(s=>s.employee_id===a.id);
+    const solsAg = solsEquipo.filter(s => s.employee_id === a.id);
+    const pendientes = solsAg.filter(s => s.status === 'pending').length;
+
     return `<tr>
-      <td><div class="agent-row-name">${a.full_name}</div><div class="agent-row-id">${a.id}</div></td>
+      <td>
+        <div class="agent-row-name">${a.full_name}</div>
+        <div class="agent-row-id">${a.id}</div>
+      </td>
       <td style="text-align:center;font-family:'DM Mono',monospace">${bal.earned}</td>
       <td style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626">${bal.used}</td>
       <td style="text-align:center;font-family:'DM Mono',monospace;color:#D97706">${bal.pending}</td>
       <td style="text-align:center;font-family:'DM Mono',monospace;color:#16A34A;font-weight:700">${bal.available}</td>
-      <td style="text-align:center">${solsAg.filter(s=>s.status==='pending').length > 0 ? `<span style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700">⏳ ${solsAg.filter(s=>s.status==='pending').length} pendiente${solsAg.filter(s=>s.status==='pending').length>1?'s':''}</span>` : '—'}</td>
+      <td style="text-align:center">
+        ${pendientes > 0
+          ? `<span style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700">⏳ ${pendientes} pendiente${pendientes > 1 ? 's' : ''}</span>`
+          : '—'
+        }
+      </td>
     </tr>`;
   }).join('');
 
   return `<div style="max-width:1000px;margin:0 auto">
+    ${_v_renderMisVacacionesPanel()}
+
     ${_v_renderCalendario(aprobadas, '📅 Vacaciones del equipo')}
+
     <div class="card">
       <div class="card-title" style="margin-bottom:14px">Banco de días · ${miEquipo.length} agentes</div>
-      <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:600px">
-        <thead><tr><th>Agente</th><th style="text-align:center">Ganados</th><th style="text-align:center">Usados</th><th style="text-align:center">En solicitud</th><th style="text-align:center">Disponibles</th><th style="text-align:center">Estado</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div></div>
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:600px">
+            <thead>
+              <tr>
+                <th>Agente</th>
+                <th style="text-align:center">Ganados</th>
+                <th style="text-align:center">Usados</th>
+                <th style="text-align:center">En solicitud</th>
+                <th style="text-align:center">Disponibles</th>
+                <th style="text-align:center">Estado</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>`;
 }
