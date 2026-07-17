@@ -1726,6 +1726,7 @@ function _buildAppShell() {
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
+    {id:'deepdive', icon:'📊', label:'Deep Dive', roles:['people','head_people']},
   ];
 
   const visible = allMods.filter(m => m.roles.includes(currentRole));
@@ -1907,6 +1908,7 @@ const MODULE_INFO={
   tickets:{icon:'🎫',label:'Tickets HR'},
   permutas:{icon:'🔄',label:'Permutas'},vacaciones:{icon:'🏖️',label:'Vacaciones'},
   disciplinario:{icon:'🧭',label:'Acciones People'},equipo:{icon:'👥',label:'Equipo'},
+  deepdive:{icon:'📊',label:'Deep Dive'},
 };
 function ymd(d){
   // Usar hora de México (America/Mexico_City) para evitar que UTC adelante el día
@@ -9166,6 +9168,789 @@ window['_init_nomina']=function(){
   });
 };
 window['_rerender_nomina']=function(){ if(typeof _n_render==='function')_n_render(); };
+
+// ════════════════════════════════════════════════════════════
+// 📊 DEEP DIVE · PEOPLE INSIGHTS
+// ════════════════════════════════════════════════════════════
+
+let _dd_LOADING = false;
+let _dd_DATA = null;
+
+let _dd_FILTERS = {
+  from: null,
+  to: null,
+  prevFrom: null,
+  prevTo: null,
+  campaign: 'all',
+  supervisor: 'all'
+};
+
+function _dd_canAccess() {
+  return ['people', 'head_people'].includes(currentRole);
+}
+
+function _dd_parseDate(s) {
+  return new Date(s + 'T12:00:00');
+}
+
+function _dd_lastCompletedWeek() {
+  const now = new Date();
+  const today = _dd_parseDate(ymd(now));
+  const day = today.getDay(); // domingo 0, lunes 1
+  const diffToThisMonday = day === 0 ? -6 : 1 - day;
+
+  const thisMonday = new Date(today);
+  thisMonday.setDate(today.getDate() + diffToThisMonday);
+
+  const lastMonday = new Date(thisMonday);
+  lastMonday.setDate(thisMonday.getDate() - 7);
+
+  const lastSunday = new Date(lastMonday);
+  lastSunday.setDate(lastMonday.getDate() + 6);
+
+  const prevMonday = new Date(lastMonday);
+  prevMonday.setDate(lastMonday.getDate() - 7);
+
+  const prevSunday = new Date(prevMonday);
+  prevSunday.setDate(prevMonday.getDate() + 6);
+
+  return {
+    from: ymd(lastMonday),
+    to: ymd(lastSunday),
+    prevFrom: ymd(prevMonday),
+    prevTo: ymd(prevSunday)
+  };
+}
+
+function _dd_num(v) {
+  return Number(v || 0);
+}
+
+function _dd_pct(part, total) {
+  if (!total) return 0;
+  return Math.round((Number(part || 0) / Number(total || 0)) * 100);
+}
+
+function _dd_delta(current, previous) {
+  const c = Number(current || 0);
+  const p = Number(previous || 0);
+
+  if (!p && !c) return { value: 0, label: 'sin cambio', dir: 'flat' };
+  if (!p && c) return { value: 100, label: '+100%', dir: 'up' };
+
+  const d = Math.round(((c - p) / p) * 100);
+  return {
+    value: d,
+    label: `${d > 0 ? '+' : ''}${d}%`,
+    dir: d > 0 ? 'up' : d < 0 ? 'down' : 'flat'
+  };
+}
+
+function _dd_statusCount(rows, status) {
+  return rows.filter(r => r.audit_status === status).length;
+}
+
+function _dd_uniqueCount(rows, key) {
+  return new Set(rows.map(r => r[key]).filter(Boolean)).size;
+}
+
+function _dd_inRangeTs(value, from, to) {
+  if (!value) return false;
+  const d = new Date(value);
+  const a = new Date(from + 'T00:00:00');
+  const b = new Date(to + 'T23:59:59');
+  return d >= a && d <= b;
+}
+
+function _dd_ticketResolvedAt(t) {
+  const j = t || {};
+  const status = String(j.status || '').toLowerCase();
+
+  return (
+    j.resolved_at ||
+    j.closed_at ||
+    j.completed_at ||
+    (['resolved', 'closed', 'done', 'completado', 'resuelto'].includes(status) ? j.updated_at : null)
+  );
+}
+
+function _dd_ticketCategory(t) {
+  return t?.type || t?.category || t?.subtype || 'Sin categoría';
+}
+
+function _dd_actionDate(a) {
+  return a.issued_at || a.requested_at || a.created_at || a.updated_at || null;
+}
+
+function _dd_actionEmployee(a) {
+  return a.employee_id || a.agent_id || a.target_employee_id || null;
+}
+
+function _dd_actionLevel(a) {
+  return a.issued_level || a.recommended_level || a.level || '—';
+}
+
+function _dd_filterAttendanceRows(rows) {
+  return (rows || []).filter(r => {
+    if (_dd_FILTERS.campaign !== 'all' && r.campaign_id !== _dd_FILTERS.campaign) return false;
+    if (_dd_FILTERS.supervisor !== 'all' && r.supervisor_id !== _dd_FILTERS.supervisor) return false;
+    return true;
+  });
+}
+
+function _dd_attendanceSummary(rows) {
+  const total = rows.length;
+  const complete = _dd_statusCount(rows, 'completo');
+  const tolerancia = _dd_statusCount(rows, 'tolerancia');
+  const retardo = _dd_statusCount(rows, 'retardo');
+  const falta = _dd_statusCount(rows, 'falta_injustificada');
+  const sinEntrada = _dd_statusCount(rows, 'sin_entrada');
+  const sinSalida = _dd_statusCount(rows, 'sin_salida');
+
+  const justified = rows.filter(r =>
+    ['permiso', 'incapacidad', 'vacaciones', 'descanso'].includes(r.audit_status)
+  ).length;
+
+  const expectedDays = rows.filter(r =>
+    !['descanso', 'vacaciones'].includes(r.audit_status)
+  ).length;
+
+  return {
+    total,
+    expectedDays,
+    hc: _dd_uniqueCount(rows, 'employee_id'),
+    complete,
+    completeRate: _dd_pct(complete, expectedDays),
+    tolerancia,
+    retardo,
+    falta,
+    sinEntrada,
+    sinSalida,
+    justified
+  };
+}
+
+function _dd_expectedActions(rows) {
+  const faltas = rows.filter(r => r.audit_status === 'falta_injustificada');
+
+  const retardsByEmployee = {};
+  rows
+    .filter(r => r.audit_status === 'retardo')
+    .forEach(r => {
+      if (!r.employee_id) return;
+      retardsByEmployee[r.employee_id] = (retardsByEmployee[r.employee_id] || 0) + 1;
+    });
+
+  const recurrentRetards = Object.entries(retardsByEmployee)
+    .filter(([, count]) => count >= 3)
+    .length;
+
+  return {
+    faltasExpected: faltas.length,
+    recurrentRetardsExpected: recurrentRetards,
+    totalExpected: faltas.length + recurrentRetards
+  };
+}
+
+function _dd_ticketSummary(tickets, from, to) {
+  const periodTickets = (tickets || []).filter(t => _dd_inRangeTs(t.created_at, from, to));
+  const resolved = periodTickets.filter(t => _dd_ticketResolvedAt(t));
+  const open = periodTickets.filter(t => !_dd_ticketResolvedAt(t));
+
+  const resolutionHours = resolved
+    .map(t => {
+      const start = new Date(t.created_at);
+      const end = new Date(_dd_ticketResolvedAt(t));
+      return (end - start) / 36e5;
+    })
+    .filter(n => Number.isFinite(n) && n >= 0);
+
+  const avgResolution = resolutionHours.length
+    ? Math.round((resolutionHours.reduce((a, b) => a + b, 0) / resolutionHours.length) * 10) / 10
+    : 0;
+
+  const byCategory = {};
+  periodTickets.forEach(t => {
+    const k = _dd_ticketCategory(t);
+    byCategory[k] = (byCategory[k] || 0) + 1;
+  });
+
+  return {
+    created: periodTickets.length,
+    resolved: resolved.length,
+    open: open.length,
+    avgResolution,
+    byCategory
+  };
+}
+
+function _dd_supervisorRows(attRows, actions, tickets) {
+  const map = {};
+
+  attRows.forEach(r => {
+    const id = r.supervisor_id || 'sin_supervisor';
+
+    if (!map[id]) {
+      map[id] = {
+        supervisor_id: id,
+        supervisor_name: r.supervisor_name || 'Sin supervisor',
+        hcSet: new Set(),
+        rows: [],
+        complete: 0,
+        retardo: 0,
+        tolerancia: 0,
+        falta: 0,
+        sinSalida: 0,
+        sinEntrada: 0,
+        actions: 0,
+        tickets: 0
+      };
+    }
+
+    map[id].rows.push(r);
+    if (r.employee_id) map[id].hcSet.add(r.employee_id);
+
+    if (r.audit_status === 'completo') map[id].complete++;
+    if (r.audit_status === 'retardo') map[id].retardo++;
+    if (r.audit_status === 'tolerancia') map[id].tolerancia++;
+    if (r.audit_status === 'falta_injustificada') map[id].falta++;
+    if (r.audit_status === 'sin_salida') map[id].sinSalida++;
+    if (r.audit_status === 'sin_entrada') map[id].sinEntrada++;
+  });
+
+  const employeeToSup = {};
+  attRows.forEach(r => {
+    if (r.employee_id) employeeToSup[r.employee_id] = r.supervisor_id || 'sin_supervisor';
+  });
+
+  actions.forEach(a => {
+    const empId = _dd_actionEmployee(a);
+    const supId = employeeToSup[empId];
+    if (supId && map[supId]) map[supId].actions++;
+  });
+
+  tickets.forEach(t => {
+    const empId = t.employee_id;
+    const supId = employeeToSup[empId];
+    if (supId && map[supId]) map[supId].tickets++;
+  });
+
+  return Object.values(map).map(s => {
+    const expected = _dd_expectedActions(s.rows);
+    const issueCount = s.retardo + s.falta + s.sinSalida + s.sinEntrada;
+    const compliance = _dd_pct(s.actions, expected.totalExpected || 0);
+
+    let risk = 'Controlado';
+    if (issueCount >= 12 || compliance < 50) risk = 'Alto';
+    else if (issueCount >= 6 || compliance < 80) risk = 'Medio';
+
+    return {
+      ...s,
+      hc: s.hcSet.size,
+      completeRate: _dd_pct(s.complete, s.rows.filter(r => !['descanso', 'vacaciones'].includes(r.audit_status)).length),
+      expectedActions: expected.totalExpected,
+      compliance,
+      risk
+    };
+  }).sort((a, b) => {
+    const order = { Alto: 0, Medio: 1, Controlado: 2 };
+    return (order[a.risk] ?? 9) - (order[b.risk] ?? 9) || b.retardo + b.falta - (a.retardo + a.falta);
+  });
+}
+
+function _dd_generateNarrative(data) {
+  const cur = data.current.attendance;
+  const prev = data.previous.attendance;
+  const dRet = _dd_delta(cur.retardo, prev.retardo);
+  const dFal = _dd_delta(cur.falta, prev.falta);
+  const dTickets = _dd_delta(data.current.tickets.created, data.previous.tickets.created);
+
+  const topSup = data.supervisors[0];
+  const topCategory = Object.entries(data.current.tickets.byCategory || {})
+    .sort((a, b) => b[1] - a[1])[0];
+
+  const parts = [];
+
+  parts.push(`Durante el periodo ${fmtDateShort(data.from)} al ${fmtDateShort(data.to)}, se revisaron ${cur.expectedDays} días-empleado esperados con una asistencia completa del ${cur.completeRate}%.`);
+
+  parts.push(`Los retardos reales fueron ${cur.retardo} (${dRet.label} vs semana anterior) y las faltas injustificadas fueron ${cur.falta} (${dFal.label} vs semana anterior).`);
+
+  if (cur.sinSalida > 0) {
+    parts.push(`Se detectaron ${cur.sinSalida} omisiones de salida, lo que representa un riesgo para cierre de asistencia y validación de nómina.`);
+  }
+
+  if (topSup) {
+    parts.push(`A nivel supervisión, ${topSup.supervisor_name} aparece como foco principal con ${topSup.retardo} retardos, ${topSup.falta} faltas y ${topSup.sinSalida} salidas pendientes; su nivel de cumplimiento disciplinario estimado es ${topSup.compliance}%.`);
+  }
+
+  parts.push(`En Tickets HR se crearon ${data.current.tickets.created} tickets (${dTickets.label} vs semana anterior), con un tiempo promedio de resolución de ${data.current.tickets.avgResolution} horas.`);
+
+  if (topCategory) {
+    parts.push(`La categoría con mayor volumen fue "${topCategory[0]}", concentrando ${topCategory[1]} ticket${topCategory[1] !== 1 ? 's' : ''}.`);
+  }
+
+  parts.push(`Recomendación People: enfocar la siguiente semana en cierre de punches, seguimiento a reincidentes y consistencia en documentación de acciones por supervisor.`);
+
+  return parts.join('\n\n');
+}
+
+function _dd_generateRecommendations(data) {
+  const recs = [];
+  const cur = data.current.attendance;
+  const supHigh = data.supervisors.filter(s => s.risk === 'Alto');
+
+  if (cur.sinSalida > 0) {
+    recs.push('Reforzar con supervisores el cierre de salida diario antes de terminar turno.');
+  }
+
+  if (cur.retardo > data.previous.attendance.retardo) {
+    recs.push('Revisar reincidencias de retardo real y aplicar seguimiento preventivo antes de escalar.');
+  }
+
+  if (cur.falta > 0) {
+    recs.push('Validar que cada falta injustificada tenga acción People o justificación documentada.');
+  }
+
+  if (supHigh.length) {
+    recs.push(`Priorizar 1:1 operativo con ${supHigh.slice(0, 3).map(s => s.supervisor_name).join(', ')} por concentración de incidencias.`);
+  }
+
+  if (data.current.tickets.created > data.previous.tickets.created) {
+    recs.push('Revisar categorías de tickets crecientes para atacar causa raíz y reducir carga administrativa.');
+  }
+
+  if (!recs.length) {
+    recs.push('Mantener seguimiento semanal y monitorear tendencias por supervisor/campaña.');
+  }
+
+  return recs;
+}
+
+async function _dd_loadData() {
+  _dd_LOADING = true;
+  _dd_render();
+
+  const from = _dd_FILTERS.from;
+  const to = _dd_FILTERS.to;
+  const prevFrom = _dd_FILTERS.prevFrom;
+  const prevTo = _dd_FILTERS.prevTo;
+
+  const [attCur, attPrev, ticketsCur, ticketsPrev, actionsCur, actionsPrev] = await Promise.all([
+    _a_sb.rpc('attendance_audit_range', { p_from: from, p_to: to }),
+    _a_sb.rpc('attendance_audit_range', { p_from: prevFrom, p_to: prevTo }),
+
+    _a_sb.from('hr_tickets')
+      .select('*')
+      .gte('created_at', from + 'T00:00:00')
+      .lte('created_at', to + 'T23:59:59'),
+
+    _a_sb.from('hr_tickets')
+      .select('*')
+      .gte('created_at', prevFrom + 'T00:00:00')
+      .lte('created_at', prevTo + 'T23:59:59'),
+
+    _a_sb.from('people_action_cases')
+      .select('*')
+      .gte('created_at', from + 'T00:00:00')
+      .lte('created_at', to + 'T23:59:59'),
+
+    _a_sb.from('people_action_cases')
+      .select('*')
+      .gte('created_at', prevFrom + 'T00:00:00')
+      .lte('created_at', prevTo + 'T23:59:59')
+  ]);
+
+  const errors = [attCur, attPrev, ticketsCur, ticketsPrev, actionsCur, actionsPrev]
+    .map(x => x.error)
+    .filter(Boolean);
+
+  if (errors.length) {
+    console.error('Deep Dive errors:', errors);
+    alert('No se pudo cargar Deep Dive:\n\n' + errors.map(e => e.message).join('\n'));
+    _dd_LOADING = false;
+    _dd_render();
+    return;
+  }
+
+  const curRowsRaw = attCur.data || [];
+  const prevRowsRaw = attPrev.data || [];
+
+  const campaigns = [...new Set(curRowsRaw.map(r => r.campaign_id).filter(Boolean))].sort();
+  const supervisorsMap = {};
+  curRowsRaw.forEach(r => {
+    if (r.supervisor_id) supervisorsMap[r.supervisor_id] = r.supervisor_name || r.supervisor_id;
+  });
+
+  const curRows = _dd_filterAttendanceRows(curRowsRaw);
+  const prevRows = _dd_filterAttendanceRows(prevRowsRaw);
+
+  const curTickets = ticketsCur.data || [];
+  const prevTickets = ticketsPrev.data || [];
+  const curActions = actionsCur.data || [];
+  const prevActions = actionsPrev.data || [];
+
+  const data = {
+    from,
+    to,
+    prevFrom,
+    prevTo,
+    campaigns,
+    supervisors: [],
+    supervisorsOptions: Object.entries(supervisorsMap).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+    current: {
+      rows: curRows,
+      attendance: _dd_attendanceSummary(curRows),
+      expectedActions: _dd_expectedActions(curRows),
+      tickets: _dd_ticketSummary(curTickets, from, to),
+      actions: curActions
+    },
+    previous: {
+      rows: prevRows,
+      attendance: _dd_attendanceSummary(prevRows),
+      expectedActions: _dd_expectedActions(prevRows),
+      tickets: _dd_ticketSummary(prevTickets, prevFrom, prevTo),
+      actions: prevActions
+    }
+  };
+
+  data.supervisors = _dd_supervisorRows(curRows, curActions, curTickets);
+  data.narrative = _dd_generateNarrative(data);
+  data.recommendations = _dd_generateRecommendations(data);
+
+  _dd_DATA = data;
+  _dd_LOADING = false;
+  _dd_render();
+}
+
+function _dd_applyPeriod() {
+  const from = document.getElementById('ddFrom')?.value;
+  const to = document.getElementById('ddTo')?.value;
+
+  if (!from || !to) {
+    alert('Selecciona fecha inicio y fecha fin.');
+    return;
+  }
+
+  if (from > to) {
+    alert('La fecha inicio no puede ser mayor a la fecha fin.');
+    return;
+  }
+
+  const days = Math.round((_dd_parseDate(to) - _dd_parseDate(from)) / 86400000) + 1;
+  const prevToDate = _dd_parseDate(from);
+  prevToDate.setDate(prevToDate.getDate() - 1);
+
+  const prevFromDate = new Date(prevToDate);
+  prevFromDate.setDate(prevToDate.getDate() - days + 1);
+
+  _dd_FILTERS.from = from;
+  _dd_FILTERS.to = to;
+  _dd_FILTERS.prevFrom = ymd(prevFromDate);
+  _dd_FILTERS.prevTo = ymd(prevToDate);
+
+  _dd_loadData();
+}
+
+function _dd_setFilter(k, v) {
+  _dd_FILTERS[k] = v;
+  _dd_loadData();
+}
+
+function _dd_copyExecutiveSummary() {
+  if (!_dd_DATA) return;
+
+  const text = [
+    'RESUMEN EJECUTIVO · DEEP DIVE PEOPLE',
+    `${fmtDateShort(_dd_DATA.from)} al ${fmtDateShort(_dd_DATA.to)} vs ${fmtDateShort(_dd_DATA.prevFrom)} al ${fmtDateShort(_dd_DATA.prevTo)}`,
+    '',
+    _dd_DATA.narrative,
+    '',
+    'RECOMENDACIONES:',
+    ..._dd_DATA.recommendations.map((r, i) => `${i + 1}. ${r}`)
+  ].join('\n');
+
+  navigator.clipboard.writeText(text);
+  alert('Resumen ejecutivo copiado.');
+}
+
+function _dd_card(label, value, prevValue, opts = {}) {
+  const d = _dd_delta(value, prevValue);
+  const color = opts.color || '#0F172A';
+
+  return `
+    <div class="kpi-box">
+      <div class="kpi-val" style="color:${color}">${value}</div>
+      <div class="kpi-lbl">${label}</div>
+      <div style="font-size:11px;color:${d.dir === 'up' ? '#DC2626' : d.dir === 'down' ? '#16A34A' : '#94A3B8'};margin-top:6px;font-weight:800">
+        ${d.label} vs semana anterior
+      </div>
+    </div>
+  `;
+}
+
+function _dd_riskPill(risk) {
+  const cfg = {
+    Alto: ['#FEE2E2', '#991B1B', '🔴 Alto'],
+    Medio: ['#FEF3C7', '#92400E', '🟡 Medio'],
+    Controlado: ['#DCFCE7', '#166534', '🟢 Controlado']
+  };
+
+  const c = cfg[risk] || cfg.Controlado;
+
+  return `<span style="background:${c[0]};color:${c[1]};border-radius:999px;padding:4px 9px;font-size:11px;font-weight:900">${c[2]}</span>`;
+}
+
+function _dd_renderSupervisorTable(rows) {
+  return `
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between">
+        <span>Ranking por supervisor</span>
+        <span style="font-size:11px;color:#94A3B8;font-weight:600">Gestión + asistencia</span>
+      </div>
+
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:1100px">
+            <thead>
+              <tr>
+                <th>Supervisor</th>
+                <th style="text-align:center">HC</th>
+                <th style="text-align:center">Asistencia completa</th>
+                <th style="text-align:center">Retardos</th>
+                <th style="text-align:center">Faltas</th>
+                <th style="text-align:center">Sin salida</th>
+                <th style="text-align:center">Acciones esperadas</th>
+                <th style="text-align:center">Acciones cargadas</th>
+                <th style="text-align:center">Cumplimiento</th>
+                <th>Riesgo</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(s => `
+                <tr>
+                  <td>
+                    <div class="agent-row-name">${s.supervisor_name}</div>
+                    <div class="agent-row-id">${s.supervisor_id}</div>
+                  </td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace">${s.hc}</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace">${s.completeRate}%</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#D97706">${s.retardo}</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626">${s.falta}</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626">${s.sinSalida}</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace">${s.expectedActions}</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace">${s.actions}</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace;font-weight:900">${s.compliance}%</td>
+                  <td>${_dd_riskPill(s.risk)}</td>
+                </tr>
+              `).join('') || `
+                <tr>
+                  <td colspan="10" style="text-align:center;color:#94A3B8;padding:24px">
+                    Sin datos para el periodo.
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _dd_renderTicketCategories(byCategory) {
+  const rows = Object.entries(byCategory || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  return `
+    <div class="card">
+      <div class="card-title">🎫 Tickets HR · Categorías principales</div>
+      ${rows.length ? rows.map(([k, v]) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #F1F5F9;padding:9px 0">
+          <div style="font-size:12px;font-weight:800;color:#334155">${k}</div>
+          <div style="font-family:'DM Mono',monospace;font-weight:900">${v}</div>
+        </div>
+      `).join('') : `
+        <div style="text-align:center;color:#94A3B8;padding:20px">Sin tickets en el periodo.</div>
+      `}
+    </div>
+  `;
+}
+
+function _dd_renderPresentation(data) {
+  return `
+    <div class="card" style="border-left:4px solid #62D3F5">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div>
+          <div class="card-title" style="margin-bottom:6px">🧠 Resumen ejecutivo para junta</div>
+          <div style="font-size:12px;color:#64748B">
+            Listo para copiar a presentación o minuta.
+          </div>
+        </div>
+        <button class="btn-primary" onclick="_dd_copyExecutiveSummary()">Copiar resumen</button>
+      </div>
+
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:14px;margin-top:12px;white-space:pre-line;font-size:13px;line-height:1.55;color:#334155">
+${data.narrative}
+      </div>
+
+      <div style="margin-top:14px">
+        <div style="font-size:12px;font-weight:900;color:#0F172A;margin-bottom:8px">Recomendaciones People</div>
+        ${data.recommendations.map((r, i) => `
+          <div style="display:flex;gap:8px;margin-bottom:7px;font-size:12px;color:#334155">
+            <b>${i + 1}.</b>
+            <span>${r}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function _dd_render() {
+  const c = document.getElementById('content');
+  if (!c) return;
+
+  if (!_dd_canAccess()) {
+    c.innerHTML = `
+      <div class="card" style="max-width:760px;margin:0 auto">
+        <div class="card-title">📊 Deep Dive</div>
+        <div style="font-size:13px;color:#64748B">
+          Este módulo es solo para People / Head People.
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (_dd_LOADING) {
+    c.innerHTML = `
+      <div style="text-align:center;padding:60px;color:#94A3B8">
+        <div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
+        Cargando Deep Dive.
+      </div>
+    `;
+    return;
+  }
+
+  const data = _dd_DATA;
+
+  if (!data) {
+    c.innerHTML = `
+      <div class="card" style="max-width:760px;margin:0 auto">
+        <div class="card-title">📊 Deep Dive</div>
+        <button class="btn-primary" onclick="_dd_loadData()">Cargar análisis</button>
+      </div>
+    `;
+    return;
+  }
+
+  const cur = data.current.attendance;
+  const prev = data.previous.attendance;
+
+  c.innerHTML = `
+    <div style="max-width:1280px;margin:0 auto">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px">
+        <div>
+          <div style="font-size:22px;font-weight:900;color:#0F172A">📊 Deep Dive · People Insights</div>
+          <div style="font-size:12px;color:#64748B;margin-top:4px">
+            ${fmtDateShort(data.from)} → ${fmtDateShort(data.to)}
+            vs ${fmtDateShort(data.prevFrom)} → ${fmtDateShort(data.prevTo)}
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}">
+          <span style="font-size:12px;color:#94A3B8">→</span>
+          <input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}">
+          <button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button>
+          <button class="btn-ghost" onclick="_dd_loadData()">🔄 Refrescar</button>
+        </div>
+      </div>
+
+      <div class="date-filter-bar">
+        <span class="df-label">Filtros</span>
+
+        <select class="df-input" onchange="_dd_setFilter('campaign', this.value)">
+          <option value="all">Todas las campañas</option>
+          ${data.campaigns.map(camp => `
+            <option value="${camp}" ${_dd_FILTERS.campaign === camp ? 'selected' : ''}>${camp}</option>
+          `).join('')}
+        </select>
+
+        <select class="df-input" onchange="_dd_setFilter('supervisor', this.value)">
+          <option value="all">Todos los supervisores</option>
+          ${data.supervisorsOptions.map(s => `
+            <option value="${s.id}" ${_dd_FILTERS.supervisor === s.id ? 'selected' : ''}>${s.name}</option>
+          `).join('')}
+        </select>
+      </div>
+
+      <div class="kpi4">
+        ${_dd_card('Asistencia completa', cur.completeRate + '%', prev.completeRate, { color:'#16A34A' })}
+        ${_dd_card('Retardos reales', cur.retardo, prev.retardo, { color:'#D97706' })}
+        ${_dd_card('Faltas injustificadas', cur.falta, prev.falta, { color:'#DC2626' })}
+        ${_dd_card('Sin salida', cur.sinSalida, prev.sinSalida, { color:'#DC2626' })}
+      </div>
+
+      <div class="kpi4">
+        ${_dd_card('En tolerancia', cur.tolerancia, prev.tolerancia, { color:'#D97706' })}
+        ${_dd_card('Acciones esperadas', data.current.expectedActions.totalExpected, data.previous.expectedActions.totalExpected, { color:'#0F172A' })}
+        ${_dd_card('Acciones cargadas', data.current.actions.length, data.previous.actions.length, { color:'#0F172A' })}
+        ${_dd_card('Tickets HR', data.current.tickets.created, data.previous.tickets.created, { color:'#2563EB' })}
+      </div>
+
+      ${_dd_renderPresentation(data)}
+
+      ${_dd_renderSupervisorTable(data.supervisors)}
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        ${_dd_renderTicketCategories(data.current.tickets.byCategory)}
+
+        <div class="card">
+          <div class="card-title">⏱️ Productividad Tickets HR</div>
+
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+            <div class="kpi-box incard">
+              <div class="kpi-val">${data.current.tickets.created}</div>
+              <div class="kpi-lbl">Creados</div>
+            </div>
+            <div class="kpi-box incard">
+              <div class="kpi-val" style="color:#16A34A">${data.current.tickets.resolved}</div>
+              <div class="kpi-lbl">Resueltos</div>
+            </div>
+            <div class="kpi-box incard">
+              <div class="kpi-val" style="color:#D97706">${data.current.tickets.open}</div>
+              <div class="kpi-lbl">Abiertos</div>
+            </div>
+            <div class="kpi-box incard">
+              <div class="kpi-val" style="color:#2563EB">${data.current.tickets.avgResolution}h</div>
+              <div class="kpi-lbl">Prom. resolución</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function _init_deepdive() {
+  updateSidebarUser();
+
+  const w = _dd_lastCompletedWeek();
+
+  if (!_dd_FILTERS.from) {
+    _dd_FILTERS.from = w.from;
+    _dd_FILTERS.to = w.to;
+    _dd_FILTERS.prevFrom = w.prevFrom;
+    _dd_FILTERS.prevTo = w.prevTo;
+  }
+
+  await _dd_loadData();
+}
+
+window._init_deepdive = _init_deepdive;
+window._rerender_deepdive = _dd_render;
 
 // ══ TICKETS HR ══════════════════════════════════════════════════════
 const _t_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
