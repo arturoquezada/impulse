@@ -1314,49 +1314,6 @@ body{font-family:var(--f);background:#F0F2F7;min-height:100vh;color:#0F172A;font
   .topbar{padding:0 12px}
   .content{padding:12px}
 }
-
-/* ── SUPER DEEP DIVE V2 ───────────────────────────────── */
-.dd-shell{max-width:1380px;margin:0 auto;padding-bottom:32px}
-.dd-hero{background:linear-gradient(135deg,#0F172A 0%,#172554 58%,#164E63 100%);color:#fff;border-radius:20px;padding:24px;box-shadow:0 16px 34px rgba(15,23,42,.16);margin-bottom:16px;position:relative;overflow:hidden}
-.dd-hero:after{content:'';position:absolute;width:260px;height:260px;border-radius:50%;right:-80px;top:-120px;background:rgba(98,211,245,.12)}
-.dd-hero-grid{display:grid;grid-template-columns:1.4fr .6fr;gap:24px;position:relative;z-index:1}
-.dd-eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:#7DD3FC;font-weight:900}
-.dd-title{font-size:28px;font-weight:900;letter-spacing:-.7px;margin-top:6px}
-.dd-period{font-size:12px;color:#CBD5E1;margin-top:6px}
-.dd-story{font-size:14px;line-height:1.65;color:#E2E8F0;margin-top:18px;max-width:820px}
-.dd-score{display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:18px;padding:18px;text-align:center}
-.dd-score-value{font-size:52px;font-weight:900;line-height:1;color:#fff}
-.dd-score-label{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:#BAE6FD;margin-top:7px;font-weight:800}
-.dd-score-status{margin-top:10px;padding:5px 10px;border-radius:999px;font-size:11px;font-weight:900;background:rgba(255,255,255,.12)}
-.dd-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #E2E8F0;border-radius:13px;padding:10px 12px;margin-bottom:16px}
-.dd-section{margin-top:20px}
-.dd-section-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:10px}
-.dd-section-kicker{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#0E7490;font-weight:900}
-.dd-section-title{font-size:18px;font-weight:900;color:#0F172A;margin-top:3px}
-.dd-section-copy{font-size:12px;color:#64748B;max-width:620px;line-height:1.5}
-.dd-metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-.dd-metric{background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:15px;position:relative;overflow:hidden;min-height:116px}
-.dd-metric.clickable{cursor:pointer;transition:.15s}
-.dd-metric.clickable:hover{transform:translateY(-2px);box-shadow:0 8px 18px rgba(15,23,42,.08);border-color:#94A3B8}
-.dd-metric-label{font-size:10px;text-transform:uppercase;letter-spacing:.55px;color:#64748B;font-weight:800}
-.dd-metric-value{font-size:28px;font-weight:900;color:#0F172A;margin-top:7px}
-.dd-metric-note{font-size:11px;color:#64748B;margin-top:5px;line-height:1.35}
-.dd-metric-accent{position:absolute;left:0;top:0;bottom:0;width:4px}
-.dd-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.dd-insight{background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:16px}
-.dd-insight-title{font-size:13px;font-weight:900;color:#0F172A;margin-bottom:10px}
-.dd-callout{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:13px;font-size:12px;color:#475569;line-height:1.55}
-.dd-action-list{display:grid;gap:8px}
-.dd-action{display:flex;gap:9px;align-items:flex-start;padding:10px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;font-size:12px;color:#334155;line-height:1.4}
-.dd-action-num{width:22px;height:22px;border-radius:50%;background:#0F172A;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;flex-shrink:0}
-.dd-flow{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.dd-flow-card{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:13px}
-.dd-flow-value{font-size:25px;font-weight:900;color:#0F172A}
-.dd-flow-label{font-size:10px;text-transform:uppercase;color:#64748B;font-weight:800;margin-top:3px}
-.dd-flow-note{font-size:10px;color:#94A3B8;margin-top:5px}
-@media(max-width:1000px){.dd-hero-grid,.dd-grid-2{grid-template-columns:1fr}.dd-metric-grid,.dd-flow{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:620px){.dd-metric-grid,.dd-flow{grid-template-columns:1fr}.dd-title{font-size:23px}}
-
 </style>
 </head>
 <body>
@@ -8230,11 +8187,13 @@ function _a_openDayModal(idx){
   `;
 
   const puedeCorregir = ['supervisor','manager'].includes(currentRole);
+  const tieneIncidenciaCorregible = !!d.tipo_falta && !['vacaciones','permuta_horario','permuta_descanso','permuta_trabajo'].includes(String(d.tipo_falta||'').toLowerCase());
 
   if (puedeCorregir) {
     document.getElementById('modalFooter').innerHTML = `
       <button class="btn-ghost" onclick="closeModal()">Cerrar</button>
-      <button class="btn-primary" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A" onclick="_a_abrirSolicitudCorreccion('${d.fecha}')">🚩 Solicitar corrección</button>`;
+      <button class="btn-primary" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A" onclick="_a_abrirSolicitudCorreccion('${d.fecha}')">🕐 Corregir entrada / salida</button>
+      ${tieneIncidenciaCorregible ? `<button class="btn-primary" style="background:#FFF1F2;color:#9F1239;border:1px solid #FECDD3" onclick="_a_abrirSolicitudCorreccionIncidencia('${d.fecha}')">🚩 Corregir falta / incidencia</button>` : ''}`;
   } else {
     document.getElementById('modalFooter').innerHTML = '<button class="btn-ghost" onclick="closeModal()">Cerrar</button>';
   }
@@ -8322,6 +8281,145 @@ async function _a_enviarSolicitudCorreccion(empId, fecha){
 
   closeModal();
   alert('✅ Solicitud enviada a People. Te avisarán cuando esté corregida.');
+}
+
+
+// Solicitud de corrección de una falta/incidencia. El supervisor únicamente
+// solicita; People revisa y aplica el cambio desde el ticket.
+function _a_parseIncidentCorrectionData(t) {
+  const text = String(t?.description || '');
+  const match = text.match(/<!--ATTENDANCE_EXCEPTION_CORRECTION:(.*?)-->/s);
+  if (!match) return null;
+  try { return JSON.parse(match[1]); } catch (e) { return null; }
+}
+
+function _a_incidentTypeLabel(type) {
+  const map = {
+    falta_injustificada: 'Falta injustificada',
+    falta_justificada: 'Falta justificada',
+    incapacidad: 'Incapacidad',
+    permiso: 'Permiso'
+  };
+  return map[String(type || '').toLowerCase()] || type || '—';
+}
+
+function _a_abrirSolicitudCorreccionIncidencia(fecha) {
+  const empId = _a_QDAYS_EMPLEADO_ID;
+  const d = _a_QDAYS.find(x => x.fecha === fecha);
+  if (!empId || !d || !d.tipo_falta) return;
+
+  const empNombre = (_a_TEAM.find(x=>x.id===empId)||{}).name
+    || (_a_SUPS_REAL.find(x=>x.id===empId)||{}).name
+    || empId;
+
+  document.getElementById('modalTitle').textContent = 'Solicitar corrección de incidencia';
+  document.getElementById('modalSub').textContent = `${empNombre} · ${fmtDate(fecha)}`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section" style="background:#FFF7ED;border-color:#FED7AA">
+      <div class="ms-title" style="color:#9A3412">Registro actual</div>
+      <div class="kv"><span class="k">Empleado</span><span class="v">${empNombre}</span></div>
+      <div class="kv"><span class="k">Fecha</span><span class="v">${fmtDate(fecha)}</span></div>
+      <div class="kv"><span class="k">Tipo</span><span class="v">${_a_incidentTypeLabel(d.tipo_falta)}</span></div>
+      <div class="kv"><span class="k">Motivo actual</span><span class="v">${d.motivo_falta || '—'}</span></div>
+    </div>
+    <div class="modal-section">
+      <div class="ms-title">Corrección solicitada <span style="color:#EF4444">*</span></div>
+      <select id="corr-inc-action" onchange="_a_toggleIncidentRequestFields()" style="width:100%;border:1px solid #E2E8F0;border-radius:8px;padding:9px 11px;font-size:13px;font-family:var(--f)">
+        <option value="">— Selecciona —</option>
+        <option value="cancel">Anular la incidencia</option>
+        <option value="change_type">Cambiar el tipo de incidencia</option>
+        <option value="change_date">Corregir la fecha</option>
+        <option value="change_type_date">Cambiar tipo y fecha</option>
+      </select>
+    </div>
+    <div class="modal-section" id="corr-inc-type-wrap" style="display:none">
+      <div class="ms-title">Tipo solicitado</div>
+      <select id="corr-inc-type" style="width:100%;border:1px solid #E2E8F0;border-radius:8px;padding:9px 11px;font-size:13px;font-family:var(--f)">
+        <option value="falta_injustificada" ${d.tipo_falta==='falta_injustificada'?'selected':''}>Falta injustificada</option>
+        <option value="falta_justificada" ${d.tipo_falta==='falta_justificada'?'selected':''}>Falta justificada</option>
+        <option value="incapacidad" ${d.tipo_falta==='incapacidad'?'selected':''}>Incapacidad</option>
+        <option value="permiso" ${d.tipo_falta==='permiso'?'selected':''}>Permiso</option>
+      </select>
+    </div>
+    <div class="modal-section" id="corr-inc-date-wrap" style="display:none">
+      <div class="ms-title">Fecha correcta</div>
+      <input type="date" id="corr-inc-date" value="${fecha}" style="width:100%;border:1px solid #E2E8F0;border-radius:8px;padding:9px 11px;font-size:13px;font-family:var(--f)"/>
+    </div>
+    <div class="modal-section">
+      <div class="ms-title">Motivo de la solicitud <span style="color:#EF4444">*</span></div>
+      <textarea id="corr-inc-reason" placeholder="Explica por qué debe corregirse. Ej: presentó incapacidad, era descanso, se cargó al colaborador equivocado…" style="width:100%;border:1px solid #E2E8F0;border-radius:8px;padding:9px 11px;font-size:13px;font-family:var(--f);resize:vertical;min-height:78px"></textarea>
+    </div>`;
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn-primary" id="btnEnviarCorreccionInc" onclick="_a_enviarSolicitudCorreccionIncidencia('${empId}','${fecha}')">Enviar a People</button>`;
+}
+
+function _a_toggleIncidentRequestFields() {
+  const action = document.getElementById('corr-inc-action')?.value;
+  const showType = ['change_type','change_type_date'].includes(action);
+  const showDate = ['change_date','change_type_date'].includes(action);
+  const typeWrap = document.getElementById('corr-inc-type-wrap');
+  const dateWrap = document.getElementById('corr-inc-date-wrap');
+  if (typeWrap) typeWrap.style.display = showType ? 'block' : 'none';
+  if (dateWrap) dateWrap.style.display = showDate ? 'block' : 'none';
+}
+
+async function _a_enviarSolicitudCorreccionIncidencia(empId, fecha) {
+  const d = _a_QDAYS.find(x => x.fecha === fecha);
+  const action = document.getElementById('corr-inc-action')?.value;
+  const requestedType = document.getElementById('corr-inc-type')?.value || d?.tipo_falta;
+  const requestedDate = document.getElementById('corr-inc-date')?.value || fecha;
+  const reason = document.getElementById('corr-inc-reason')?.value?.trim();
+
+  if (!action) return alert('Selecciona la corrección solicitada');
+  if (!reason) return alert('Escribe el motivo de la solicitud');
+
+  const btn = document.getElementById('btnEnviarCorreccionInc');
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+
+  const metadata = {
+    kind: 'attendance_exception',
+    original_date: fecha,
+    original_type: d?.tipo_falta || null,
+    original_notes: d?.motivo_falta || null,
+    requested_action: action,
+    requested_type: requestedType,
+    requested_date: requestedDate,
+    request_reason: reason
+  };
+  const actionLabel = {
+    cancel: 'Anular incidencia',
+    change_type: `Cambiar a ${_a_incidentTypeLabel(requestedType)}`,
+    change_date: `Cambiar fecha a ${requestedDate}`,
+    change_type_date: `Cambiar a ${_a_incidentTypeLabel(requestedType)} y fecha ${requestedDate}`
+  }[action];
+
+  const ro = ROLES[currentRole];
+  const id = 'TKT-' + Date.now();
+  const description = `Corrección solicitada: ${actionLabel}. Motivo: ${reason}.\n<!--ATTENDANCE_EXCEPTION_CORRECTION:${JSON.stringify(metadata)}-->`;
+  const { error } = await _a_sb.from('hr_tickets').insert({
+    id,
+    employee_id: ro.id,
+    type: 'correccion_asistencia',
+    subtype: 'Corrección de falta / incidencia',
+    description,
+    priority: 'normal',
+    status: 'pending',
+    sla_hours: 48,
+    due_at: new Date(Date.now() + 48*3600000).toISOString(),
+    target_employee_id: empId,
+    target_date: fecha
+  });
+
+  if (error) {
+    console.error('Error creando ticket de corrección de incidencia:', error);
+    alert('No se pudo enviar la solicitud.\n\n' + error.message);
+    if (btn) { btn.disabled = false; btn.textContent = 'Enviar a People'; }
+    return;
+  }
+
+  closeModal();
+  alert('✅ Solicitud enviada. People podrá revisar y corregir la incidencia directamente desde el ticket.');
 }
 
 
@@ -9648,114 +9746,6 @@ function _dd_supervisorRows(attRows, actions, tickets) {
   });
 }
 
-
-function _dd_absenceSource(row = {}) {
-  const notes = String(row.notes || '').toLowerCase();
-  if (notes.includes('bot') || notes.includes('🤖')) return 'bot';
-  if (row.requested_by || row.created_by) return 'supervisor';
-  return 'other';
-}
-
-function _dd_absenceSourceSummary(rows = []) {
-  const faltas = rows.filter(r => String(r.type || '').toLowerCase() === 'falta_injustificada');
-  const out = { total:faltas.length, bot:0, supervisor:0, other:0, rows:faltas };
-  faltas.forEach(r => { out[_dd_absenceSource(r)]++; });
-  out.botPct = _dd_pct(out.bot, out.total);
-  out.supervisorPct = _dd_pct(out.supervisor, out.total);
-  out.otherPct = _dd_pct(out.other, out.total);
-  return out;
-}
-
-function _dd_rotationSummary(historyRows = [], activeRows = []) {
-  const bajas = historyRows || [];
-  const activos = (activeRows || []).filter(e => String(e.status || '').toLowerCase() === 'active');
-  const denominator = activos.length + bajas.length;
-  const voluntary = bajas.filter(r => String(r.termination_type || '').toLowerCase() === 'voluntary').length;
-  const involuntary = bajas.filter(r => String(r.termination_type || '').toLowerCase() === 'involuntary').length;
-  const early = bajas.filter(r => {
-    if (!r.hire_date || !r.termination_date) return false;
-    const days = (new Date(r.termination_date + 'T12:00:00') - new Date(r.hire_date + 'T12:00:00')) / 86400000;
-    return Number.isFinite(days) && days < 30;
-  }).length;
-  return {
-    bajas: bajas.length,
-    active: activos.length,
-    rate: denominator ? Math.round((bajas.length / denominator) * 1000) / 10 : 0,
-    voluntary,
-    involuntary,
-    early,
-    earlyRate: bajas.length ? Math.round((early / bajas.length) * 1000) / 10 : 0,
-    rows: bajas
-  };
-}
-
-function _dd_renderAbsenceSources(data) {
-  const cur = data.current.absenceSources || {total:0,bot:0,supervisor:0,other:0,botPct:0,supervisorPct:0};
-  const prev = data.previous.absenceSources || {total:0,bot:0,supervisor:0,other:0};
-  const delta = _dd_delta(cur.total, prev.total);
-  const max = Math.max(cur.total, 1);
-
-  return `
-    <div class="card">
-      <div class="card-title" style="margin-bottom:4px">🤖 Carga de faltas · Bot vs Supervisor</div>
-      <div style="font-size:11px;color:#64748B;margin-bottom:14px">Compara el origen de las faltas injustificadas registradas durante el periodo.</div>
-
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-        <div class="kpi-box incard"><div class="kpi-val">${cur.total}</div><div class="kpi-lbl">Faltas cargadas</div><div class="kpi-delta ${delta.dir==='up'?'dn':delta.dir==='down'?'up':'w'}">${delta.label} vs anterior</div></div>
-        <div class="kpi-box incard"><div class="kpi-val" style="color:#7C3AED">${cur.bot}</div><div class="kpi-lbl">Por Bot</div><div class="kpi-delta w">${cur.botPct}% del total</div></div>
-        <div class="kpi-box incard"><div class="kpi-val" style="color:#2563EB">${cur.supervisor}</div><div class="kpi-lbl">Por Supervisor</div><div class="kpi-delta w">${cur.supervisorPct}% del total</div></div>
-        <div class="kpi-box incard"><div class="kpi-val" style="color:#64748B">${cur.other}</div><div class="kpi-lbl">Sin identificar</div><div class="kpi-delta w">${cur.otherPct}% del total</div></div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:14px">
-          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800;margin-bottom:7px"><span>🤖 Bot</span><span>${cur.bot} · ${cur.botPct}%</span></div>
-          <div style="height:9px;background:#E2E8F0;border-radius:999px;overflow:hidden"><div style="height:100%;width:${(cur.bot/max)*100}%;background:#7C3AED;border-radius:999px"></div></div>
-        </div>
-        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:14px">
-          <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:800;margin-bottom:7px"><span>👤 Supervisor</span><span>${cur.supervisor} · ${cur.supervisorPct}%</span></div>
-          <div style="height:9px;background:#E2E8F0;border-radius:999px;overflow:hidden"><div style="height:100%;width:${(cur.supervisor/max)*100}%;background:#2563EB;border-radius:999px"></div></div>
-        </div>
-      </div>
-
-      <div class="alert alert-blue" style="margin-top:12px;margin-bottom:0">ℹ️ Las cargas del bot se identifican por la nota “Falta cargada por Bot 🤖”. Las demás cargas con usuario solicitante se consideran manuales.</div>
-    </div>`;
-}
-
-function _dd_renderRotation(data) {
-  const cur = data.current.rotation || {bajas:0,rate:0,voluntary:0,involuntary:0,early:0,earlyRate:0,rows:[]};
-  const prev = data.previous.rotation || {bajas:0,rate:0};
-  const delta = _dd_delta(cur.bajas, prev.bajas);
-  const byCampaign = {};
-  (cur.rows || []).forEach(r => {
-    const key = r.campaign_id || 'Sin campaña';
-    if (!byCampaign[key]) byCampaign[key] = { total:0, voluntary:0, involuntary:0 };
-    byCampaign[key].total++;
-    const t = String(r.termination_type || '').toLowerCase();
-    if (t === 'voluntary') byCampaign[key].voluntary++;
-    if (t === 'involuntary') byCampaign[key].involuntary++;
-  });
-  const camps = Object.entries(byCampaign).sort((a,b)=>b[1].total-a[1].total).slice(0,8);
-
-  return `
-    <div class="card">
-      <div class="card-title" style="margin-bottom:4px">🔄 Rotación del periodo</div>
-      <div style="font-size:11px;color:#64748B;margin-bottom:14px">Bajas registradas entre ${fmtDateShort(data.from)} y ${fmtDateShort(data.to)}.</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-        <div class="kpi-box incard"><div class="kpi-val" style="color:#DC2626">${cur.bajas}</div><div class="kpi-lbl">Bajas</div><div class="kpi-delta ${delta.dir==='up'?'dn':delta.dir==='down'?'up':'w'}">${delta.label} vs anterior</div></div>
-        <div class="kpi-box incard"><div class="kpi-val" style="color:#D97706">${cur.rate}%</div><div class="kpi-lbl">Tasa de rotación</div></div>
-        <div class="kpi-box incard"><div class="kpi-val" style="color:#2563EB">${cur.voluntary}</div><div class="kpi-lbl">Voluntarias</div><div class="kpi-delta w">${cur.involuntary} involuntarias</div></div>
-        <div class="kpi-box incard"><div class="kpi-val" style="color:#7C3AED">${cur.early}</div><div class="kpi-lbl">Early attrition &lt;30d</div><div class="kpi-delta w">${cur.earlyRate}% de las bajas</div></div>
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead><tr><th>Campaña</th><th style="text-align:center">Bajas</th><th style="text-align:center">Voluntarias</th><th style="text-align:center">Involuntarias</th></tr></thead>
-          <tbody>${camps.length ? camps.map(([name,v])=>`<tr><td class="agent-row-name">${_dd_escape(name)}</td><td style="text-align:center;font-weight:900;color:#DC2626">${v.total}</td><td style="text-align:center">${v.voluntary}</td><td style="text-align:center">${v.involuntary}</td></tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:#94A3B8;padding:22px">Sin bajas en el periodo.</td></tr>'}</tbody>
-        </table>
-      </div>
-    </div>`;
-}
-
 function _dd_generateNarrative(data) {
   const cur = data.current.attendance;
   const prev = data.previous.attendance;
@@ -9833,7 +9823,7 @@ async function _dd_loadData() {
   const prevFrom = _dd_FILTERS.prevFrom;
   const prevTo = _dd_FILTERS.prevTo;
 
-  const [attCur, attPrev, ticketsCur, ticketsPrev, actionsCur, actionsPrev, excCur, excPrev, historyCur, historyPrev, activeEmployees] = await Promise.all([
+  const [attCur, attPrev, ticketsCur, ticketsPrev, actionsCur, actionsPrev] = await Promise.all([
     _a_sb.rpc('attendance_audit_range', { p_from: from, p_to: to }),
     _a_sb.rpc('attendance_audit_range', { p_from: prevFrom, p_to: prevTo }),
 
@@ -9855,43 +9845,12 @@ async function _dd_loadData() {
     _a_sb.from('people_action_cases')
       .select('*')
       .gte('created_at', prevFrom + 'T00:00:00')
-      .lte('created_at', prevTo + 'T23:59:59'),
-
-    _a_sb.from('attendance_exceptions')
-      .select('*')
-      .eq('type', 'falta_injustificada')
-      .gte('exception_date', from)
-      .lte('exception_date', to),
-
-    _a_sb.from('attendance_exceptions')
-      .select('*')
-      .eq('type', 'falta_injustificada')
-      .gte('exception_date', prevFrom)
-      .lte('exception_date', prevTo),
-
-    _a_sb.from('employment_history')
-      .select('*')
-      .gte('termination_date', from)
-      .lte('termination_date', to),
-
-    _a_sb.from('employment_history')
-      .select('*')
-      .gte('termination_date', prevFrom)
-      .lte('termination_date', prevTo),
-
-    _a_sb.from('employees')
-      .select('id,status')
-      .eq('status','active')
+      .lte('created_at', prevTo + 'T23:59:59')
   ]);
 
   const errors = [attCur, attPrev, ticketsCur, ticketsPrev, actionsCur, actionsPrev]
     .map(x => x.error)
     .filter(Boolean);
-
-  // Las fuentes complementarias no bloquean todo Deep Dive si una tabla tiene RLS o no está disponible.
-  [excCur, excPrev, historyCur, historyPrev, activeEmployees].forEach(x => {
-    if (x?.error) console.warn('Deep Dive fuente complementaria:', x.error);
-  });
 
   if (errors.length) {
     console.error('Deep Dive errors:', errors);
@@ -9917,11 +9876,6 @@ async function _dd_loadData() {
   const prevTickets = ticketsPrev.data || [];
   const curActions = actionsCur.data || [];
   const prevActions = actionsPrev.data || [];
-  const curExceptions = excCur?.data || [];
-  const prevExceptions = excPrev?.data || [];
-  const curHistory = historyCur?.data || [];
-  const prevHistory = historyPrev?.data || [];
-  const activeRows = activeEmployees?.data || [];
 
   const data = {
     from,
@@ -9936,18 +9890,14 @@ async function _dd_loadData() {
       attendance: _dd_attendanceSummary(curRows),
       expectedActions: _dd_expectedActions(curRows),
       tickets: _dd_ticketSummary(curTickets, from, to),
-      actions: curActions,
-      absenceSources: _dd_absenceSourceSummary(curExceptions),
-      rotation: _dd_rotationSummary(curHistory, activeRows)
+      actions: curActions
     },
     previous: {
       rows: prevRows,
       attendance: _dd_attendanceSummary(prevRows),
       expectedActions: _dd_expectedActions(prevRows),
       tickets: _dd_ticketSummary(prevTickets, prevFrom, prevTo),
-      actions: prevActions,
-      absenceSources: _dd_absenceSourceSummary(prevExceptions),
-      rotation: _dd_rotationSummary(prevHistory, activeRows)
+      actions: prevActions
     }
   };
 
@@ -10031,22 +9981,14 @@ function _dd_copyExecutiveSummary() {
 function _dd_card(label, value, prevValue, opts = {}) {
   const d = _dd_delta(value, prevValue);
   const color = opts.color || '#0F172A';
-  const clickable = Boolean(opts.incidentType);
-  const click = clickable ? `onclick="_dd_openIncidentDrawer('${opts.incidentType}')"` : '';
-  const hint = clickable
-    ? `<div style="font-size:10px;color:#0E7490;margin-top:5px;font-weight:800">Ver personas →</div>`
-    : '';
 
   return `
-    <div class="kpi-box" ${click}
-      style="${clickable ? 'cursor:pointer;transition:transform .15s,box-shadow .15s;border-color .15s' : ''}"
-      ${clickable ? `onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 20px rgba(15,23,42,.10)';this.style.borderColor='#62D3F5'" onmouseleave="this.style.transform='';this.style.boxShadow='';this.style.borderColor=''"` : ''}>
+    <div class="kpi-box">
       <div class="kpi-val" style="color:${color}">${value}</div>
       <div class="kpi-lbl">${label}</div>
       <div style="font-size:11px;color:${d.dir === 'up' ? '#DC2626' : d.dir === 'down' ? '#16A34A' : '#94A3B8'};margin-top:6px;font-weight:800">
         ${d.label} vs semana anterior
       </div>
-      ${hint}
     </div>
   `;
 }
@@ -10290,246 +10232,6 @@ function _dd_closeSupervisorDetail() {
   document.getElementById('dd-supervisor-modal')?.remove();
 }
 
-// ── Deep Dive · detalle de personas por incidencia ─────────────
-let _dd_INCIDENT_DRAWER = {
-  type: null,
-  supervisorId: 'all',
-  campaign: 'all',
-  search: '',
-  grouped: false
-};
-
-function _dd_escape(v) {
-  return String(v ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
-}
-
-function _dd_incidentConfig(type) {
-  const map = {
-    falta_injustificada: { label:'Faltas injustificadas', short:'Faltas', icon:'🚫', color:'#DC2626' },
-    retardo:             { label:'Retardos reales', short:'Retardos', icon:'⏰', color:'#D97706' },
-    sin_salida:          { label:'Registros sin salida', short:'Sin salida', icon:'🚪', color:'#DC2626' },
-    sin_entrada:         { label:'Registros sin entrada', short:'Sin entrada', icon:'⚠️', color:'#7C3AED' }
-  };
-  return map[type] || { label:type || 'Incidencias', short:type || 'Incidencias', icon:'📋', color:'#0F172A' };
-}
-
-function _dd_timeValue(row, keys) {
-  for (const k of keys) {
-    const v = row?.[k];
-    if (!v) continue;
-    const raw = String(v);
-    if (/^\d{2}:\d{2}/.test(raw)) return raw.slice(0,5);
-    const d = new Date(v);
-    if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' });
-    }
-  }
-  return '—';
-}
-
-function _dd_incidentRows(type, supervisorId='all') {
-  return (_dd_DATA?.current?.rows || [])
-    .filter(r => r.audit_status === type)
-    .filter(r => supervisorId === 'all' || r.supervisor_id === supervisorId)
-    .sort((a,b) => String(b.work_date || '').localeCompare(String(a.work_date || '')) ||
-      String(a.employee_name || '').localeCompare(String(b.employee_name || '')));
-}
-
-function _dd_filteredIncidentRows() {
-  const st = _dd_INCIDENT_DRAWER;
-  const q = String(st.search || '').trim().toLowerCase();
-
-  return _dd_incidentRows(st.type, st.supervisorId)
-    .filter(r => st.campaign === 'all' || r.campaign_id === st.campaign)
-    .filter(r => !q || [r.employee_name, r.employee_id, r.supervisor_name, r.campaign_id]
-      .some(v => String(v || '').toLowerCase().includes(q)));
-}
-
-function _dd_openIncidentDrawer(type, supervisorId='all') {
-  _dd_INCIDENT_DRAWER = {
-    type,
-    supervisorId: supervisorId || 'all',
-    campaign: 'all',
-    search: '',
-    grouped: false
-  };
-  _dd_renderIncidentDrawer();
-}
-
-function _dd_closeIncidentDrawer() {
-  document.getElementById('dd-incident-drawer')?.remove();
-}
-
-function _dd_setIncidentDrawerFilter(key, value) {
-  _dd_INCIDENT_DRAWER[key] = value;
-  _dd_renderIncidentDrawer();
-}
-
-function _dd_toggleIncidentGrouping() {
-  _dd_INCIDENT_DRAWER.grouped = !_dd_INCIDENT_DRAWER.grouped;
-  _dd_renderIncidentDrawer();
-}
-
-function _dd_incidentDetailCell(r) {
-  const type = r.audit_status;
-  if (type === 'retardo') {
-    return `<b style="color:#D97706">${Number(r.minutes_late || 0)} min</b>`;
-  }
-  if (type === 'sin_salida') {
-    const entrada = _dd_timeValue(r, ['clock_in','check_in','punch_in','entry_time','actual_start','first_punch']);
-    const esperada = _dd_timeValue(r, ['scheduled_end','schedule_end','shift_end','expected_end']);
-    return `<div><b>Entrada:</b> ${entrada}</div><div style="font-size:11px;color:#64748B;margin-top:2px"><b>Salida esperada:</b> ${esperada}</div>`;
-  }
-  if (type === 'sin_entrada') {
-    const horario = _dd_timeValue(r, ['scheduled_start','schedule_start','shift_start','expected_start']);
-    return `<div><b>Entrada esperada:</b> ${horario}</div>`;
-  }
-  return _dd_escape(r.detail_label || r.pending_issue || r.detail_notes || 'Falta injustificada');
-}
-
-function _dd_incidentRowsHtml(rows) {
-  if (_dd_INCIDENT_DRAWER.grouped) {
-    const grouped = {};
-    rows.forEach(r => {
-      const key = r.employee_id || r.employee_name || 'sin-id';
-      if (!grouped[key]) grouped[key] = { row:r, rows:[], minutes:0 };
-      grouped[key].rows.push(r);
-      grouped[key].minutes += Number(r.minutes_late || 0);
-    });
-
-    return Object.values(grouped)
-      .sort((a,b) => b.rows.length - a.rows.length || String(a.row.employee_name || '').localeCompare(String(b.row.employee_name || '')))
-      .map(g => `
-        <tr>
-          <td>
-            <div class="agent-row-name">${_dd_escape(g.row.employee_name || g.row.employee_id || '—')}</div>
-            <div class="agent-row-id">${_dd_escape(g.row.employee_id || '—')}</div>
-          </td>
-          <td style="text-align:center;font-family:'DM Mono',monospace;font-weight:900">${g.rows.length}</td>
-          <td>${_dd_escape(g.row.supervisor_name || 'Sin supervisor')}</td>
-          <td>${_dd_escape(g.row.campaign_id || '—')}</td>
-          <td>${_dd_INCIDENT_DRAWER.type === 'retardo' ? `<b style="color:#D97706">${g.minutes} min</b>` : '—'}</td>
-          <td style="font-size:11px;color:#64748B">${g.rows.map(x => fmtDateShort(x.work_date)).join(', ')}</td>
-        </tr>
-      `).join('');
-  }
-
-  return rows.map(r => `
-    <tr>
-      <td>
-        <div class="agent-row-name">${_dd_escape(r.employee_name || r.employee_id || '—')}</div>
-        <div class="agent-row-id">${_dd_escape(r.employee_id || '—')}</div>
-      </td>
-      <td>
-        <div style="font-family:'DM Mono',monospace;font-weight:800">${fmtDateShort(r.work_date)}</div>
-        <div style="font-size:11px;color:#94A3B8">${_dd_escape(r.day_name || '')}</div>
-      </td>
-      <td>${_dd_escape(r.supervisor_name || 'Sin supervisor')}</td>
-      <td>${_dd_escape(r.campaign_id || '—')}</td>
-      <td>${_dd_incidentDetailCell(r)}</td>
-      <td>${_dd_incidentTypePill(r.audit_status)}</td>
-    </tr>
-  `).join('');
-}
-
-function _dd_exportIncidentCSV() {
-  const rows = _dd_filteredIncidentRows();
-  const cfg = _dd_incidentConfig(_dd_INCIDENT_DRAWER.type);
-  const headers = ['Empleado','ID','Fecha','Supervisor','Campaña','Incidencia','Minutos tarde','Entrada','Salida','Detalle'];
-  const csvRows = rows.map(r => [
-    r.employee_name || '', r.employee_id || '', r.work_date || '', r.supervisor_name || '', r.campaign_id || '',
-    cfg.short, Number(r.minutes_late || 0),
-    _dd_timeValue(r, ['clock_in','check_in','punch_in','entry_time','actual_start','first_punch']),
-    _dd_timeValue(r, ['clock_out','check_out','punch_out','exit_time','actual_end','last_punch']),
-    r.detail_label || r.pending_issue || r.detail_notes || ''
-  ]);
-  const quote = v => `"${String(v ?? '').replaceAll('"','""')}"`;
-  const csv = '\uFEFF' + [headers, ...csvRows].map(row => row.map(quote).join(',')).join('\n');
-  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `deep-dive-${_dd_INCIDENT_DRAWER.type}-${_dd_DATA.from}-${_dd_DATA.to}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function _dd_renderIncidentDrawer() {
-  const rows = _dd_filteredIncidentRows();
-  const cfg = _dd_incidentConfig(_dd_INCIDENT_DRAWER.type);
-  const people = new Set(rows.map(r => r.employee_id || r.employee_name).filter(Boolean)).size;
-  const campaigns = [...new Set(_dd_incidentRows(_dd_INCIDENT_DRAWER.type, _dd_INCIDENT_DRAWER.supervisorId).map(r => r.campaign_id).filter(Boolean))].sort();
-  const supervisors = (_dd_DATA?.supervisorsOptions || []).filter(s =>
-    _dd_incidentRows(_dd_INCIDENT_DRAWER.type).some(r => r.supervisor_id === s.id)
-  );
-
-  const bodyRows = _dd_incidentRowsHtml(rows);
-  const grouped = _dd_INCIDENT_DRAWER.grouped;
-
-  const html = `
-    <div id="dd-incident-drawer" style="position:fixed;inset:0;z-index:120;background:rgba(15,23,42,.48)" onclick="if(event.target===this)_dd_closeIncidentDrawer()">
-      <aside style="position:absolute;right:0;top:0;height:100%;width:min(860px,96vw);background:#F8FAFC;box-shadow:-18px 0 45px rgba(15,23,42,.22);display:flex;flex-direction:column;animation:mIn .16s ease-out">
-        <div style="background:#0F172A;color:#fff;padding:18px 20px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
-          <div>
-            <div style="font-size:17px;font-weight:900">${cfg.icon} ${cfg.label}</div>
-            <div style="font-size:11px;color:#94A3B8;margin-top:4px">${fmtDateShort(_dd_DATA.from)} al ${fmtDateShort(_dd_DATA.to)}</div>
-          </div>
-          <button class="modal-hd-close" onclick="_dd_closeIncidentDrawer()">×</button>
-        </div>
-
-        <div style="padding:14px 16px;border-bottom:1px solid #E2E8F0;background:#fff">
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px">
-            <div class="kpi-box incard"><div class="kpi-val" style="color:${cfg.color}">${rows.length}</div><div class="kpi-lbl">Incidencias</div></div>
-            <div class="kpi-box incard"><div class="kpi-val">${people}</div><div class="kpi-lbl">Personas</div></div>
-            <div class="kpi-box incard"><div class="kpi-val">${campaigns.length}</div><div class="kpi-lbl">Campañas</div></div>
-          </div>
-
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <input class="search-box" style="flex:1;min-width:190px" placeholder="Buscar empleado, ID o supervisor..." value="${_dd_escape(_dd_INCIDENT_DRAWER.search)}" oninput="_dd_setIncidentDrawerFilter('search',this.value)">
-            <select class="df-input" onchange="_dd_setIncidentDrawerFilter('supervisorId',this.value)">
-              <option value="all">Todos los supervisores</option>
-              ${supervisors.map(s => `<option value="${_dd_escape(s.id)}" ${_dd_INCIDENT_DRAWER.supervisorId===s.id?'selected':''}>${_dd_escape(s.name)}</option>`).join('')}
-            </select>
-            <select class="df-input" onchange="_dd_setIncidentDrawerFilter('campaign',this.value)">
-              <option value="all">Todas las campañas</option>
-              ${campaigns.map(c => `<option value="${_dd_escape(c)}" ${_dd_INCIDENT_DRAWER.campaign===c?'selected':''}>${_dd_escape(c)}</option>`).join('')}
-            </select>
-            <button class="btn-ghost" onclick="_dd_toggleIncidentGrouping()">${grouped ? 'Ver incidencias' : 'Agrupar por persona'}</button>
-            <button class="export-btn" onclick="_dd_exportIncidentCSV()">⬇ CSV</button>
-          </div>
-        </div>
-
-        <div style="flex:1;overflow:auto;padding:14px 16px">
-          <div class="tbl-wrap">
-            <div style="overflow-x:auto">
-              <table style="min-width:${grouped ? '760px' : '920px'}">
-                <thead><tr>
-                  ${grouped ? '<th>Empleado</th><th style="text-align:center">Incidencias</th><th>Supervisor</th><th>Campaña</th><th>Acumulado</th><th>Fechas</th>' : '<th>Empleado</th><th>Fecha</th><th>Supervisor</th><th>Campaña</th><th>Detalle</th><th>Tipo</th>'}
-                </tr></thead>
-                <tbody>${bodyRows || `<tr><td colspan="6" style="text-align:center;color:#94A3B8;padding:28px">No hay registros con estos filtros.</td></tr>`}</tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </aside>
-    </div>`;
-
-  document.getElementById('dd-incident-drawer')?.remove();
-  document.body.insertAdjacentHTML('beforeend', html);
-  setTimeout(() => {
-    const el = document.querySelector('#dd-incident-drawer input.search-box');
-    if (el && _dd_INCIDENT_DRAWER.search) {
-      el.focus();
-      el.setSelectionRange(el.value.length, el.value.length);
-    }
-  }, 0);
-}
-
 function _dd_renderSupervisorTable(rows) {
   return `
     <div class="card">
@@ -10564,9 +10266,9 @@ function _dd_renderSupervisorTable(rows) {
                   </td>
                   <td style="text-align:center;font-family:'DM Mono',monospace">${s.hc}</td>
                   <td style="text-align:center;font-family:'DM Mono',monospace">${s.completeRate}%</td>
-                  <td onclick="event.stopPropagation();_dd_openIncidentDrawer('retardo','${s.supervisor_id}')" style="text-align:center;font-family:'DM Mono',monospace;color:#D97706;font-weight:900;text-decoration:underline;text-decoration-style:dotted;cursor:pointer">${s.retardo}</td>
-                  <td onclick="event.stopPropagation();_dd_openIncidentDrawer('falta_injustificada','${s.supervisor_id}')" style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626;font-weight:900;text-decoration:underline;text-decoration-style:dotted;cursor:pointer">${s.falta}</td>
-                  <td onclick="event.stopPropagation();_dd_openIncidentDrawer('sin_salida','${s.supervisor_id}')" style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626;font-weight:900;text-decoration:underline;text-decoration-style:dotted;cursor:pointer">${s.sinSalida}</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#D97706">${s.retardo}</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626">${s.falta}</td>
+                  <td style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626">${s.sinSalida}</td>
                   <td style="text-align:center;font-family:'DM Mono',monospace">${s.expectedActions}</td>
                   <td style="text-align:center;font-family:'DM Mono',monospace">${s.actions}</td>
                   <td style="text-align:center;font-family:'DM Mono',monospace;font-weight:900">${s.compliance}%</td>
@@ -10800,111 +10502,132 @@ function _dd_renderPayrollDeepDive(rows = []) {
   `;
 }
 
-
-function _dd_healthScore(data) {
-  const a = data?.current?.attendance || {};
-  const r = data?.current?.rotation || {};
-  const t = data?.current?.tickets || {};
-  const expected = Math.max(1, Number(a.expectedDays || 0));
-  const incidenceRate = ((Number(a.retardo||0)+Number(a.falta||0)+Number(a.sinSalida||0)+Number(a.sinEntrada||0))/expected)*100;
-  const resolutionRate = t.created ? (t.resolved/t.created)*100 : 100;
-  const actionExpected = Number(data?.current?.expectedActions?.totalExpected || 0);
-  const actionRate = actionExpected ? Math.min(100,(Number(data?.current?.actions?.length||0)/actionExpected)*100) : 100;
-  const score = Math.round(
-    (Number(a.operationalPunctuality||0)*.25) +
-    (Number(a.checkoutCompliance||0)*.20) +
-    (Math.max(0,100-incidenceRate*4)*.20) +
-    (Math.max(0,100-Number(r.rate||0)*5)*.15) +
-    (resolutionRate*.10) +
-    (actionRate*.10)
-  );
-  return Math.max(0,Math.min(100,score));
-}
-
-function _dd_scoreStatus(score){
-  if(score>=85) return ['Sólido','#86EFAC'];
-  if(score>=70) return ['En observación','#FDE68A'];
-  return ['Atención prioritaria','#FDA4AF'];
-}
-
-function _dd_metric(label,value,note,color,onclick=''){
-  return `<div class="dd-metric ${onclick?'clickable':''}" ${onclick?`onclick="${onclick}"`:''}>
-    <div class="dd-metric-accent" style="background:${color}"></div>
-    <div class="dd-metric-label">${label}</div>
-    <div class="dd-metric-value" style="color:${color}">${value}</div>
-    <div class="dd-metric-note">${note}</div>
-  </div>`;
-}
-
-function _dd_executiveStory(data){
-  const a=data.current.attendance, p=data.previous.attendance, r=data.current.rotation, t=data.current.tickets;
-  const top=data.supervisors?.[0];
-  const ret=_dd_delta(a.retardo,p.retardo), fal=_dd_delta(a.falta,p.falta);
-  const pressure=t.open>0?`${t.open} ticket${t.open!==1?'s':''} siguen abiertos`:'no existe backlog abierto';
-  const sup=top?`${top.supervisor_name} concentra el mayor riesgo operativo`:'no hay un supervisor crítico identificado';
-  return `La operación cerró con <b>${a.operationalPunctuality}% de puntualidad</b> y <b>${a.checkoutCompliance}% de cumplimiento de salida</b>. Los retardos están ${ret.label} y las faltas ${fal.label} contra el periodo anterior. En rotación hubo <b>${r.bajas} bajas</b>, de las cuales ${r.early} fueron early attrition. En HR Operations, ${pressure}; ${sup}.`;
-}
-
-function _dd_renderTicketCommandCenter(data){
-  const t=data.current.tickets, prev=data.previous.tickets;
-  const resolution=t.created?Math.round((t.resolved/t.created)*100):100;
-  const top=Object.entries(t.byCategory||{}).sort((a,b)=>b[1]-a[1])[0];
-  const delta=_dd_delta(t.created,prev.created);
-  return `<div class="card" style="margin-bottom:0">
-    <div class="card-title" style="margin-bottom:4px">🎫 HR Operations Command Center</div>
-    <div style="font-size:11px;color:#64748B;margin-bottom:14px">No solo cuántos tickets llegaron: qué presión generan, qué tan rápido se resuelven y dónde está el cuello de botella.</div>
-    <div class="dd-flow">
-      <div class="dd-flow-card"><div class="dd-flow-value">${t.created}</div><div class="dd-flow-label">Demanda creada</div><div class="dd-flow-note">${delta.label} vs anterior</div></div>
-      <div class="dd-flow-card"><div class="dd-flow-value" style="color:#16A34A">${t.resolved}</div><div class="dd-flow-label">Resueltos</div><div class="dd-flow-note">${resolution}% de resolución</div></div>
-      <div class="dd-flow-card"><div class="dd-flow-value" style="color:${t.open?'#D97706':'#16A34A'}">${t.open}</div><div class="dd-flow-label">Backlog</div><div class="dd-flow-note">${t.open?'Requiere seguimiento':'Sin pendientes'}</div></div>
-      <div class="dd-flow-card"><div class="dd-flow-value" style="color:#2563EB">${t.avgResolution}h</div><div class="dd-flow-label">Tiempo promedio</div><div class="dd-flow-note">Creación → resolución</div></div>
-    </div>
-    <div class="dd-callout" style="margin-top:12px"><b>Lectura:</b> ${top?`La mayor presión viene de <b>${_dd_escape(top[0])}</b> con ${top[1]} ticket${top[1]!==1?'s':''}.`: 'No hubo tickets en el periodo.'} ${t.open?`Hay ${t.open} pendiente${t.open!==1?'s':''} que deben convertirse en plan de cierre.`:'El flujo está cerrado sin backlog.'}</div>
-    <div style="margin-top:12px">${_dd_renderTicketCategories(t.byCategory)}</div>
-  </div>`;
-}
-
 function _dd_render() {
-  const c=document.getElementById('content'); if(!c)return;
-  if(!_dd_canAccess()){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><div style="font-size:13px;color:#64748B">Este módulo es solo para People / Head People.</div></div>';return;}
-  if(_dd_LOADING){c.innerHTML='<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando Super Deep Dive...</div>';return;}
-  const data=_dd_DATA;
-  if(!data){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><button class="btn-primary" onclick="_dd_loadData()">Cargar análisis</button></div>';return;}
-  const a=data.current.attendance,p=data.previous.attendance,r=data.current.rotation||{},src=data.current.absenceSources||{},score=_dd_healthScore(data),status=_dd_scoreStatus(score);
-  const topSup=data.supervisors?.[0];
-  c.innerHTML=`<div class="dd-shell">
-    <div class="dd-toolbar">
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}"><span style="color:#94A3B8">→</span><input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}"><button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button>
-        <select class="df-input" onchange="_dd_setFilter('campaign',this.value)"><option value="all">Todas las campañas</option>${data.campaigns.map(x=>`<option value="${x}" ${_dd_FILTERS.campaign===x?'selected':''}>${x}</option>`).join('')}</select>
-        <select class="df-input" onchange="_dd_setFilter('supervisor',this.value)"><option value="all">Todos los supervisores</option>${data.supervisorsOptions.map(x=>`<option value="${x.id}" ${_dd_FILTERS.supervisor===x.id?'selected':''}>${x.name}</option>`).join('')}</select>
-      </div><div style="display:flex;gap:8px"><button class="btn-ghost" onclick="_dd_copyExecutiveSummary()">📋 Copiar resumen</button><button class="btn-ghost" onclick="_dd_loadData()">🔄</button></div>
+  const c = document.getElementById('content');
+  if (!c) return;
+
+  if (!_dd_canAccess()) {
+    c.innerHTML = `
+      <div class="card" style="max-width:760px;margin:0 auto">
+        <div class="card-title">📊 Deep Dive</div>
+        <div style="font-size:13px;color:#64748B">
+          Este módulo es solo para People / Head People.
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (_dd_LOADING) {
+    c.innerHTML = `
+      <div style="text-align:center;padding:60px;color:#94A3B8">
+        <div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
+        Cargando Deep Dive.
+      </div>
+    `;
+    return;
+  }
+
+  const data = _dd_DATA;
+
+  if (!data) {
+    c.innerHTML = `
+      <div class="card" style="max-width:760px;margin:0 auto">
+        <div class="card-title">📊 Deep Dive</div>
+        <button class="btn-primary" onclick="_dd_loadData()">Cargar análisis</button>
+      </div>
+    `;
+    return;
+  }
+
+  const cur = data.current.attendance;
+  const prev = data.previous.attendance;
+
+  c.innerHTML = `
+    <div style="max-width:1280px;margin:0 auto">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px">
+        <div>
+          <div style="font-size:22px;font-weight:900;color:#0F172A">📊 Deep Dive · People Insights</div>
+          <div style="font-size:12px;color:#64748B;margin-top:4px">
+            ${fmtDateShort(data.from)} → ${fmtDateShort(data.to)}
+            vs ${fmtDateShort(data.prevFrom)} → ${fmtDateShort(data.prevTo)}
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}">
+          <span style="font-size:12px;color:#94A3B8">→</span>
+          <input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}">
+          <button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button>
+          <button class="btn-ghost" onclick="_dd_loadData()">🔄 Refrescar</button>
+        </div>
+      </div>
+
+      <div class="date-filter-bar">
+        <span class="df-label">Filtros</span>
+
+        <select class="df-input" onchange="_dd_setFilter('campaign', this.value)">
+          <option value="all">Todas las campañas</option>
+          ${data.campaigns.map(camp => `
+            <option value="${camp}" ${_dd_FILTERS.campaign === camp ? 'selected' : ''}>${camp}</option>
+          `).join('')}
+        </select>
+
+        <select class="df-input" onchange="_dd_setFilter('supervisor', this.value)">
+          <option value="all">Todos los supervisores</option>
+          ${data.supervisorsOptions.map(s => `
+            <option value="${s.id}" ${_dd_FILTERS.supervisor === s.id ? 'selected' : ''}>${s.name}</option>
+          `).join('')}
+        </select>
+      </div>
+
+    <div class="kpi4">
+      ${_dd_card('Puntualidad operativa', cur.operationalPunctuality + '%', prev.operationalPunctuality, { color:'#16A34A' })}
+      ${_dd_card('Cumplimiento de salida', cur.checkoutCompliance + '%', prev.checkoutCompliance, { color:'#2563EB' })}
+      ${_dd_card('Faltas injustificadas', cur.falta, prev.falta, { color:'#DC2626' })}
+      ${_dd_card('Días completos sin incidencia', cur.completeRate + '%', prev.completeRate, { color:'#0F172A' })}
     </div>
 
-    <div class="dd-hero"><div class="dd-hero-grid"><div><div class="dd-eyebrow">People Intelligence · Executive Brief</div><div class="dd-title">Super Deep Dive</div><div class="dd-period">${fmtDateShort(data.from)} al ${fmtDateShort(data.to)} · Comparativo ${fmtDateShort(data.prevFrom)} al ${fmtDateShort(data.prevTo)}</div><div class="dd-story">${_dd_executiveStory(data)}</div></div><div class="dd-score"><div class="dd-score-value">${score}</div><div class="dd-score-label">People Health Score</div><div class="dd-score-status" style="color:${status[1]}">${status[0]}</div></div></div></div>
+      <div class="kpi4">
+        ${_dd_card('Retardos reales', cur.retardo, prev.retardo, { color:'#D97706' })}
+        ${_dd_card('Sin salida', cur.sinSalida, prev.sinSalida, { color:'#DC2626' })}
+        ${_dd_card('Acciones esperadas', data.current.expectedActions.totalExpected, data.previous.expectedActions.totalExpected, { color:'#0F172A' })}
+        ${_dd_card('Acciones cargadas', data.current.actions.length, data.previous.actions.length, { color:'#0F172A' })}
+      </div>
 
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 1 · Qué pasó</div><div class="dd-section-title">Salud operativa de la asistencia</div></div><div class="dd-section-copy">De la puntualidad al cierre de jornada. Haz clic en una incidencia para ver exactamente quién, cuándo y bajo qué supervisor.</div></div>
-      <div class="dd-metric-grid">
-        ${_dd_metric('Puntualidad operativa',a.operationalPunctuality+'%',`${_dd_delta(a.operationalPunctuality,p.operationalPunctuality).label} vs anterior`,'#16A34A')}
-        ${_dd_metric('Retardos reales',a.retardo,`${_dd_uniqueCount(data.current.rows.filter(x=>x.audit_status==='retardo'),'employee_id')} personas involucradas`,'#D97706',"_dd_openIncidentDrawer('retardo')")}
-        ${_dd_metric('Faltas injustificadas',a.falta,`${_dd_uniqueCount(data.current.rows.filter(x=>x.audit_status==='falta_injustificada'),'employee_id')} personas involucradas`,'#DC2626',"_dd_openIncidentDrawer('falta_injustificada')")}
-        ${_dd_metric('Sin salida',a.sinSalida,`${a.checkoutCompliance}% de cumplimiento de salida`,'#7C3AED',"_dd_openIncidentDrawer('sin_salida')")}
+      ${_dd_renderPresentation(data)}
+      ${_dd_renderPayrollDeepDive(data.payrollTickets || [])}
+
+      ${_dd_renderSupervisorTable(data.supervisors)}
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        ${_dd_renderTicketCategories(data.current.tickets.byCategory)}
+
+        <div class="card">
+          <div class="card-title">⏱️ Productividad Tickets HR</div>
+
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">
+            <div class="kpi-box incard">
+              <div class="kpi-val">${data.current.tickets.created}</div>
+              <div class="kpi-lbl">Creados</div>
+            </div>
+            <div class="kpi-box incard">
+              <div class="kpi-val" style="color:#16A34A">${data.current.tickets.resolved}</div>
+              <div class="kpi-lbl">Resueltos</div>
+            </div>
+            <div class="kpi-box incard">
+              <div class="kpi-val" style="color:#D97706">${data.current.tickets.open}</div>
+              <div class="kpi-lbl">Abiertos</div>
+            </div>
+            <div class="kpi-box incard">
+              <div class="kpi-val" style="color:#2563EB">${data.current.tickets.avgResolution}h</div>
+              <div class="kpi-lbl">Prom. resolución</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
-
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 2 · Quién respondió</div><div class="dd-section-title">Automatización y accountability del liderazgo</div></div><div class="dd-section-copy">Distingue lo detectado automáticamente de lo gestionado por supervisión, y aterriza el riesgo por equipo.</div></div>
-      <div class="dd-grid-2">${_dd_renderAbsenceSources(data)}<div class="dd-insight"><div class="dd-insight-title">Lectura de liderazgo</div><div class="dd-callout"><b>${src.supervisorPct||0}%</b> de las faltas fueron cargadas por supervisores y <b>${src.botPct||0}%</b> por el bot. ${src.other?`Hay ${src.other} registro${src.other!==1?'s':''} con origen no registrado.`:'Todos los registros tienen origen identificado.'}</div><div class="dd-action-list" style="margin-top:10px"><div class="dd-action"><span class="dd-action-num">1</span><span>Priorizar seguimiento del equipo con mayor concentración: <b>${topSup?.supervisor_name||'Sin foco crítico'}</b>.</span></div><div class="dd-action"><span class="dd-action-num">2</span><span>Comparar acciones esperadas (${data.current.expectedActions.totalExpected}) contra acciones cargadas (${data.current.actions.length}).</span></div><div class="dd-action"><span class="dd-action-num">3</span><span>Usar los números clicables del ranking para abrir el detalle por supervisor.</span></div></div></div></div>
-      <div style="margin-top:14px">${_dd_renderSupervisorTable(data.supervisors)}</div>
-    </div>
-
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 3 · Por qué se va la gente</div><div class="dd-section-title">Rotación y riesgo de permanencia</div></div><div class="dd-section-copy">Separa volumen, tipo de salida y early attrition para saber si el problema está en selección, onboarding, liderazgo o experiencia diaria.</div></div>${_dd_renderRotation(data)}</div>
-
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 4 · Cómo respondió People</div><div class="dd-section-title">Tickets, SLA y presión administrativa</div></div><div class="dd-section-copy">Convierte tickets en una lectura de demanda, velocidad y backlog, no solo en conteos.</div></div>${_dd_renderTicketCommandCenter(data)}</div>
-
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 5 · Qué hacemos ahora</div><div class="dd-section-title">Plan de acción recomendado</div></div></div><div class="dd-grid-2"><div class="dd-insight"><div class="dd-insight-title">Prioridades People</div><div class="dd-action-list">${data.recommendations.map((x,i)=>`<div class="dd-action"><span class="dd-action-num">${i+1}</span><span>${x}</span></div>`).join('')}</div></div><div class="dd-insight"><div class="dd-insight-title">Resumen para WBR</div><div class="dd-callout">${data.narrative.replaceAll('\n\n','<br><br>')}</div></div></div></div>
-
-    <div class="dd-section">${_dd_renderPayrollDeepDive(data.payrollTickets||[])}</div>
-  </div>`;
+  `;
 }
 
 async function _init_deepdive() {
@@ -10924,11 +10647,6 @@ async function _init_deepdive() {
 
 window._init_deepdive = _init_deepdive;
 window._rerender_deepdive = _dd_render;
-window._dd_openIncidentDrawer = _dd_openIncidentDrawer;
-window._dd_closeIncidentDrawer = _dd_closeIncidentDrawer;
-window._dd_setIncidentDrawerFilter = _dd_setIncidentDrawerFilter;
-window._dd_toggleIncidentGrouping = _dd_toggleIncidentGrouping;
-window._dd_exportIncidentCSV = _dd_exportIncidentCSV;
 
 // ══ TICKETS HR ══════════════════════════════════════════════════════
 const _t_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
@@ -11520,7 +11238,7 @@ async function _t_cargarTickets(options = {}) {
 
     const { data: emps, error: empError } = await _t_sb
       .from('employees')
-      .select('id,full_name,supervisor_id,status,campaign_id,system_role,position_title,hire_date')
+      .select('id,full_name,supervisor_id,status,campaign_id,system_role,position_title')
       .eq('status', 'active')
       .order('full_name');
 
@@ -11709,56 +11427,6 @@ function _t_esCambioJerarquiaValor(categoria, subtipo) {
   return categoria === 'Rendimiento y Gestion de Personal' && subtipo === 'Cambio de jerarquia';
 }
 
-
-function _t_esSolicitudBajaValor(categoria, subtipo) {
-  return categoria === 'Rendimiento y Gestion de Personal' && subtipo === 'Dar de Baja';
-}
-
-function _t_parseTerminationData(t) {
-  const text = String(t?.description || '');
-  const match = text.match(/<!--TERMINATION_DATA:(.*?)-->/s);
-  if (!match) return null;
-  try { return JSON.parse(match[1]); } catch (e) { return null; }
-}
-
-function _t_renderCamposBaja() {
-  const wrap = document.getElementById('nt-dynamic-fields');
-  if (!wrap) return;
-  const categoria = document.getElementById('nt-categoria')?.value;
-  const subtipo = document.getElementById('nt-subtipo')?.value;
-  if (!_t_esSolicitudBajaValor(categoria, subtipo)) return false;
-  const empleados = _t_empleadosCorregibles().filter(e => e.status === 'active').sort((a,b) => String(a.full_name || '').localeCompare(String(b.full_name || ''), 'es'));
-  wrap.innerHTML = `
-    <div class="modal-section" style="border-color:#FCA5A5;background:#FEF2F2">
-      <div class="ms-title" style="color:#991B1B">Solicitud de baja</div>
-      <div style="font-size:11px;color:#991B1B;margin-bottom:12px">La aprobación no dará de baja automáticamente. People será enviado al perfil del colaborador para revisar y confirmar el proceso.</div>
-      <div class="form-row"><label>Colaborador</label><select id="nt-b-employee" onchange="_t_actualizarPreviewBaja()"><option value="">Selecciona un colaborador...</option>${empleados.map(e => `<option value="${e.id}">${e.full_name}${e.campaign_id ? ' · ' + e.campaign_id : ''}</option>`).join('')}</select></div>
-      <div id="nt-b-preview" style="display:none;margin-bottom:12px"></div>
-      <div class="form-row"><label>Fecha propuesta de baja</label><input id="nt-b-date" type="date" value="${ymd(new Date())}" /></div>
-      <div class="form-row"><label>Tipo de baja propuesto</label><select id="nt-b-type"><option value="voluntary">Voluntaria</option><option value="involuntary">Involuntaria</option></select></div>
-      <div class="form-row"><label>Motivo de la solicitud</label><textarea id="nt-b-reason" rows="3" placeholder="Explica brevemente el motivo de la baja..."></textarea></div>
-      <div class="form-row" style="margin-bottom:0"><label>¿El colaborador ya fue notificado?</label><select id="nt-b-notified"><option value="No">No</option><option value="Sí">Sí</option><option value="No aplica">No aplica</option></select></div>
-    </div>`;
-  return true;
-}
-
-function _t_actualizarPreviewBaja() {
-  const emp = _t_emp(document.getElementById('nt-b-employee')?.value);
-  const preview = document.getElementById('nt-b-preview');
-  if (!preview) return;
-  if (!emp) { preview.style.display = 'none'; preview.innerHTML = ''; return; }
-  preview.style.display = 'block';
-  preview.innerHTML = `<div style="background:#fff;border:1px solid #FECACA;border-radius:9px;padding:11px;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px"><div><span style="color:#991B1B">Supervisor:</span><br><b>${_t_nombreEmpleado(emp.supervisor_id)}</b></div><div><span style="color:#991B1B">Campaña:</span><br><b>${emp.campaign_id || '—'}</b></div><div><span style="color:#991B1B">Puesto:</span><br><b>${emp.position_title || '—'}</b></div><div><span style="color:#991B1B">Ingreso:</span><br><b>${emp.hire_date || '—'}</b></div></div>`;
-}
-
-function _t_renderDetalleBaja(t) {
-  if (!_t_esSolicitudBajaValor(_t_categoriaLabel(t?.type), t?.subtype)) return '';
-  const d = _t_parseTerminationData(t) || {};
-  const empId = t.target_employee_id || d.target_employee_id;
-  const emp = _t_emp(empId) || {};
-  return `<div style="margin-bottom:16px;background:#FEF2F2;border:1px solid #FCA5A5;border-radius:10px;padding:14px"><div style="font-size:11px;font-weight:800;color:#991B1B;margin-bottom:10px">🔴 Solicitud de baja</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px"><div><span style="color:#991B1B">Colaborador:</span><br><b>${_t_nombreEmpleado(empId)}</b></div><div><span style="color:#991B1B">Fecha propuesta:</span><br><b>${t.target_date || d.termination_date || '—'}</b></div><div><span style="color:#991B1B">Supervisor:</span><br><b>${_t_nombreEmpleado(emp.supervisor_id)}</b></div><div><span style="color:#991B1B">Tipo propuesto:</span><br><b>${d.termination_type === 'involuntary' ? 'Involuntaria' : 'Voluntaria'}</b></div><div><span style="color:#991B1B">Notificado:</span><br><b>${d.notified || '—'}</b></div><div style="grid-column:1/-1"><span style="color:#991B1B">Motivo:</span><br><b>${d.reason || '—'}</b></div></div></div>`;
-}
-
 function _t_supervisoresActivos() {
   return (_t_EMPLEADOS_FULL || [])
     .filter(e => {
@@ -11776,8 +11444,19 @@ function _t_parseHierarchyData(t) {
   try { return JSON.parse(match[1]); } catch (e) { return null; }
 }
 
+function _t_parseIncidentCorrectionData(t) {
+  return typeof _a_parseIncidentCorrectionData === 'function' ? _a_parseIncidentCorrectionData(t) : null;
+}
+
+function _t_esCorreccionIncidencia(t) {
+  return t?.type === 'correccion_asistencia' && !!_t_parseIncidentCorrectionData(t);
+}
+
 function _t_ticketDescripcionVisible(t) {
-  return String(t?.description || '').replace(/<!--HIERARCHY_DATA:.*?-->/s, '').replace(/<!--TERMINATION_DATA:.*?-->/s, '').trim();
+  return String(t?.description || '')
+    .replace(/<!--HIERARCHY_DATA:.*?-->/s, '')
+    .replace(/<!--ATTENDANCE_EXCEPTION_CORRECTION:.*?-->/s, '')
+    .trim();
 }
 
 function _t_renderCamposJerarquia() {
@@ -11787,7 +11466,6 @@ function _t_renderCamposJerarquia() {
   const categoria = document.getElementById('nt-categoria')?.value;
   const subtipo = document.getElementById('nt-subtipo')?.value;
 
-  if (_t_esSolicitudBajaValor(categoria, subtipo)) { _t_renderCamposBaja(); return; }
   if (!_t_esCambioJerarquiaValor(categoria, subtipo)) {
     wrap.innerHTML = '';
     return;
@@ -11944,9 +11622,7 @@ async function _t_crearTicket() {
   const subtipo = document.getElementById('nt-subtipo')?.value;
   let desc = document.getElementById('nt-desc')?.value?.trim() || '';
   const esJerarquia = _t_esCambioJerarquiaValor(categoria, subtipo);
-  const esBaja = _t_esSolicitudBajaValor(categoria, subtipo);
   let hierarchyData = null;
-  let terminationData = null;
 
   if (esJerarquia) {
     const targetEmployeeId = document.getElementById('nt-h-employee')?.value;
@@ -11975,21 +11651,6 @@ async function _t_crearTicket() {
     desc = `${resumen}${desc ? '\n\nComentarios adicionales: ' + desc : ''}\n<!--HIERARCHY_DATA:${JSON.stringify(hierarchyData)}-->`;
   }
 
-
-  if (esBaja) {
-    const targetEmployeeId = document.getElementById('nt-b-employee')?.value;
-    const terminationDate = document.getElementById('nt-b-date')?.value;
-    const terminationType = document.getElementById('nt-b-type')?.value;
-    const reason = document.getElementById('nt-b-reason')?.value?.trim();
-    const notified = document.getElementById('nt-b-notified')?.value;
-    if (!targetEmployeeId) return alert('Selecciona al colaborador');
-    if (!terminationDate) return alert('Selecciona la fecha propuesta de baja');
-    if (!reason) return alert('Escribe el motivo de la solicitud');
-    terminationData = { target_employee_id: targetEmployeeId, termination_date: terminationDate, termination_type: terminationType, reason, notified };
-    const resumen = `Solicitud de baja para ${_t_nombreEmpleado(targetEmployeeId)}. Fecha propuesta: ${terminationDate}. Tipo: ${terminationType === 'involuntary' ? 'Involuntaria' : 'Voluntaria'}. Notificado: ${notified}. Motivo: ${reason}.`;
-    desc = `${resumen}${desc ? '\n\nComentarios adicionales: ' + desc : ''}\n<!--TERMINATION_DATA:${JSON.stringify(terminationData)}-->`;
-  }
-
   if (!desc) {
     alert('Escribe una descripción');
     return;
@@ -12005,8 +11666,8 @@ async function _t_crearTicket() {
     type: _T_CATEGORIA_SLUG[categoria] || 'otros',
     subtype: subtipo,
     description: desc,
-    target_employee_id: hierarchyData?.target_employee_id || terminationData?.target_employee_id || null,
-    target_date: hierarchyData?.effective_date || terminationData?.termination_date || null,
+    target_employee_id: hierarchyData?.target_employee_id || null,
+    target_date: hierarchyData?.effective_date || null,
     priority: 'normal',
     status: 'pending',
     sla_hours: 48,
@@ -12038,14 +11699,33 @@ async function _t_crearTicket() {
 async function _t_resolverTicket(id) {
   const t = _t_TICKETS.find(x => x.id === id);
   const esCorreccion = t?.type === 'correccion_asistencia';
+  const esCorreccionIncidencia = _t_esCorreccionIncidencia(t);
+  const incidentData = esCorreccionIncidencia ? _t_parseIncidentCorrectionData(t) : null;
   const esJerarquia = _t_esCambioJerarquiaValor(_t_categoriaLabel(t?.type), t?.subtype);
-  const esBaja = _t_esSolicitudBajaValor(_t_categoriaLabel(t?.type), t?.subtype);
-  document.getElementById('modalTitle').textContent = esCorreccion ? 'Aplicar corrección de asistencia' : esJerarquia ? 'Aprobar cambio de jerarquía' : esBaja ? 'Aprobar solicitud de baja' : 'Completar ticket';
+  document.getElementById('modalTitle').textContent = esCorreccionIncidencia ? 'Revisar y corregir incidencia' : esCorreccion ? 'Aplicar corrección de asistencia' : esJerarquia ? 'Aprobar cambio de jerarquía' : 'Completar ticket';
   document.getElementById('modalSub').textContent = '';
   document.getElementById('modalBody').innerHTML = `
     ${esJerarquia ? _t_renderDetalleJerarquia(t) : ''}
-    ${esBaja ? _t_renderDetalleBaja(t) : ''}
-    ${esCorreccion ? `<div class="modal-section" style="background:#FFFBEB;border-color:#FDE68A">
+    ${esCorreccionIncidencia ? `<div class="modal-section" style="background:#FFF1F2;border-color:#FECDD3">
+      <div class="ms-title" style="color:#9F1239">🚩 People define el resultado final</div>
+      <div class="kv"><span class="k">Colaborador</span><span class="v">${_t_nombreEmpleado(t.target_employee_id)}</span></div>
+      <div class="kv"><span class="k">Registro actual</span><span class="v">${_a_incidentTypeLabel(incidentData?.original_type)} · ${incidentData?.original_date || t.target_date}</span></div>
+      <div style="margin-top:12px">
+        <label class="modal-label">DECISIÓN FINAL</label>
+        <select id="tr-inc-action" onchange="_t_toggleIncidentResolutionFields()" style="width:100%;border:1px solid #FECDD3;border-radius:8px;padding:8px;font-family:var(--f)">
+          <option value="change" ${incidentData?.requested_action!=='cancel'?'selected':''}>Corregir y mantener activa</option>
+          <option value="cancel" ${incidentData?.requested_action==='cancel'?'selected':''}>Anular incidencia</option>
+        </select>
+      </div>
+      <div id="tr-inc-fields" style="margin-top:10px;display:${incidentData?.requested_action==='cancel'?'none':'grid'};grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="modal-label">TIPO FINAL</label><select id="tr-inc-type" style="width:100%;border:1px solid #FECDD3;border-radius:8px;padding:8px;font-family:var(--f)">
+          ${['falta_injustificada','falta_justificada','incapacidad','permiso'].map(x=>`<option value="${x}" ${x===(incidentData?.requested_type||incidentData?.original_type)?'selected':''}>${_a_incidentTypeLabel(x)}</option>`).join('')}
+        </select></div>
+        <div><label class="modal-label">FECHA FINAL</label><input type="date" id="tr-inc-date" value="${incidentData?.requested_date || incidentData?.original_date || t.target_date}" style="width:100%;border:1px solid #FECDD3;border-radius:8px;padding:8px;font-family:var(--f)"/></div>
+        <div style="grid-column:1/-1"><label class="modal-label">NOTA FINAL DE LA INCIDENCIA</label><textarea id="tr-inc-notes" rows="2" style="width:100%;border:1px solid #FECDD3;border-radius:8px;padding:8px;font-family:var(--f)">${incidentData?.original_notes || ''}</textarea></div>
+      </div>
+      <div style="font-size:11px;color:#9F1239;margin-top:10px"><strong>Solicitud:</strong> ${incidentData?.request_reason || '—'}</div>
+    </div>` : esCorreccion ? `<div class="modal-section" style="background:#FFFBEB;border-color:#FDE68A">
       <div class="ms-title" style="color:#92400E">🚩 Revisá antes de aplicar — podés ajustar la hora</div>
       <div class="kv"><span class="k">Empleado</span><span class="v">${_t_nombreEmpleado(t.target_employee_id)}</span></div>
       <div class="kv"><span class="k">Fecha</span><span class="v">${t.target_date||'—'}</span></div>
@@ -12067,8 +11747,76 @@ async function _t_resolverTicket(id) {
     </div>`;
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-primary" onclick="_t_confirmarResolver('${id}')">${esCorreccion ? '✅ Aplicar y completar' : esJerarquia ? '✅ Aprobar y actualizar supervisor' : esBaja ? '✅ Aprobar y continuar con la baja' : 'Marcar como completado'}</button>`;
+    <button class="btn-primary" onclick="_t_confirmarResolver('${id}')">${esCorreccionIncidencia ? '✅ Aplicar corrección y resolver' : esCorreccion ? '✅ Aplicar y completar' : esJerarquia ? '✅ Aprobar y actualizar supervisor' : 'Marcar como completado'}</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+function _t_toggleIncidentResolutionFields() {
+  const action = document.getElementById('tr-inc-action')?.value;
+  const fields = document.getElementById('tr-inc-fields');
+  if (fields) fields.style.display = action === 'cancel' ? 'none' : 'grid';
+}
+
+async function _t_aplicarCorreccionIncidencia(t) {
+  const d = _t_parseIncidentCorrectionData(t);
+  if (!d) return { error: new Error('El ticket no contiene el detalle de la incidencia.') };
+
+  const action = document.getElementById('tr-inc-action')?.value;
+  const finalType = document.getElementById('tr-inc-type')?.value;
+  const finalDate = document.getElementById('tr-inc-date')?.value;
+  const finalNotes = document.getElementById('tr-inc-notes')?.value?.trim() || d.original_notes || '';
+  const actorId = ROLES[currentRole]?.id || null;
+  const now = new Date().toISOString();
+
+  const { data: current, error: findError } = await _t_sb
+    .from('attendance_exceptions')
+    .select('id,employee_id,exception_date,type,status,notes')
+    .eq('employee_id', t.target_employee_id)
+    .eq('exception_date', d.original_date || t.target_date)
+    .maybeSingle();
+
+  if (findError) return { error: findError };
+  if (!current) return { error: new Error('Ya no existe una incidencia para ese colaborador y fecha. Recarga y revisa el ticket.') };
+
+  if (action === 'cancel') {
+    const { error } = await _t_sb.from('attendance_exceptions').update({
+      status: 'cancelled',
+      reviewed_by: actorId,
+      reviewed_at: now,
+      review_notes: `Anulada vía ticket ${t.id}. ${document.getElementById('tr-notas')?.value || d.request_reason || ''}`,
+      notes: `${current.notes || ''}${current.notes ? ' — ' : ''}ANULADA vía ticket ${t.id}`
+    }).eq('id', current.id);
+    return { error, summary: `Incidencia anulada: ${_a_incidentTypeLabel(current.type)} del ${current.exception_date}.` };
+  }
+
+  if (!finalType || !finalDate) return { error: new Error('Indica el tipo y la fecha final.') };
+
+  if (finalDate !== current.exception_date) {
+    const { data: duplicate, error: dupError } = await _t_sb
+      .from('attendance_exceptions')
+      .select('id')
+      .eq('employee_id', t.target_employee_id)
+      .eq('exception_date', finalDate)
+      .neq('id', current.id)
+      .maybeSingle();
+    if (dupError) return { error: dupError };
+    if (duplicate) return { error: new Error('Ya existe otra incidencia para el colaborador en la fecha final seleccionada.') };
+  }
+
+  const { error } = await _t_sb.from('attendance_exceptions').update({
+    exception_date: finalDate,
+    type: finalType,
+    notes: finalNotes,
+    status: 'approved',
+    reviewed_by: actorId,
+    reviewed_at: now,
+    review_notes: `Corregida vía ticket ${t.id}. ${document.getElementById('tr-notas')?.value || d.request_reason || ''}`
+  }).eq('id', current.id);
+
+  return {
+    error,
+    summary: `Incidencia corregida: ${_a_incidentTypeLabel(current.type)} (${current.exception_date}) → ${_a_incidentTypeLabel(finalType)} (${finalDate}).`
+  };
 }
 
 // Aplica la corrección real en attendance_punches: intenta UPDATE el punch
@@ -12095,7 +11843,14 @@ async function _t_confirmarResolver(id) {
   const notas = document.getElementById('tr-notas')?.value || '';
   const t = _t_TICKETS.find(x => x.id === id);
 
-  if (t?.type === 'correccion_asistencia') {
+  if (_t_esCorreccionIncidencia(t)) {
+    const { error: errInc, summary } = await _t_aplicarCorreccionIncidencia(t);
+    if (errInc) {
+      alert('No se pudo corregir la incidencia. El ticket NO se marcó como completado.\n\n' + errInc.message);
+      return;
+    }
+    if (!notas.trim() && summary) document.getElementById('tr-notas').value = summary;
+  } else if (t?.type === 'correccion_asistencia') {
     const horaEditada = document.getElementById('tr-hora')?.value;
     const marcaEditada = document.getElementById('tr-punch-tipo')?.value;
 
@@ -12147,31 +11902,6 @@ async function _t_confirmarResolver(id) {
 
   const finalNotas = document.getElementById('tr-notas')?.value || notas;
   const now = new Date().toISOString();
-
-  if (_t_esSolicitudBajaValor(_t_categoriaLabel(t?.type), t?.subtype)) {
-    const d = _t_parseTerminationData(t) || {};
-    const empId = t?.target_employee_id || d.target_employee_id;
-    if (!empId) return alert('El ticket no contiene el colaborador a dar de baja.');
-    const approvalNotes = finalNotas.trim() || 'Solicitud aprobada. Pendiente de procesar la baja desde el perfil del colaborador.';
-    const { error: approveError } = await _t_sb.from('hr_tickets').update({ status: 'in_progress', resolution_notes: approvalNotes, updated_at: now }).eq('id', id);
-    if (approveError) return alert('No se pudo aprobar el ticket: ' + approveError.message);
-    window._t_PENDING_TERMINATION_CONTEXT = { ticketId: id, employeeId: empId, data: d };
-    closeModal();
-    _t_detalleId = null;
-    await _t_cargarTickets();
-    switchModule('equipo');
-    setTimeout(async () => {
-      try {
-        if (typeof _e_cargarEmpleados === 'function') await _e_cargarEmpleados();
-        _e_perfilAbierto = empId;
-        if (typeof _e_render === 'function') _e_render();
-        setTimeout(() => _e_abrirBaja(empId, false), 80);
-      } catch (e) {
-        alert('El ticket fue aprobado, pero no se pudo abrir el perfil automáticamente. Busca al colaborador en Equipo.');
-      }
-    }, 120);
-    return;
-  }
 
   const { error } = await _t_sb.from('hr_tickets').update({
     status: 'resolved',
@@ -12819,7 +12549,7 @@ async function _t_cargarTickets(options = {}) {
 
     const { data: emps, error: empError } = await _t_sb
       .from('employees')
-      .select('id,full_name,supervisor_id,status,campaign_id,system_role,position_title,hire_date')
+      .select('id,full_name,supervisor_id,status,campaign_id,system_role,position_title')
       .eq('status', 'active')
       .order('full_name');
 
@@ -12950,11 +12680,23 @@ function _t_renderDetalle(id) {
         </div>
 
         ${_t_renderDetalleJerarquia(t)}
-        ${_t_renderDetalleBaja(t)}
 
-        ${t.type === 'correccion_asistencia' ? `
+        ${_t_esCorreccionIncidencia(t) ? (() => {
+          const d = _t_parseIncidentCorrectionData(t);
+          const actionLabels = {cancel:'Anular incidencia',change_type:'Cambiar tipo',change_date:'Cambiar fecha',change_type_date:'Cambiar tipo y fecha'};
+          return `<div style="margin-bottom:16px;background:#FFF1F2;border:1px solid #FECDD3;border-radius:10px;padding:14px">
+            <div style="font-size:11px;font-weight:800;color:#9F1239;margin-bottom:12px">🚩 Corrección de falta / incidencia</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px">
+              <div><span style="color:#9F1239">Colaborador:</span><br><strong>${_t_nombreEmpleado(t.target_employee_id)}</strong></div>
+              <div><span style="color:#9F1239">Solicitud:</span><br><strong>${actionLabels[d?.requested_action] || 'Corrección'}</strong></div>
+              <div><span style="color:#9F1239">Registro actual:</span><br>${_a_incidentTypeLabel(d?.original_type)} · ${d?.original_date || t.target_date || '—'}</div>
+              <div><span style="color:#9F1239">Resultado solicitado:</span><br>${d?.requested_action==='cancel'?'Anular':`${_a_incidentTypeLabel(d?.requested_type)} · ${d?.requested_date || d?.original_date || '—'}`}</div>
+            </div>
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid #FECDD3;font-size:12px;color:#881337"><strong>Motivo del supervisor:</strong> ${d?.request_reason || '—'}</div>
+          </div>`;
+        })() : t.type === 'correccion_asistencia' ? `
           <div style="margin-bottom:16px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px">
-            <div style="font-size:11px;font-weight:700;color:#92400E;margin-bottom:10px">🚩 Detalle de la corrección</div>
+            <div style="font-size:11px;font-weight:700;color:#92400E;margin-bottom:10px">🚩 Corrección de entrada / salida</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px">
               <div><span style="color:#92400E">Empleado:</span> ${_t_nombreEmpleado(t.target_employee_id)}</div>
               <div><span style="color:#92400E">Fecha:</span> ${t.target_date || '—'}</div>
@@ -12980,7 +12722,7 @@ ${t.resolution_notes ? `
             ` : ''}
 
             <button onclick="_t_resolverTicket('${t.id}')" class="btn-green">
-              ${t.type === 'correccion_asistencia' ? '✅ Aplicar y completar' : _t_esSolicitudBajaValor(_t_categoriaLabel(t.type), t.subtype) ? '✅ Aprobar y continuar con la baja' : '✅ Marcar como completado'}
+              ${t.type === 'correccion_asistencia' ? '✅ Aplicar y completar' : '✅ Marcar como completado'}
             </button>
 
             <button onclick="_t_cancelarTicket('${t.id}')" class="btn-ghost">Cancelar ticket</button>
@@ -19364,11 +19106,9 @@ async function _e_confirmarAlta() {
 function _e_abrirBaja(empId, isEdit) {
   const emp = _e_EMPLEADOS.find(e => e.id === empId);
   if (!emp) return;
-  const ticketCtx = (!isEdit && window._t_PENDING_TERMINATION_CONTEXT?.employeeId === empId) ? window._t_PENDING_TERMINATION_CONTEXT : null;
-  const ticketData = ticketCtx?.data || {};
 
   // Si es edición, parsear el termination_reason guardado (formato: Categoria › Razon › Detalle — notas)
-  let preCat = '', preRazon = '', preDetalle = '', preNotas = ticketData.reason ? `Solicitud aprobada en ticket ${ticketCtx.ticketId}: ${ticketData.reason}${ticketData.notified ? ' · Notificado: ' + ticketData.notified : ''}` : '';
+  let preCat = '', preRazon = '', preDetalle = '', preNotas = '';
   if (isEdit && emp.termination_reason) {
     const parts = emp.termination_reason.split(' › ');
     preCat = parts[0] || '';
@@ -19386,7 +19126,6 @@ function _e_abrirBaja(empId, isEdit) {
   document.getElementById('modalTitle').textContent = (isEdit ? 'Editar motivo de baja: ' : 'Dar de baja: ') + emp.full_name;
   document.getElementById('modalSub').textContent = emp.position_title || emp.campaign_id || '';
   document.getElementById('modalBody').innerHTML = `
-    ${ticketCtx ? `<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:10px 12px;font-size:13px;color:#1D4ED8;margin-bottom:14px">🎫 Solicitud aprobada desde Tickets HR. Revisa la información y confirma la baja aquí.</div>` : ''}
     ${isEdit ? `<div style="background:#FFF7ED;border-radius:8px;padding:10px 12px;font-size:13px;color:#9A3412;margin-bottom:14px">
       ✏️ Estás editando el motivo de baja de un empleado ya inactivo. El status no cambiará.
     </div>` : `<div style="background:#FEF2F2;border-radius:8px;padding:10px 12px;font-size:13px;color:#991B1B;margin-bottom:14px">
@@ -19395,8 +19134,8 @@ function _e_abrirBaja(empId, isEdit) {
     <div class="modal-section">
       <label class="modal-label">TIPO DE BAJA</label>
       <select id="baja-tipo" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-        <option value="voluntary" ${(ticketData.termination_type || emp.termination_type)==='voluntary'?'selected':''}>Voluntaria</option>
-        <option value="involuntary" ${(ticketData.termination_type || emp.termination_type)==='involuntary'?'selected':''}>Involuntaria</option>
+        <option value="voluntary" ${emp.termination_type==='voluntary'?'selected':''}>Voluntaria</option>
+        <option value="involuntary" ${emp.termination_type==='involuntary'?'selected':''}>Involuntaria</option>
       </select>
     </div>
     <div class="modal-section">
@@ -19424,7 +19163,7 @@ function _e_abrirBaja(empId, isEdit) {
     </div>
     <div class="modal-section">
       <label class="modal-label">FECHA DE BAJA</label>
-      <input type="date" id="baja-fecha" value="${ticketData.termination_date || emp.termination_date || ''}" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+      <input type="date" id="baja-fecha" value="${emp.termination_date||''}" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
     </div>
     <div class="modal-section">
       <label class="modal-label">ELEGIBLE PARA RECONTRATACIÓN</label>
@@ -19541,14 +19280,6 @@ async function _e_confirmarBaja(empId, isEdit) {
       position_title: emp?.position_title || null,
       campaign_id: emp?.campaign_id || null,
     });
-  }
-
-  if (!isEdit && window._t_PENDING_TERMINATION_CONTEXT?.employeeId === empId) {
-    const ctx = window._t_PENDING_TERMINATION_CONTEXT;
-    const nowTicket = new Date().toISOString();
-    const { error: ticketError } = await _t_sb.from('hr_tickets').update({ status: 'resolved', resolution_notes: `Baja procesada desde el perfil del colaborador el ${fecha}.`, resolved_at: nowTicket, updated_at: nowTicket }).eq('id', ctx.ticketId);
-    if (ticketError) { console.warn('La baja se procesó, pero no se pudo cerrar el ticket:', ticketError); alert('La baja se procesó correctamente, pero el ticket no pudo cerrarse automáticamente.'); }
-    window._t_PENDING_TERMINATION_CONTEXT = null;
   }
 
   closeModal();
