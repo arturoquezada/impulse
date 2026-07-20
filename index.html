@@ -11377,6 +11377,10 @@ function _t_actualizarPreviewJerarquia() {
   const wrap = document.getElementById('nt-h-current-wrap');
   const sel = document.getElementById('nt-h-new-supervisor');
 
+  // Conserva la selección actual. Antes, cada onchange del dropdown volvía a
+  // construir sus opciones y por eso parecía que nunca se seleccionaba nada.
+  const selectedSupervisorId = sel?.value || '';
+
   if (!emp) {
     if (wrap) wrap.style.display = 'none';
     if (sel) sel.innerHTML = '<option value="">Primero selecciona al empleado...</option>';
@@ -11397,6 +11401,11 @@ function _t_actualizarPreviewJerarquia() {
     const sups = _t_supervisoresActivos().filter(s => s.id !== currentSupId && s.id !== empId);
     sel.innerHTML = '<option value="">Selecciona el nuevo supervisor...</option>' +
       sups.map(s => `<option value="${s.id}">${s.full_name}${s.campaign_id ? ' · ' + s.campaign_id : ''}</option>`).join('');
+
+    // Restaura la selección solo si sigue siendo una opción válida.
+    if (selectedSupervisorId && sups.some(s => s.id === selectedSupervisorId)) {
+      sel.value = selectedSupervisorId;
+    }
   }
 }
 
