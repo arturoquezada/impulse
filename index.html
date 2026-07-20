@@ -11282,11 +11282,149 @@ function _t_empleadosCorregibles() {
   return _t_EMPLEADOS_FULL;
 }
 
+function _t_esCambioJerarquiaValor(categoria, subtipo) {
+  return categoria === 'Rendimiento y Gestion de Personal' && subtipo === 'Cambio de jerarquia';
+}
+
+function _t_supervisoresActivos() {
+  return (_t_EMPLEADOS_FULL || [])
+    .filter(e => {
+      const role = String(e.system_role || '').toLowerCase();
+      const puesto = String(e.position_title || '').toLowerCase();
+      return e.status === 'active' && (role === 'supervisor' || puesto.includes('supervisor'));
+    })
+    .sort((a,b) => String(a.full_name || '').localeCompare(String(b.full_name || ''), 'es'));
+}
+
+function _t_parseHierarchyData(t) {
+  const text = String(t?.description || '');
+  const match = text.match(/<!--HIERARCHY_DATA:(.*?)-->/s);
+  if (!match) return null;
+  try { return JSON.parse(match[1]); } catch (e) { return null; }
+}
+
+function _t_ticketDescripcionVisible(t) {
+  return String(t?.description || '').replace(/<!--HIERARCHY_DATA:.*?-->/s, '').trim();
+}
+
+function _t_renderCamposJerarquia() {
+  const wrap = document.getElementById('nt-dynamic-fields');
+  if (!wrap) return;
+
+  const categoria = document.getElementById('nt-categoria')?.value;
+  const subtipo = document.getElementById('nt-subtipo')?.value;
+
+  if (!_t_esCambioJerarquiaValor(categoria, subtipo)) {
+    wrap.innerHTML = '';
+    return;
+  }
+
+  const empleados = _t_empleadosCorregibles()
+    .filter(e => e.status === 'active')
+    .sort((a,b) => String(a.full_name || '').localeCompare(String(b.full_name || ''), 'es'));
+
+  wrap.innerHTML = `
+    <div class="modal-section" style="border-color:#BAE6FD;background:#F0F9FF">
+      <div class="ms-title" style="color:#0369A1">Cambio de jerarquía</div>
+
+      <div class="form-row">
+        <label>Empleado a modificar</label>
+        <select id="nt-h-employee" onchange="_t_actualizarPreviewJerarquia()">
+          <option value="">Selecciona un empleado...</option>
+          ${empleados.map(e => `<option value="${e.id}">${e.full_name}${e.campaign_id ? ' · ' + e.campaign_id : ''}</option>`).join('')}
+        </select>
+      </div>
+
+      <div id="nt-h-current-wrap" style="display:none;margin-bottom:12px"></div>
+
+      <div class="form-row">
+        <label>Nuevo supervisor</label>
+        <select id="nt-h-new-supervisor" onchange="_t_actualizarPreviewJerarquia()">
+          <option value="">Primero selecciona al empleado...</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>Fecha efectiva</label>
+        <input id="nt-h-effective-date" type="date" value="${ymd(new Date())}" min="${ymd(new Date())}"/>
+      </div>
+
+      <div class="form-row" style="margin-bottom:0">
+        <label>Motivo del cambio</label>
+        <select id="nt-h-reason" onchange="_t_toggleOtroMotivoJerarquia()">
+          <option value="">Selecciona un motivo...</option>
+          <option value="Reestructura">Reestructura</option>
+          <option value="Cambio de campaña">Cambio de campaña</option>
+          <option value="Balanceo de HC">Balanceo de HC</option>
+          <option value="Desarrollo">Desarrollo</option>
+          <option value="Otro">Otro</option>
+        </select>
+        <textarea id="nt-h-reason-other" rows="2" style="display:none;margin-top:8px" placeholder="Especifica el motivo..."></textarea>
+      </div>
+    </div>`;
+}
+
+function _t_toggleOtroMotivoJerarquia() {
+  const otro = document.getElementById('nt-h-reason-other');
+  if (otro) otro.style.display = document.getElementById('nt-h-reason')?.value === 'Otro' ? 'block' : 'none';
+}
+
+function _t_actualizarPreviewJerarquia() {
+  const empId = document.getElementById('nt-h-employee')?.value;
+  const emp = _t_emp(empId);
+  const currentSupId = emp?.supervisor_id || '';
+  const currentSup = _t_emp(currentSupId);
+  const wrap = document.getElementById('nt-h-current-wrap');
+  const sel = document.getElementById('nt-h-new-supervisor');
+
+  if (!emp) {
+    if (wrap) wrap.style.display = 'none';
+    if (sel) sel.innerHTML = '<option value="">Primero selecciona al empleado...</option>';
+    return;
+  }
+
+  if (wrap) {
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+      <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Supervisor actual</div>
+      <div style="background:#fff;border:1px solid #BAE6FD;border-radius:9px;padding:10px 12px">
+        <div style="font-size:13px;font-weight:800;color:#0F172A">${currentSup?.full_name || 'Sin supervisor asignado'}</div>
+        <div style="font-size:11px;color:#64748B;margin-top:2px">${currentSup?.position_title || currentSup?.system_role || '—'}${currentSup?.campaign_id ? ' · ' + currentSup.campaign_id : ''}</div>
+      </div>`;
+  }
+
+  if (sel) {
+    const sups = _t_supervisoresActivos().filter(s => s.id !== currentSupId && s.id !== empId);
+    sel.innerHTML = '<option value="">Selecciona el nuevo supervisor...</option>' +
+      sups.map(s => `<option value="${s.id}">${s.full_name}${s.campaign_id ? ' · ' + s.campaign_id : ''}</option>`).join('');
+  }
+}
+
+function _t_renderDetalleJerarquia(t) {
+  if (!_t_esCambioJerarquiaValor(_t_categoriaLabel(t.type), t.subtype)) return '';
+  const d = _t_parseHierarchyData(t) || {};
+  const targetId = t.target_employee_id || d.target_employee_id;
+  const oldSupId = d.current_supervisor_id;
+  const newSupId = d.new_supervisor_id;
+  return `
+    <div style="margin-bottom:16px;background:#F0F9FF;border:1px solid #BAE6FD;border-radius:10px;padding:14px">
+      <div style="font-size:11px;font-weight:800;color:#0369A1;margin-bottom:10px">🔁 Detalle del cambio de jerarquía</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px">
+        <div><span style="color:#0369A1">Empleado:</span><br><b>${_t_nombreEmpleado(targetId)}</b></div>
+        <div><span style="color:#0369A1">Fecha efectiva:</span><br><b>${t.target_date || d.effective_date || '—'}</b></div>
+        <div><span style="color:#0369A1">Supervisor actual:</span><br><b>${_t_nombreEmpleado(oldSupId)}</b></div>
+        <div><span style="color:#0369A1">Nuevo supervisor:</span><br><b>${_t_nombreEmpleado(newSupId)}</b></div>
+        <div style="grid-column:1/-1"><span style="color:#0369A1">Motivo:</span><br><b>${d.reason || '—'}</b></div>
+      </div>
+    </div>`;
+}
+
 function _t_actualizarSubtipos() {
   const cat = document.getElementById('nt-categoria')?.value;
   const opts = _T_CATEGORIAS[cat] || [];
   const sel = document.getElementById('nt-subtipo');
   if (sel) sel.innerHTML = opts.map(o => `<option value="${o}">${o}</option>`).join('');
+  _t_renderCamposJerarquia();
 }
 
 function _t_abrirNuevo() {
@@ -11303,12 +11441,13 @@ function _t_abrirNuevo() {
     </div>
     <div class="modal-section">
       <label class="modal-label">SUBTIPO</label>
-      <select id="nt-subtipo" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
+      <select id="nt-subtipo" onchange="_t_renderCamposJerarquia()" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
         ${(_T_CATEGORIAS[primeraCategoria]||[]).map(o=>`<option value="${o}">${o}</option>`).join('')}
       </select>
     </div>
+    <div id="nt-dynamic-fields"></div>
     <div class="modal-section">
-      <label class="modal-label">DESCRIPCIÓN</label>
+      <label class="modal-label">DESCRIPCIÓN / COMENTARIOS ADICIONALES</label>
       <textarea id="nt-desc" rows="4" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f);resize:vertical" placeholder="Describe tu solicitud..."></textarea>
     </div>`;
   document.getElementById('modalFooter').innerHTML = `
@@ -11320,7 +11459,36 @@ function _t_abrirNuevo() {
 async function _t_crearTicket() {
   const categoria = document.getElementById('nt-categoria')?.value;
   const subtipo = document.getElementById('nt-subtipo')?.value;
-  const desc = document.getElementById('nt-desc')?.value?.trim();
+  let desc = document.getElementById('nt-desc')?.value?.trim() || '';
+  const esJerarquia = _t_esCambioJerarquiaValor(categoria, subtipo);
+  let hierarchyData = null;
+
+  if (esJerarquia) {
+    const targetEmployeeId = document.getElementById('nt-h-employee')?.value;
+    const newSupervisorId = document.getElementById('nt-h-new-supervisor')?.value;
+    const effectiveDate = document.getElementById('nt-h-effective-date')?.value;
+    const reasonSel = document.getElementById('nt-h-reason')?.value;
+    const reasonOther = document.getElementById('nt-h-reason-other')?.value?.trim();
+    const reason = reasonSel === 'Otro' ? reasonOther : reasonSel;
+    const targetEmployee = _t_emp(targetEmployeeId);
+
+    if (!targetEmployeeId) return alert('Selecciona al empleado que cambiará de supervisor');
+    if (!newSupervisorId) return alert('Selecciona al nuevo supervisor');
+    if (!effectiveDate) return alert('Selecciona la fecha efectiva');
+    if (!reason) return alert('Selecciona o escribe el motivo del cambio');
+    if (targetEmployee?.supervisor_id === newSupervisorId) return alert('El nuevo supervisor no puede ser el supervisor actual');
+
+    hierarchyData = {
+      target_employee_id: targetEmployeeId,
+      current_supervisor_id: targetEmployee?.supervisor_id || null,
+      new_supervisor_id: newSupervisorId,
+      effective_date: effectiveDate,
+      reason
+    };
+
+    const resumen = `Solicitud de cambio de jerarquía para ${_t_nombreEmpleado(targetEmployeeId)}. Nuevo supervisor: ${_t_nombreEmpleado(newSupervisorId)}. Fecha efectiva: ${effectiveDate}. Motivo: ${reason}.`;
+    desc = `${resumen}${desc ? '\n\nComentarios adicionales: ' + desc : ''}\n<!--HIERARCHY_DATA:${JSON.stringify(hierarchyData)}-->`;
+  }
 
   if (!desc) {
     alert('Escribe una descripción');
@@ -11337,6 +11505,8 @@ async function _t_crearTicket() {
     type: _T_CATEGORIA_SLUG[categoria] || 'otros',
     subtype: subtipo,
     description: desc,
+    target_employee_id: hierarchyData?.target_employee_id || null,
+    target_date: hierarchyData?.effective_date || null,
     priority: 'normal',
     status: 'pending',
     sla_hours: 48,
@@ -11368,9 +11538,11 @@ async function _t_crearTicket() {
 async function _t_resolverTicket(id) {
   const t = _t_TICKETS.find(x => x.id === id);
   const esCorreccion = t?.type === 'correccion_asistencia';
-  document.getElementById('modalTitle').textContent = esCorreccion ? 'Aplicar corrección de asistencia' : 'Completar ticket';
+  const esJerarquia = _t_esCambioJerarquiaValor(_t_categoriaLabel(t?.type), t?.subtype);
+  document.getElementById('modalTitle').textContent = esCorreccion ? 'Aplicar corrección de asistencia' : esJerarquia ? 'Aprobar cambio de jerarquía' : 'Completar ticket';
   document.getElementById('modalSub').textContent = '';
   document.getElementById('modalBody').innerHTML = `
+    ${esJerarquia ? _t_renderDetalleJerarquia(t) : ''}
     ${esCorreccion ? `<div class="modal-section" style="background:#FFFBEB;border-color:#FDE68A">
       <div class="ms-title" style="color:#92400E">🚩 Revisá antes de aplicar — podés ajustar la hora</div>
       <div class="kv"><span class="k">Empleado</span><span class="v">${_t_nombreEmpleado(t.target_employee_id)}</span></div>
@@ -11393,7 +11565,7 @@ async function _t_resolverTicket(id) {
     </div>`;
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-primary" onclick="_t_confirmarResolver('${id}')">${esCorreccion ? '✅ Aplicar y completar' : 'Marcar como completado'}</button>`;
+    <button class="btn-primary" onclick="_t_confirmarResolver('${id}')">${esCorreccion ? '✅ Aplicar y completar' : esJerarquia ? '✅ Aprobar y actualizar supervisor' : 'Marcar como completado'}</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
 }
 
@@ -11444,11 +11616,39 @@ async function _t_confirmarResolver(id) {
     }
   }
 
+  if (_t_esCambioJerarquiaValor(_t_categoriaLabel(t?.type), t?.subtype)) {
+    const d = _t_parseHierarchyData(t);
+    const targetEmployeeId = t?.target_employee_id || d?.target_employee_id;
+    const newSupervisorId = d?.new_supervisor_id;
+
+    if (!targetEmployeeId || !newSupervisorId) {
+      alert('Este ticket no contiene la información completa del cambio de jerarquía. No se aplicó ningún cambio.');
+      return;
+    }
+
+    const { error: hierarchyError } = await _t_sb
+      .from('employees')
+      .update({ supervisor_id: newSupervisorId })
+      .eq('id', targetEmployeeId);
+
+    if (hierarchyError) {
+      alert('No se pudo actualizar el supervisor. El ticket NO se marcó como completado.\n\n' + hierarchyError.message);
+      return;
+    }
+
+    if (!notas.trim()) {
+      const oldName = _t_nombreEmpleado(d?.current_supervisor_id);
+      const newName = _t_nombreEmpleado(newSupervisorId);
+      document.getElementById('tr-notas').value = `Cambio de jerarquía aplicado correctamente: ${oldName} → ${newName}.`;
+    }
+  }
+
+  const finalNotas = document.getElementById('tr-notas')?.value || notas;
   const now = new Date().toISOString();
 
   const { error } = await _t_sb.from('hr_tickets').update({
     status: 'resolved',
-    resolution_notes: notas,
+    resolution_notes: finalNotas,
     resolved_at: now,
     updated_at: now
   }).eq('id', id);
@@ -12219,8 +12419,10 @@ function _t_renderDetalle(id) {
 
         <div style="margin-bottom:16px">
           <div style="font-size:10px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Descripción</div>
-          <div style="font-size:13px;color:#334155;line-height:1.6">${t.description || '—'}</div>
+          <div style="font-size:13px;color:#334155;line-height:1.6">${_t_ticketDescripcionVisible(t) || '—'}</div>
         </div>
+
+        ${_t_renderDetalleJerarquia(t)}
 
         ${t.type === 'correccion_asistencia' ? `
           <div style="margin-bottom:16px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px">
