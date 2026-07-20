@@ -9363,8 +9363,63 @@ function _dd_filterAttendanceRows(rows) {
   });
 }
 
+function _dd_isNonWorkStatus(status) {
+  return [
+    'descanso',
+    'vacaciones',
+    'permiso',
+    'incapacidad',
+    'permuta_descanso'
+  ].includes(String(status || '').toLowerCase());
+}
+
+function _dd_hasEntry(row) {
+  const st = String(row?.audit_status || '').toLowerCase();
+
+  return [
+    'completo',
+    'tolerancia',
+    'retardo',
+    'sin_salida'
+  ].includes(st);
+}
+
+function _dd_hasCheckout(row) {
+  const st = String(row?.audit_status || '').toLowerCase();
+
+  return [
+    'completo',
+    'tolerancia',
+    'retardo'
+  ].includes(st);
+}
+
+function _dd_toleranceMinutes(row = {}) {
+  const camp = String(row.campaign_id || '').toLowerCase();
+
+  if (camp.includes('aplazo')) return 5;
+
+  return 10;
+}
+
+function _dd_isOperationallyOnTime(row = {}) {
+  const st = String(row.audit_status || '').toLowerCase();
+  const late = Number(row.minutes_late || 0);
+  const tolerance = _dd_toleranceMinutes(row);
+
+  if (st === 'completo') return true;
+  if (st === 'tolerancia') return true;
+
+  // Si tiene sin salida, puede haber llegado a tiempo o dentro de tolerancia.
+  // Lo contamos como puntualidad operativa, pero sigue afectando cumplimiento de salida.
+  if (st === 'sin_salida' && late <= tolerance) return true;
+
+  return false;
+}
+
 function _dd_attendanceSummary(rows) {
   const total = rows.length;
+
   const complete = _dd_statusCount(rows, 'completo');
   const tolerancia = _dd_statusCount(rows, 'tolerancia');
   const retardo = _dd_statusCount(rows, 'retardo');
@@ -9372,48 +9427,53 @@ function _dd_attendanceSummary(rows) {
   const sinEntrada = _dd_statusCount(rows, 'sin_entrada');
   const sinSalida = _dd_statusCount(rows, 'sin_salida');
 
-  const justified = rows.filter(r =>
-    ['permiso', 'incapacidad', 'vacaciones', 'descanso'].includes(r.audit_status)
-  ).length;
+  const justified = rows.filter(r => _dd_isNonWorkStatus(r.audit_status)).length;
 
-  const expectedDays = rows.filter(r =>
-    !['descanso', 'vacaciones'].includes(r.audit_status)
-  ).length;
+  // Días/personas que realmente se esperaban trabajando.
+  const expectedDays = rows.filter(r => !_dd_isNonWorkStatus(r.audit_status)).length;
+
+  // Personas que sí registraron entrada.
+  const withEntryRows = rows.filter(r => !_dd_isNonWorkStatus(r.audit_status) && _dd_hasEntry(r));
+  const withEntry = withEntryRows.length;
+
+  // Personas con salida registrada.
+  const withCheckout = rows.filter(r => !_dd_isNonWorkStatus(r.audit_status) && _dd_hasCheckout(r)).length;
+
+  // Puntualidad operativa: llegó a tiempo o dentro de tolerancia.
+  const operationalOnTime = withEntryRows.filter(_dd_isOperationallyOnTime).length;
 
   return {
     total,
     expectedDays,
     hc: _dd_uniqueCount(rows, 'employee_id'),
+
     complete,
     completeRate: _dd_pct(complete, expectedDays),
+
     tolerancia,
     retardo,
     falta,
     sinEntrada,
     sinSalida,
-    justified
+    justified,
+
+    withEntry,
+    withCheckout,
+    operationalOnTime,
+
+    operationalPunctuality: _dd_pct(operationalOnTime, withEntry),
+    checkoutCompliance: _dd_pct(withCheckout, withEntry)
   };
 }
 
 function _dd_expectedActions(rows) {
+  const retardos = rows.filter(r => r.audit_status === 'retardo');
   const faltas = rows.filter(r => r.audit_status === 'falta_injustificada');
 
-  const retardsByEmployee = {};
-  rows
-    .filter(r => r.audit_status === 'retardo')
-    .forEach(r => {
-      if (!r.employee_id) return;
-      retardsByEmployee[r.employee_id] = (retardsByEmployee[r.employee_id] || 0) + 1;
-    });
-
-  const recurrentRetards = Object.entries(retardsByEmployee)
-    .filter(([, count]) => count >= 3)
-    .length;
-
   return {
+    retardsExpected: retardos.length,
     faltasExpected: faltas.length,
-    recurrentRetardsExpected: recurrentRetards,
-    totalExpected: faltas.length + recurrentRetards
+    totalExpected: retardos.length + faltas.length
   };
 }
 
@@ -9491,37 +9551,37 @@ function _dd_supervisorRows(attRows, actions, tickets) {
   actions.forEach(a => {
     const empId = _dd_actionEmployee(a);
     const supId = employeeToSup[empId];
-    if (supId && map[supId]) map[supId].actions++;
+
+    if (supId && map[supId]) {
+      map[supId].actions++;
+    }
   });
 
   tickets.forEach(t => {
     const empId = t.employee_id;
     const supId = employeeToSup[empId];
-    if (supId && map[supId]) map[supId].tickets++;
+
+    if (supId && map[supId]) {
+      map[supId].tickets++;
+    }
   });
 
   return Object.values(map).map(s => {
     const expected = _dd_expectedActions(s.rows);
-
     const issueCount = s.retardo + s.falta + s.sinSalida + s.sinEntrada;
 
-    // Si no había acciones esperadas, el cumplimiento debe ser 100%.
-    // No se castiga al supervisor por no cargar algo que no debía cargar.
     const compliance = expected.totalExpected > 0
       ? Math.min(100, _dd_pct(s.actions, expected.totalExpected))
       : 100;
 
     let risk = 'Controlado';
 
-    // Riesgo por gestión disciplinaria solo aplica si había acciones esperadas.
     if (expected.totalExpected > 0 && compliance < 50) {
       risk = 'Alto';
     } else if (expected.totalExpected > 0 && compliance < 80) {
       risk = 'Medio';
     }
 
-    // Riesgo operativo por volumen de incidencias.
-    // Esto es separado del cumplimiento disciplinario.
     if (issueCount >= 12) {
       risk = 'Alto';
     } else if (issueCount >= 6 && risk !== 'Alto') {
@@ -9558,7 +9618,7 @@ function _dd_generateNarrative(data) {
 
   const parts = [];
 
-  parts.push(`Durante el periodo ${fmtDateShort(data.from)} al ${fmtDateShort(data.to)}, se revisaron ${cur.expectedDays} días-empleado esperados con una asistencia completa del ${cur.completeRate}%.`);
+  parts.push(`Durante el periodo ${fmtDateShort(data.from)} al ${fmtDateShort(data.to)}, se revisaron ${cur.expectedDays} días-empleado esperados. La puntualidad operativa fue de ${cur.operationalPunctuality}% y el cumplimiento de salida fue de ${cur.checkoutCompliance}%.`);
 
   parts.push(`Los retardos reales fueron ${cur.retardo} (${dRet.label} vs semana anterior) y las faltas injustificadas fueron ${cur.falta} (${dFal.label} vs semana anterior).`);
 
@@ -9804,12 +9864,239 @@ function _dd_riskPill(risk) {
   return `<span style="background:${c[0]};color:${c[1]};border-radius:999px;padding:4px 9px;font-size:11px;font-weight:900">${c[2]}</span>`;
 }
 
+function _dd_actionStatusLabel(a) {
+  const st = String(a?.status || '').toLowerCase();
+
+  const map = {
+    pending: 'Pendiente',
+    requested: 'Solicitada',
+    approved: 'Aprobada',
+    issued: 'Cargada',
+    signed: 'Firmada',
+    refused: 'Rechazó firma',
+    cancelled: 'Cancelada',
+    rejected: 'Rechazada'
+  };
+
+  return map[st] || a?.status || '—';
+}
+
+function _dd_actionLevelLabel(level) {
+  const map = {
+    feedback: 'Feedback',
+    verbal: 'Verbal',
+    first_written: 'Primera escrita',
+    second_written: 'Segunda escrita',
+    last_warning: 'Última advertencia',
+    termination: 'Terminación'
+  };
+
+  return map[level] || level || '—';
+}
+
+function _dd_actionsForEmployee(empId) {
+  if (!_dd_DATA?.current?.actions) return [];
+
+  return (_dd_DATA.current.actions || [])
+    .filter(a => _dd_actionEmployee(a) === empId)
+    .sort((a, b) => new Date(_dd_actionDate(b) || 0) - new Date(_dd_actionDate(a) || 0));
+}
+
+function _dd_supervisorIncidentRows(supervisorId) {
+  if (!_dd_DATA?.current?.rows) return [];
+
+  return (_dd_DATA.current.rows || [])
+    .filter(r => r.supervisor_id === supervisorId)
+    .filter(r => ['retardo', 'falta_injustificada'].includes(r.audit_status))
+    .sort((a, b) => {
+      const nameA = String(a.employee_name || '');
+      const nameB = String(b.employee_name || '');
+      if (nameA !== nameB) return nameA.localeCompare(nameB);
+      return String(a.work_date || '').localeCompare(String(b.work_date || ''));
+    });
+}
+
+function _dd_incidentTypeLabel(status) {
+  if (status === 'retardo') return 'Retardo';
+  if (status === 'falta_injustificada') return 'Falta injustificada';
+  return status || '—';
+}
+
+function _dd_incidentTypePill(status) {
+  if (status === 'retardo') {
+    return `<span class="pill pill-amber">Retardo</span>`;
+  }
+
+  if (status === 'falta_injustificada') {
+    return `<span class="pill pill-red">Falta injustificada</span>`;
+  }
+
+  return `<span class="pill pill-gray">${status || '—'}</span>`;
+}
+
+function _dd_openSupervisorDetail(supervisorId) {
+  const sup = (_dd_DATA?.supervisors || []).find(s => s.supervisor_id === supervisorId);
+  if (!sup) return;
+
+  const incidents = _dd_supervisorIncidentRows(supervisorId);
+
+  const rowsHTML = incidents.map(r => {
+    const actions = _dd_actionsForEmployee(r.employee_id);
+    const latest = actions[0];
+
+    const actionInfo = latest ? `
+      <div style="font-size:12px;font-weight:900;color:#0F172A">
+        ${_dd_actionLevelLabel(_dd_actionLevel(latest))}
+      </div>
+      <div style="font-size:11px;color:#64748B;margin-top:2px">
+        ${_dd_actionStatusLabel(latest)}
+      </div>
+      <div style="font-size:11px;color:#94A3B8;margin-top:2px">
+        ${_dd_actionDate(latest)
+          ? new Date(_dd_actionDate(latest)).toLocaleString('es-MX', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })
+          : 'Sin fecha'}
+      </div>
+    ` : `
+      <span class="pill pill-red">Sin acción</span>
+    `;
+
+    return `
+      <tr>
+        <td>
+          <div class="agent-row-name">${r.employee_name || r.employee_id || '—'}</div>
+          <div class="agent-row-id">${r.employee_id || '—'}</div>
+        </td>
+
+        <td>
+          <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:800">
+            ${fmtDateShort(r.work_date)}
+          </div>
+          <div style="font-size:11px;color:#94A3B8">
+            ${r.day_name || ''}
+          </div>
+        </td>
+
+        <td>${_dd_incidentTypePill(r.audit_status)}</td>
+
+        <td style="font-family:'DM Mono',monospace;text-align:center">
+          ${r.audit_status === 'retardo' ? (r.minutes_late || 0) + ' min' : '—'}
+        </td>
+
+        <td>
+          ${r.detail_label || r.pending_issue || _dd_incidentTypeLabel(r.audit_status)}
+          ${r.detail_notes ? `<div style="font-size:11px;color:#64748B;margin-top:2px">${r.detail_notes}</div>` : ''}
+        </td>
+
+        <td>${actionInfo}</td>
+
+        <td style="text-align:center;font-family:'DM Mono',monospace;font-weight:900">
+          ${actions.length}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const html = `
+    <div class="modal-backdrop" id="dd-supervisor-modal">
+      <div class="modal" style="width:1100px;max-width:96vw">
+        <div class="modal-hd">
+          <div>
+            <h3>Detalle de incidencias · ${sup.supervisor_name}</h3>
+            <div class="sub">
+              ${fmtDateShort(_dd_DATA.from)} al ${fmtDateShort(_dd_DATA.to)}
+            </div>
+          </div>
+          <button class="modal-hd-close" onclick="_dd_closeSupervisorDetail()">×</button>
+        </div>
+
+        <div class="modal-body">
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+            <div class="kpi-box incard">
+              <div class="kpi-val">${sup.hc}</div>
+              <div class="kpi-lbl">HC</div>
+            </div>
+
+            <div class="kpi-box incard">
+              <div class="kpi-val" style="color:#D97706">${sup.retardo}</div>
+              <div class="kpi-lbl">Retardos</div>
+            </div>
+
+            <div class="kpi-box incard">
+              <div class="kpi-val" style="color:#DC2626">${sup.falta}</div>
+              <div class="kpi-lbl">Faltas</div>
+            </div>
+
+            <div class="kpi-box incard">
+              <div class="kpi-val">${sup.expectedActions}</div>
+              <div class="kpi-lbl">Acciones esperadas</div>
+            </div>
+
+            <div class="kpi-box incard">
+              <div class="kpi-val">${sup.actions}</div>
+              <div class="kpi-lbl">Acciones cargadas</div>
+            </div>
+          </div>
+
+          <div class="alert alert-amber">
+            Cada retardo real y cada falta injustificada cuenta como una acción esperada. La columna “Acción cargada” muestra acciones People registradas para ese agente durante el periodo.
+          </div>
+
+          <div class="tbl-wrap">
+            <div style="overflow-x:auto">
+              <table style="min-width:980px">
+                <thead>
+                  <tr>
+                    <th>Agente</th>
+                    <th>Fecha</th>
+                    <th>Incidencia</th>
+                    <th style="text-align:center">Tarde</th>
+                    <th>Detalle</th>
+                    <th>Acción cargada</th>
+                    <th style="text-align:center">Total acciones agente</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  ${rowsHTML || `
+                    <tr>
+                      <td colspan="7" style="text-align:center;color:#94A3B8;padding:26px">
+                        Este supervisor no tiene retardos ni faltas injustificadas en el periodo.
+                      </td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-ghost" onclick="_dd_closeSupervisorDetail()">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('dd-supervisor-modal')?.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function _dd_closeSupervisorDetail() {
+  document.getElementById('dd-supervisor-modal')?.remove();
+}
+
 function _dd_renderSupervisorTable(rows) {
   return `
     <div class="card">
       <div class="card-title" style="justify-content:space-between">
         <span>Ranking por supervisor</span>
-        <span style="font-size:11px;color:#94A3B8;font-weight:600">Gestión + asistencia</span>
+        <span style="font-size:11px;color:#94A3B8;font-weight:600">Click en un supervisor para ver detalle</span>
       </div>
 
       <div class="tbl-wrap">
@@ -9831,7 +10118,7 @@ function _dd_renderSupervisorTable(rows) {
             </thead>
             <tbody>
               ${rows.map(s => `
-                <tr>
+                <tr onclick="_dd_openSupervisorDetail('${s.supervisor_id}')" style="cursor:pointer">
                   <td>
                     <div class="agent-row-name">${s.supervisor_name}</div>
                     <div class="agent-row-id">${s.supervisor_id}</div>
@@ -10153,18 +10440,18 @@ function _dd_render() {
         </select>
       </div>
 
-      <div class="kpi4">
-        ${_dd_card('Asistencia completa', cur.completeRate + '%', prev.completeRate, { color:'#16A34A' })}
-        ${_dd_card('Retardos reales', cur.retardo, prev.retardo, { color:'#D97706' })}
-        ${_dd_card('Faltas injustificadas', cur.falta, prev.falta, { color:'#DC2626' })}
-        ${_dd_card('Sin salida', cur.sinSalida, prev.sinSalida, { color:'#DC2626' })}
-      </div>
+    <div class="kpi4">
+      ${_dd_card('Puntualidad operativa', cur.operationalPunctuality + '%', prev.operationalPunctuality, { color:'#16A34A' })}
+      ${_dd_card('Cumplimiento de salida', cur.checkoutCompliance + '%', prev.checkoutCompliance, { color:'#2563EB' })}
+      ${_dd_card('Faltas injustificadas', cur.falta, prev.falta, { color:'#DC2626' })}
+      ${_dd_card('Días completos sin incidencia', cur.completeRate + '%', prev.completeRate, { color:'#0F172A' })}
+    </div>
 
       <div class="kpi4">
-        ${_dd_card('En tolerancia', cur.tolerancia, prev.tolerancia, { color:'#D97706' })}
+        ${_dd_card('Retardos reales', cur.retardo, prev.retardo, { color:'#D97706' })}
+        ${_dd_card('Sin salida', cur.sinSalida, prev.sinSalida, { color:'#DC2626' })}
         ${_dd_card('Acciones esperadas', data.current.expectedActions.totalExpected, data.previous.expectedActions.totalExpected, { color:'#0F172A' })}
         ${_dd_card('Acciones cargadas', data.current.actions.length, data.previous.actions.length, { color:'#0F172A' })}
-        ${_dd_card('Tickets HR', data.current.tickets.created, data.previous.tickets.created, { color:'#2563EB' })}
       </div>
 
       ${_dd_renderPresentation(data)}
