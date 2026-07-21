@@ -12443,6 +12443,7 @@ const _t_sb = supabase.createClient(_t_SB_URL, _t_SB_KEY);
 
 let _t_TICKETS = [];
 let _t_EMPLEADOS = [];
+let _t_TEAM_TICKETS = [];
 let _t_EMPLEADOS_FULL = [];
 let _t_cargando = false;
 let _t_vistaTickets = 'mis';
@@ -13014,51 +13015,131 @@ function _t_startTicketNotificationPolling() {
 
 async function _t_cargarTickets(options = {}) {
   try {
-    const ro = ROLES[currentRole];
+    const ro = ROLES[currentRole] || {};
+    const role = String(currentRole || '').toLowerCase();
 
+    _t_TEAM_TICKETS = [];
+
+    /*
+     * 1. Cargar tickets normales.
+     *
+     * People / Head People / CEO:
+     * reciben la bandeja completa según sus políticas actuales.
+     *
+     * Agente / Supervisor / Manager:
+     * reciben únicamente sus propios tickets.
+     */
     let query = _t_sb
       .from('hr_tickets')
       .select('*')
-      .order('created_at', { ascending:false });
+      .order('created_at', { ascending: false });
 
     if (!_t_puedeGestionar()) {
       query = query.eq('employee_id', ro.id);
     }
 
-    const { data, error } = await query;
-    if (error) throw error;
+    const { data: ownOrAllTickets, error: ticketsError } = await query;
 
-    _t_TICKETS = data || [];
+    if (ticketsError) {
+      throw ticketsError;
+    }
 
+    const ticketsBase = ownOrAllTickets || [];
+
+    /*
+     * 2. Si el usuario conectado es supervisor,
+     * cargar los tickets permitidos de su equipo mediante RPC.
+     *
+     * La RPC ya excluye Quejas y Denuncias.
+     */
+    if (role === 'supervisor') {
+      const { data: teamTickets, error: teamError } = await _t_sb.rpc(
+        'get_supervisor_team_tickets'
+      );
+
+      if (teamError) {
+        console.error(
+          '[Tickets HR] Error cargando tickets del equipo:',
+          teamError
+        );
+
+        _t_TEAM_TICKETS = [];
+      } else {
+        _t_TEAM_TICKETS = (teamTickets || []).map(ticket => ({
+          ...ticket,
+          _team_ticket: true
+        }));
+      }
+    }
+
+    /*
+     * 3. Unir ambas listas para que el detalle pueda encontrar
+     * tanto tickets propios como tickets del equipo.
+     *
+     * Se eliminan duplicados por ID.
+     */
+    const ticketsMap = new Map();
+
+    [...ticketsBase, ..._t_TEAM_TICKETS].forEach(ticket => {
+      if (!ticket?.id) return;
+      ticketsMap.set(ticket.id, ticket);
+    });
+
+    _t_TICKETS = Array.from(ticketsMap.values()).sort((a, b) => {
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
+
+    /*
+     * 4. Cargar empleados activos para mostrar nombres,
+     * campañas, supervisores y puestos.
+     */
     const { data: emps, error: empError } = await _t_sb
       .from('employees')
-      .select('id,full_name,supervisor_id,status,campaign_id,system_role,position_title,hire_date')
+      .select(
+        'id,full_name,supervisor_id,status,campaign_id,system_role,position_title,hire_date'
+      )
       .eq('status', 'active')
       .order('full_name');
 
-    if (empError) throw empError;
+    if (empError) {
+      throw empError;
+    }
 
     _t_EMPLEADOS = emps || [];
     _t_EMPLEADOS_FULL = emps || [];
 
-    _t_PAYROLL_REVIEWS = {};
+    /*
+     * 5. Mantener intacta la clasificación interna de nómina.
+     */
+    window._t_PAYROLL_REVIEWS = {};
+    _t_PAYROLL_REVIEWS = window._t_PAYROLL_REVIEWS;
 
     if (_t_canManagePayrollReview()) {
       const payrollIds = (_t_TICKETS || [])
         .filter(_t_esTicketNomina)
-        .map(t => t.id)
+        .map(ticket => ticket.id)
         .filter(Boolean);
 
       if (payrollIds.length) {
-        const { data: reviews, error: revError } = await _t_sb
+        const { data: reviews, error: reviewError } = await _t_sb
           .from('hr_ticket_payroll_reviews')
           .select('*')
           .in('ticket_id', payrollIds);
 
-        if (revError) {
-          console.warn('No se pudieron cargar clasificaciones internas de nómina:', revError);
+        if (reviewError) {
+          console.warn(
+            'No se pudieron cargar clasificaciones internas de nómina:',
+            reviewError
+          );
         } else {
-          _t_PAYROLL_REVIEWS = Object.fromEntries((reviews || []).map(r => [r.ticket_id, r]));
+          window._t_PAYROLL_REVIEWS = Object.fromEntries(
+            (reviews || []).map(review => [
+              review.ticket_id,
+              review
+            ])
+          );
+
+          _t_PAYROLL_REVIEWS = window._t_PAYROLL_REVIEWS;
         }
       }
     }
@@ -13068,8 +13149,13 @@ async function _t_cargarTickets(options = {}) {
     }
 
     return true;
-  } catch(e) {
-    console.error('Error tickets:', e);
+
+  } catch (error) {
+    console.error('Error tickets:', error);
+
+    _t_TICKETS = [];
+    _t_TEAM_TICKETS = [];
+
     return false;
   }
 }
@@ -14096,26 +14182,98 @@ function _t_filtrarTickets(lista) {
 }
 
 function _t_renderTabs() {
-  if (!_t_puedeGestionar()) return '';
+  const role = String(currentRole || '').toLowerCase();
+  const ro = ROLES[currentRole] || {};
 
-  const mis = _t_TICKETS.filter(t => t.employee_id === ROLES[currentRole].id).length;
-  const abiertos = _t_TICKETS.filter(_t_esAbierto).length;
+  /*
+   * Supervisor:
+   * Mis tickets | Tickets de mi equipo
+   */
+  if (role === 'supervisor') {
+    const propios = (_t_TICKETS || []).filter(
+      ticket => ticket.employee_id === ro.id
+    );
+
+    const equipo = _t_TEAM_TICKETS || [];
+
+    const propiosAbiertos = propios.filter(_t_esAbierto).length;
+    const equipoAbiertos = equipo.filter(_t_esAbierto).length;
+
+    const unreadPropios = _t_ticketUnreadCount(propios);
+
+    return `
+      <div class="tabs" style="margin-bottom:18px">
+
+        <button
+          class="tab ${_t_vistaTickets === 'mis' ? 'on' : ''}"
+          onclick="_t_setVista('mis')"
+        >
+          Mis tickets
+          ${propiosAbiertos ? `(${propiosAbiertos} abiertos)` : ''}
+          ${unreadPropios ? ` · ● ${unreadPropios}` : ''}
+        </button>
+
+        <button
+          class="tab ${_t_vistaTickets === 'equipo' ? 'on' : ''}"
+          onclick="_t_setVista('equipo')"
+        >
+          Tickets de mi equipo
+          ${equipoAbiertos ? `(${equipoAbiertos} abiertos)` : equipo.length ? `(${equipo.length})` : ''}
+        </button>
+
+      </div>
+    `;
+  }
+
+  /*
+   * Agentes y otros roles sin gestión:
+   * no requieren pestañas.
+   */
+  if (!_t_puedeGestionar()) {
+    return '';
+  }
+
+  /*
+   * People / Head People / CEO:
+   * conservar sus pestañas actuales.
+   */
+  const misTickets = (_t_TICKETS || []).filter(
+    ticket => ticket.employee_id === ro.id
+  );
+
+  const mis = misTickets.length;
+  const abiertos = (_t_TICKETS || []).filter(_t_esAbierto).length;
   const unreadAll = _t_ticketUnreadCount(_t_TICKETS);
-  const unreadMis = _t_ticketUnreadCount(_t_TICKETS.filter(t => t.employee_id === ROLES[currentRole].id));
+  const unreadMis = _t_ticketUnreadCount(misTickets);
 
   return `
     <div class="tabs" style="margin-bottom:18px">
-      <button class="tab ${_t_vistaTickets === 'bandeja' ? 'on' : ''}" onclick="_t_setVista('bandeja')">
-        Bandeja ${abiertos ? `(${abiertos})` : ''}${unreadAll ? ` · ● ${unreadAll}` : ''}
+
+      <button
+        class="tab ${_t_vistaTickets === 'bandeja' ? 'on' : ''}"
+        onclick="_t_setVista('bandeja')"
+      >
+        Bandeja
+        ${abiertos ? `(${abiertos})` : ''}
+        ${unreadAll ? ` · ● ${unreadAll}` : ''}
       </button>
 
-      <button class="tab ${_t_vistaTickets === 'mis' ? 'on' : ''}" onclick="_t_setVista('mis')">
-        Mis tickets ${mis ? `(${mis})` : ''}${unreadMis ? ` · ● ${unreadMis}` : ''}
+      <button
+        class="tab ${_t_vistaTickets === 'mis' ? 'on' : ''}"
+        onclick="_t_setVista('mis')"
+      >
+        Mis tickets
+        ${mis ? `(${mis})` : ''}
+        ${unreadMis ? ` · ● ${unreadMis}` : ''}
       </button>
 
-      <button class="tab ${_t_vistaTickets === 'reportes' ? 'on' : ''}" onclick="_t_setVista('reportes')">
+      <button
+        class="tab ${_t_vistaTickets === 'reportes' ? 'on' : ''}"
+        onclick="_t_setVista('reportes')"
+      >
         Reportes
       </button>
+
     </div>
   `;
 }
@@ -14313,18 +14471,113 @@ function _t_renderBandeja() {
   `;
 }
 
-function _t_renderMisTickets() {
-  const ro = ROLES[currentRole];
-  const lista = _t_TICKETS.filter(t => t.employee_id === ro.id);
+function _t_renderTicketsEquipo() {
+  const lista = [...(_t_TEAM_TICKETS || [])].sort((a, b) => {
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+  });
+
+  const abiertos = lista.filter(_t_esAbierto).length;
+  const resueltos = lista.filter(
+    ticket => ticket.status === 'resolved'
+  ).length;
+
+  const vencidos = lista.filter(
+    ticket => _t_slaInfo(ticket).state === 'overdue'
+  ).length;
 
   return `
-    <div style="max-width:900px;margin:0 auto">
+    <div style="max-width:1100px;margin:0 auto">
+
       ${_t_renderTabs()}
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">
-        <div style="font-size:13px;color:#64748B">${lista.length} ticket${lista.length !== 1 ? 's' : ''}</div>
-        <button onclick="_t_abrirNuevo()" class="btn-primary">+ Nuevo ticket</button>
+
+      <div
+        style="
+          background:#EFF6FF;
+          border:1px solid #BFDBFE;
+          border-radius:12px;
+          padding:12px 14px;
+          margin-bottom:14px;
+          color:#1E40AF;
+          font-size:12px;
+          line-height:1.5;
+        "
+      >
+        <div style="font-weight:800;margin-bottom:3px">
+          👥 Seguimiento de tickets de tu equipo
+        </div>
+
+        <div>
+          Esta vista es únicamente de consulta. Las Quejas y Denuncias
+          son confidenciales y no aparecen en esta sección.
+        </div>
       </div>
-      ${_t_renderTablaTickets(lista, 'Aún no tienes tickets registrados')}
+
+      <div
+        style="
+          display:grid;
+          grid-template-columns:repeat(4,1fr);
+          gap:10px;
+          margin-bottom:16px;
+        "
+      >
+
+        <div class="kpi-box">
+          <div class="kpi-val">${lista.length}</div>
+          <div class="kpi-lbl">Total visibles</div>
+        </div>
+
+        <div class="kpi-box">
+          <div class="kpi-val" style="color:#D97706">
+            ${abiertos}
+          </div>
+          <div class="kpi-lbl">Abiertos</div>
+        </div>
+
+        <div class="kpi-box">
+          <div class="kpi-val" style="color:#16A34A">
+            ${resueltos}
+          </div>
+          <div class="kpi-lbl">Resueltos</div>
+        </div>
+
+        <div class="kpi-box">
+          <div class="kpi-val" style="color:#DC2626">
+            ${vencidos}
+          </div>
+          <div class="kpi-lbl">SLA vencido</div>
+        </div>
+
+      </div>
+
+      <div
+        style="
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          margin-bottom:14px;
+          gap:10px;
+          flex-wrap:wrap;
+        "
+      >
+        <div style="font-size:13px;color:#64748B">
+          ${lista.length}
+          ticket${lista.length !== 1 ? 's' : ''}
+          visible${lista.length !== 1 ? 's' : ''} de tu equipo
+        </div>
+
+        <button
+          class="btn-ghost"
+          onclick="_t_recargarTicketsEquipo()"
+        >
+          🔄 Actualizar
+        </button>
+      </div>
+
+      ${_t_renderTablaTickets(
+        lista,
+        'Tu equipo todavía no tiene tickets visibles'
+      )}
+
     </div>
   `;
 }
@@ -14476,8 +14729,27 @@ function _t_render() {
 
   const c = document.getElementById('content');
 
+  if (!c) return;
+
   if (_t_cargando) {
-    c.innerHTML = '<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:32px;height:32px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando tickets...</div>';
+    c.innerHTML = `
+      <div style="text-align:center;padding:60px;color:#94A3B8">
+        <div
+          style="
+            width:32px;
+            height:32px;
+            border:3px solid #E2E8F0;
+            border-top-color:#62D3F5;
+            border-radius:50%;
+            animation:spin .7s linear infinite;
+            margin:0 auto 12px;
+          "
+        ></div>
+
+        Cargando tickets...
+      </div>
+    `;
+
     return;
   }
 
@@ -14486,6 +14758,28 @@ function _t_render() {
     return;
   }
 
+  const role = String(currentRole || '').toLowerCase();
+
+  /*
+   * Vista especial para supervisor.
+   */
+  if (role === 'supervisor') {
+    if (!['mis', 'equipo'].includes(_t_vistaTickets)) {
+      _t_vistaTickets = 'mis';
+    }
+
+    if (_t_vistaTickets === 'equipo') {
+      c.innerHTML = _t_renderTicketsEquipo();
+      return;
+    }
+
+    c.innerHTML = _t_renderMisTickets();
+    return;
+  }
+
+  /*
+   * People / Head People / CEO.
+   */
   if (_t_puedeGestionar()) {
     if (!['bandeja', 'mis', 'reportes'].includes(_t_vistaTickets)) {
       _t_vistaTickets = 'bandeja';
@@ -14505,6 +14799,10 @@ function _t_render() {
     return;
   }
 
+  /*
+   * Agentes y managers sin permisos de gestión.
+   */
+  _t_vistaTickets = 'mis';
   c.innerHTML = _t_renderMisTickets();
 }
 
