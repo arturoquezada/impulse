@@ -4543,6 +4543,15 @@ async function _a_guardarMotivosRetardo(){
   .select('id, punch_time, punched_at')
   .maybeSingle();
 
+  if (!error && !updatedPunch) {
+  alert('No se encontró la entrada de ese día. El motivo no fue guardado para evitar crear una entrada incorrecta.');
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'Guardar motivo';
+  }
+  return;
+}
+
   if (error) {
     console.error('Error guardando motivo de retardo:', error);
     alert('No se pudo guardar el motivo en Supabase. Intenta de nuevo.\n\n' + error.message);
