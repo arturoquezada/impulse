@@ -11444,8 +11444,9 @@ function _dd_payrollOwnerLabel(v) {
     pending: 'Pendiente',
     operations: 'Operaciones',
     people: 'People',
+    training: 'Training',
     agent: 'Agente',
-    none: 'Nadie / No aplica'
+    none: 'Dudas sin accionable'
   };
 
   return map[v] || v || 'Pendiente';
@@ -11454,19 +11455,28 @@ function _dd_payrollOwnerLabel(v) {
 function _dd_payrollSummary(rows = []) {
   const total = rows.length;
   const resolved = rows.filter(r => r.status === 'resolved').length;
-  const pendingClass = rows.filter(r => (r.error_owner || 'pending') === 'pending').length;
+
+  const pendingClass = rows.filter(
+    r => (r.error_owner || 'pending') === 'pending'
+  ).length;
 
   const byOwner = {
     pending: 0,
     operations: 0,
     people: 0,
+    training: 0,
     agent: 0,
     none: 0
   };
 
   rows.forEach(r => {
-    const k = r.error_owner || 'pending';
-    byOwner[k] = (byOwner[k] || 0) + 1;
+    const key = r.error_owner || 'pending';
+
+    if (!(key in byOwner)) {
+      byOwner[key] = 0;
+    }
+
+    byOwner[key] += 1;
   });
 
   const resolutionHours = rows
@@ -11474,7 +11484,12 @@ function _dd_payrollSummary(rows = []) {
     .filter(n => n > 0);
 
   const avgResolution = resolutionHours.length
-    ? Math.round((resolutionHours.reduce((a, b) => a + b, 0) / resolutionHours.length) * 10) / 10
+    ? Math.round(
+        (
+          resolutionHours.reduce((total, hours) => total + hours, 0) /
+          resolutionHours.length
+        ) * 10
+      ) / 10
     : 0;
 
   return {
@@ -11788,8 +11803,9 @@ function _t_payrollOwnerLabel(v) {
     pending: 'Pendiente',
     operations: 'Operaciones',
     people: 'People',
+    training: 'Training',
     agent: 'Agente',
-    none: 'Nadie / No aplica'
+    none: 'Dudas sin accionable'
   };
 
   return map[v] || v || 'Pendiente';
@@ -11844,11 +11860,16 @@ function _t_renderPayrollReviewBox(t) {
           </label>
 
           <select id="payroll-owner-${t.id}" style="width:100%;padding:9px 10px;border:1px solid #CBD5E1;border-radius:8px;font-size:13px;font-family:var(--f);background:#fff">
-            <option value="pending" ${owner === 'pending' ? 'selected' : ''}>Pendiente de clasificar</option>
-            <option value="operations" ${owner === 'operations' ? 'selected' : ''}>Operaciones</option>
-            <option value="people" ${owner === 'people' ? 'selected' : ''}>People</option>
-            <option value="agent" ${owner === 'agent' ? 'selected' : ''}>Agente</option>
-            <option value="none" ${owner === 'none' ? 'selected' : ''}>Nadie / No aplica</option>
+           <option value="pending" ${owner === 'pending' ? 'selected' : ''}>
+  Pendiente de clasificar
+</option>
+
+<option value="operations" ${owner === 'operations' ? 'selected' : ''}>
+  Operaciones
+</option><option value="people" ${owner === 'people' ? 'selected' : ''}>People</option>
+<option value="training" ${owner === 'training' ? 'selected' : ''}>Training</option>
+<option value="agent" ${owner === 'agent' ? 'selected' : ''}>Agente</option>
+<option value="none" ${owner === 'none' ? 'selected' : ''}>Dudas sin accionable</option>
           </select>
         </div>
 
