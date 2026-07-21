@@ -4532,17 +4532,16 @@ async function _a_guardarMotivosRetardo(){
   const btn = document.querySelector('.modal-footer .btn-primary');
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
 
-  const a = _a_TEAM.find(x=>x.id===rec.agentId);
-  const { error } = await _a_sb.from('attendance_punches').upsert({
-    employee_id: rec.agentId,
-    punch_date:  rec.fecha,
-    punch_type:  'entrada',
-    punch_time:  '00:00:00',
-    punched_at:  rec.fecha + 'T00:00:00-06:00',
-    campaign_id: a?.camp || null,
-    created_by:  ROLES[currentRole].id,
-    notes:       motivo,
-  }, { onConflict: 'employee_id,punch_date,punch_type' });
+  const { data: updatedPunch, error } = await _a_sb
+  .from('attendance_punches')
+  .update({
+    notes: motivo
+  })
+  .eq('employee_id', rec.agentId)
+  .eq('punch_date', rec.fecha)
+  .eq('punch_type', 'entrada')
+  .select('id, punch_time, punched_at')
+  .maybeSingle();
 
   if (error) {
     console.error('Error guardando motivo de retardo:', error);
@@ -18612,9 +18611,13 @@ function _e_siguienteId() {
 // ── ALTA MASIVA (CSV) ───────────────────────────────────────────────
 let _e_bulkRows = [];
 let _e_bulkErrors = [];
+let _e_bulkLastResults = [];
 
+// El correo empresarial ya no se captura en la plantilla: la Edge Function lo
+// genera de forma segura, valida colisiones en employees + auth.users y devuelve
+// el correo final realmente asignado.
 const _E_BULK_COLUMNS = [
-  'id','full_name','birth_date','gender','email','personal_email','phone',
+  'id','full_name','birth_date','gender','personal_email','phone',
   'address','system_role','campaign_id','lob','queue','position_title',
   'supervisor_id','shift_start','shift_end','days_off','hire_date',
   'bank_name','bank_account'
@@ -18622,8 +18625,8 @@ const _E_BULK_COLUMNS = [
 
 const _E_BULK_HEADERS_LABEL = {
   id:'ID', full_name:'Nombre completo', birth_date:'Fecha nacimiento (YYYY-MM-DD)',
-  gender:'Genero', email:'Correo empresarial', personal_email:'Correo personal',
-  phone:'Telefono', address:'Direccion', system_role:'Rol (agent/supervisor/manager/people/head_people)',
+  gender:'Genero', personal_email:'Correo personal', phone:'Telefono', address:'Direccion',
+  system_role:'Rol (agent/supervisor/manager/people/head_people)',
   campaign_id:'Campana (aplazo/stori/iforex/casap/cashmind/clivi/admin/liderazgo/naya/sanarai/expx/nido/sueno_americano)', lob:'LOB',
   queue:'Queue', position_title:'Puesto', supervisor_id:'ID Supervisor',
   shift_start:'Turno entrada (HH:MM)', shift_end:'Turno salida (HH:MM)',
@@ -18631,16 +18634,20 @@ const _E_BULK_HEADERS_LABEL = {
   hire_date:'Fecha ingreso (YYYY-MM-DD)', bank_name:'Banco', bank_account:'Cuenta/CLABE'
 };
 
+function _e_csvCell(value) {
+  const s = String(value ?? '');
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
 function _e_descargarPlantilla() {
-  const headers = _E_BULK_COLUMNS.map(c => _E_BULK_HEADERS_LABEL[c]).join(',');
+  const headers = _E_BULK_COLUMNS.map(c => _e_csvCell(_E_BULK_HEADERS_LABEL[c])).join(',');
   const ejemplo = [
     _e_siguienteId(), 'Lionel Messi', '1995-04-12', 'Masculino',
-    'lionel.messi@evolvecx.io', 'lionelmessi@gmail.com', '5512345678',
-    'Calle Falsa 123, Centro, CP 00000', 'agent', 'aplazo', 'Soporte', 'WA Pagos',
-    'Representante de Atencion a Clientes', '', '09:00', '18:00',
-    'saturday;sunday', ymd(NOW), 'BBVA BANCOMER', '1234567890'
-  ].join(',');
-  const csv = headers + '\n' + ejemplo;
+    'lionelmessi@gmail.com', '5512345678', 'Calle Falsa 123, Centro, CP 00000',
+    'agent', 'aplazo', 'Soporte', 'WA Pagos', 'Representante de Atencion a Clientes',
+    '', '09:00', '18:00', 'saturday;sunday', ymd(NOW), 'BBVA BANCOMER', '1234567890'
+  ].map(_e_csvCell).join(',');
+  const csv = '\ufeff' + headers + '\n' + ejemplo;
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -18654,9 +18661,11 @@ function _e_parseCSVLine(line) {
   let cur = '', inQuotes = false;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
-    if (ch === '"') { inQuotes = !inQuotes; }
-    else if (ch === ',' && !inQuotes) { result.push(cur); cur = ''; }
-    else { cur += ch; }
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) { result.push(cur); cur = ''; }
+    else cur += ch;
   }
   result.push(cur);
   return result.map(s => s.trim());
@@ -18664,19 +18673,21 @@ function _e_parseCSVLine(line) {
 
 function _e_abrirBulkUpload() {
   document.getElementById('modalTitle').textContent = 'Alta masiva de empleados';
-  document.getElementById('modalSub').textContent = 'Sube un CSV con los nuevos empleados';
+  document.getElementById('modalSub').textContent = 'Sube un CSV; Impulse creará el correo y el acceso';
   document.getElementById('modalBody').innerHTML = `
     <div style="background:#EFF6FF;border-radius:8px;padding:12px;font-size:13px;color:#1D4ED8;margin-bottom:14px">
-      📋 Descarga la plantilla, llénala con tus empleados y súbela aquí. Cada login se creará con contraseña temporal <strong>0000</strong>.
+      📋 El archivo ya no solicita correo empresarial. Impulse generará uno único con dominio <strong>@evolvecx.io</strong>, creará Auth con contraseña temporal <strong>0000</strong> y lo vinculará al empleado.
     </div>
-    <button onclick="_e_descargarPlantilla()" style="width:100%;padding:10px;background:#fff;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:14px;font-family:var(--f)">⬇️ Descargar plantilla CSV</button>
+    <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400E;margin-bottom:14px">
+      No agregues ni recorras columnas. Usa la plantilla nueva para conservar horarios, supervisor, campaña y datos necesarios para asistencia.
+    </div>
+    <button onclick="_e_descargarPlantilla()" style="width:100%;padding:10px;background:#fff;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:14px;font-family:var(--f)">⬇️ Descargar plantilla CSV actualizada</button>
     <div class="modal-section">
       <label class="modal-label">SUBIR CSV LLENO</label>
-      <input type="file" id="bulk-file-input" accept=".csv" onchange="_e_procesarBulkCSV(event)" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+      <input type="file" id="bulk-file-input" accept=".csv,text/csv" onchange="_e_procesarBulkCSV(event)" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
     </div>
     <div id="bulk-preview"></div>`;
-  document.getElementById('modalFooter').innerHTML = `
-    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>`;
+  document.getElementById('modalFooter').innerHTML = `<button class="btn-ghost" onclick="closeModal()">Cancelar</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
 }
 
@@ -18685,13 +18696,26 @@ function _e_procesarBulkCSV(event) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = function(e) {
-    const text = e.target.result;
+    const text = String(e.target.result || '').replace(/^\ufeff/, '');
     const lines = text.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) {
       document.getElementById('bulk-preview').innerHTML = '<div style="color:#DC2626;font-size:13px;padding:10px">El archivo no tiene filas de datos.</div>';
       return;
     }
-    // Saltar el header (línea 1) — usamos el orden fijo de _E_BULK_COLUMNS
+
+    const headerValues = _e_parseCSVLine(lines[0]);
+    const expectedHeaders = _E_BULK_COLUMNS.map(c => _E_BULK_HEADERS_LABEL[c]);
+    const headersOk = expectedHeaders.length === headerValues.length && expectedHeaders.every((h, i) => h === headerValues[i]);
+    if (!headersOk) {
+      document.getElementById('bulk-preview').innerHTML = `
+        <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px;font-size:12px;color:#991B1B;margin-top:12px">
+          <strong>La plantilla no corresponde a la versión actual.</strong><br><br>
+          Descarga nuevamente la plantilla. La nueva versión ya no incluye la columna “Correo empresarial”. Esto evita que las demás columnas se recorran y que se creen horarios o campañas incorrectos.
+        </div>`;
+      document.getElementById('modalFooter').innerHTML = '<button class="btn-ghost" onclick="closeModal()">Cerrar</button>';
+      return;
+    }
+
     const dataLines = lines.slice(1);
     _e_bulkRows = [];
     _e_bulkErrors = [];
@@ -18700,62 +18724,64 @@ function _e_procesarBulkCSV(event) {
       const vals = _e_parseCSVLine(line);
       const row = {};
       _E_BULK_COLUMNS.forEach(function(col, i) { row[col] = vals[i] || ''; });
-      const rowNum = idx + 2; // +2 porque saltamos header y es 1-indexed
-
+      const rowNum = idx + 2;
       const errs = [];
+
+      if (vals.length > _E_BULK_COLUMNS.length && vals.slice(_E_BULK_COLUMNS.length).some(v => String(v).trim())) errs.push('La fila contiene columnas adicionales');
       if (!row.id || !row.id.match(/^[A-Z0-9]{4,12}$/i)) errs.push('ID inválido');
       if (!row.full_name) errs.push('Falta nombre');
-      if (!row.email || !row.email.includes('@')) errs.push('Email inválido');
       if (!row.position_title) errs.push('Falta puesto');
-      if (!row.hire_date) errs.push('Falta fecha de ingreso');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(row.hire_date || '')) errs.push('Fecha de ingreso inválida');
       if (!['agent','supervisor','manager','people','head_people','ceo','workforce'].includes(row.system_role)) errs.push('Rol inválido');
       if (!['aplazo','stori','iforex','casap','cashmind','clivi','admin','liderazgo','naya','sanarai','expx','nido','sueno_americano'].includes(row.campaign_id)) errs.push('Campaña inválida');
+      if (row.personal_email && !/^\S+@\S+\.\S+$/.test(row.personal_email)) errs.push('Correo personal inválido');
+      if (row.shift_start && !/^([01]\d|2[0-3]):[0-5]\d$/.test(row.shift_start)) errs.push('Hora de entrada inválida');
+      if (row.shift_end && !/^([01]\d|2[0-3]):[0-5]\d$/.test(row.shift_end)) errs.push('Hora de salida inválida');
 
-      const idUpper = (row.id||'').toUpperCase();
-      if (_e_EMPLEADOS.some(emp => emp.id === idUpper && emp.status === 'active')) {
-        errs.push('ID ya existe como empleado activo');
-      }
-      // Duplicado dentro del mismo CSV
+      const idUpper = (row.id || '').toUpperCase();
+      if (_e_EMPLEADOS.some(emp => emp.id === idUpper && emp.status === 'active')) errs.push('ID ya existe como empleado activo');
       if (_e_bulkRows.some(r => r.id === idUpper)) errs.push('ID duplicado en el archivo');
 
       row.id = idUpper;
       row._rowNum = rowNum;
       row._errors = errs;
-
       if (errs.length) _e_bulkErrors.push(row);
       _e_bulkRows.push(row);
     });
 
+
     _e_renderBulkPreview();
   };
-  reader.readAsText(file);
+  reader.readAsText(file, 'UTF-8');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function _e_renderBulkPreview() {
   const validRows = _e_bulkRows.filter(r => r._errors.length === 0);
   const errorRows = _e_bulkRows.filter(r => r._errors.length > 0);
-
-  let rows = _e_bulkRows.map(function(r) {
+  const rows = _e_bulkRows.map(function(r) {
     const hasErr = r._errors.length > 0;
-    return '<tr style="border-top:1px solid #F1F5F9;background:' + (hasErr?'#FEF2F2':'transparent') + '">' +
+    return '<tr style="border-top:1px solid #F1F5F9;background:' + (hasErr ? '#FEF2F2' : 'transparent') + '">' +
       '<td style="padding:8px 10px;font-size:12px">' + r._rowNum + '</td>' +
-      '<td style="padding:8px 10px;font-size:12px;font-weight:600">' + r.id + '</td>' +
-      '<td style="padding:8px 10px;font-size:12px">' + r.full_name + '</td>' +
-      '<td style="padding:8px 10px;font-size:12px">' + r.email + '</td>' +
-      '<td style="padding:8px 10px;font-size:11px;color:#DC2626">' + (hasErr ? r._errors.join(', ') : '<span style="color:#16A34A">✓ OK</span>') + '</td>' +
+      '<td style="padding:8px 10px;font-size:12px;font-weight:600">' + escapeHtml(r.id) + '</td>' +
+      '<td style="padding:8px 10px;font-size:12px">' + escapeHtml(r.full_name) + '</td>' +
+      '<td style="padding:8px 10px;font-size:12px;color:#64748B">Se generará automáticamente</td>' +
+      '<td style="padding:8px 10px;font-size:11px;color:#DC2626">' + (hasErr ? escapeHtml(r._errors.join(', ')) : '<span style="color:#16A34A">✓ OK</span>') + '</td>' +
     '</tr>';
   }).join('');
 
   document.getElementById('bulk-preview').innerHTML = `
     <div style="display:flex;gap:10px;margin:14px 0">
-      <div style="flex:1;background:#DCFCE7;border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:20px;font-weight:800;color:#16A34A">${validRows.length}</div>
-        <div style="font-size:11px;color:#166534">Listos para crear</div>
-      </div>
-      <div style="flex:1;background:#FEE2E2;border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:20px;font-weight:800;color:#DC2626">${errorRows.length}</div>
-        <div style="font-size:11px;color:#991B1B">Con errores</div>
-      </div>
+      <div style="flex:1;background:#DCFCE7;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#16A34A">${validRows.length}</div><div style="font-size:11px;color:#166534">Listos para crear</div></div>
+      <div style="flex:1;background:#FEE2E2;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#DC2626">${errorRows.length}</div><div style="font-size:11px;color:#991B1B">Con errores</div></div>
     </div>
     <div style="max-height:280px;overflow-y:auto;border:1px solid #E2E8F0;border-radius:8px">
       <table style="width:100%;border-collapse:collapse">
@@ -18763,10 +18789,9 @@ function _e_renderBulkPreview() {
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#64748B">Fila</th>
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#64748B">ID</th>
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#64748B">Nombre</th>
-          <th style="padding:8px 10px;text-align:left;font-size:10px;color:#64748B">Email</th>
+          <th style="padding:8px 10px;text-align:left;font-size:10px;color:#64748B">Correo empresarial</th>
           <th style="padding:8px 10px;text-align:left;font-size:10px;color:#64748B">Status</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
+        </tr></thead><tbody>${rows}</tbody>
       </table>
     </div>`;
 
@@ -18775,73 +18800,105 @@ function _e_renderBulkPreview() {
     <button id="bulk-confirm-btn" onclick="_e_confirmarBulkAlta()" ${validRows.length===0?'disabled':''} style="background:${validRows.length===0?'#94A3B8':'#0F172A'};color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:${validRows.length===0?'not-allowed':'pointer'}">Crear ${validRows.length} empleado${validRows.length!==1?'s':''}</button>`;
 }
 
+function _e_descargarResultadoBulk() {
+  if (!_e_bulkLastResults.length) return;
+  const headers = ['ID','Nombre','Correo empresarial','Contraseña temporal','Resultado','Detalle'];
+  const rows = _e_bulkLastResults.map(function(r) {
+    const original = _e_bulkRows.find(x => x.id === r.id);
+    return [r.id || '', original?.full_name || '', r.email || '', r.ok ? '0000' : '', r.ok ? 'Correcto' : 'Error', r.message || r.error || ''];
+  });
+  const csv = '\ufeff' + [headers, ...rows].map(row => row.map(_e_csvCell).join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'resultado_alta_masiva_' + ymd(NOW) + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
 async function _e_confirmarBulkAlta() {
   const validRows = _e_bulkRows.filter(r => r._errors.length === 0);
   if (!validRows.length) return;
-
   const btn = document.getElementById('bulk-confirm-btn');
-  if (btn) { btn.disabled = true; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Preparando ' + validRows.length + ' empleado' + (validRows.length !== 1 ? 's' : '') + '…'; }
 
-  let okCount = 0, errCount = 0;
-  const results = [];
-
-  for (let i = 0; i < validRows.length; i++) {
-    const row = validRows[i];
-    if (btn) btn.textContent = 'Creando ' + (i+1) + '/' + validRows.length + '...';
-
-    try {
-      const daysOff = row.days_off ? row.days_off.split(';').map(d=>d.trim()).filter(Boolean) : [];
+  try {
+    const payloadRows = validRows.map(function(row) {
+      const daysOff = row.days_off ? row.days_off.split(';').map(d => d.trim().toLowerCase()).filter(Boolean) : [];
       const allDays = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
       const workDays = allDays.filter(d => !daysOff.includes(d));
-      const nameParts = row.full_name.split(' ');
-
-      const { error: empError } = await _e_sb.from('employees').insert({
-        id: row.id, full_name: row.full_name,
-        first_name: nameParts[0], last_name: nameParts.slice(1).join(' '),
-        birth_date: row.birth_date || null, gender: row.gender || null,
-        email: row.email, personal_email: row.personal_email || null,
-        phone: row.phone || null, address: row.address || null,
-        system_role: row.system_role, campaign_id: row.campaign_id,
-        lob: row.lob || null, queue: row.queue || null,
+      const nameParts = row.full_name.trim().split(/\s+/);
+      return {
+        id: row.id,
+        full_name: row.full_name.trim(),
+        first_name: nameParts[0] || row.full_name.trim(),
+        last_name: nameParts.slice(1).join(' '),
+        birth_date: row.birth_date || null,
+        gender: row.gender || null,
+        personal_email: row.personal_email ? row.personal_email.trim().toLowerCase() : null,
+        phone: row.phone || null,
+        address: row.address || null,
+        system_role: row.system_role,
+        campaign_id: row.campaign_id,
+        lob: row.lob || null,
+        queue: row.queue || null,
         position_title: row.position_title,
         supervisor_id: row.supervisor_id || null,
-        shift_start: row.shift_start || null, shift_end: row.shift_end || null,
-        work_days: workDays, days_off: daysOff,
-        hire_date: row.hire_date, status: 'active',
-        bank_name: row.bank_name || null, bank_account: row.bank_account || null,
-      });
+        shift_start: row.shift_start || null,
+        shift_end: row.shift_end || null,
+        work_days: workDays,
+        days_off: daysOff,
+        hire_date: row.hire_date,
+        status: 'active',
+        bank_name: row.bank_name || null,
+        bank_account: row.bank_account || null
+      };
+    });
 
-      if (empError) throw new Error(empError.message);
-
-      const { error: authError } = await _e_sb.auth.signUp({
-        email: row.email, password: '0000',
-        options: { data: { employee_id: row.id, nombre: row.full_name, system_role: row.system_role, must_change_password: true } }
-      });
-
-      if (authError) {
-        results.push({ id: row.id, ok: true, warning: 'Empleado creado, login falló: ' + authError.message });
-      } else {
-        results.push({ id: row.id, ok: true });
-        okCount++;
-      }
-      if (authError) okCount++;
-
-    } catch(e) {
-      errCount++;
-      results.push({ id: row.id, ok: false, error: e.message });
+    if (btn) btn.textContent = 'Generando correos, accesos y empleados…';
+    const { data, error } = await _e_sb.functions.invoke('bulk-create-employees', { body: { employees: payloadRows } });
+    if (error) {
+      let detail = error.message || 'No fue posible ejecutar el alta masiva.';
+      try { if (error.context && typeof error.context.json === 'function') { const body = await error.context.json(); detail = body?.error || body?.message || detail; } } catch (_) {}
+      throw new Error(detail);
     }
-  }
+    if (!data || !Array.isArray(data.results)) throw new Error('La función de alta masiva no regresó un resultado válido.');
 
-  const resumenHTML = results.map(function(r) {
-    if (!r.ok) return '<div style="padding:6px 0;font-size:12px;color:#DC2626">❌ ' + r.id + ': ' + r.error + '</div>';
-    if (r.warning) return '<div style="padding:6px 0;font-size:12px;color:#D97706">⚠️ ' + r.id + ': ' + r.warning + '</div>';
-    return '<div style="padding:6px 0;font-size:12px;color:#16A34A">✅ ' + r.id + ' creado correctamente</div>';
-  }).join('');
+    const results = data.results;
+    _e_bulkLastResults = results;
+    const okCount = results.filter(r => r.ok).length;
+    const errCount = results.length - okCount;
+    const createdAuth = results.filter(r => r.ok && r.auth_action === 'created').length;
+    const linkedAuth = results.filter(r => r.ok && r.auth_action === 'linked').length;
+    const existingAuth = results.filter(r => r.ok && r.auth_action === 'existing').length;
 
-  document.getElementById('modalTitle').textContent = 'Resultado de la carga masiva';
-  document.getElementById('modalSub').textContent = okCount + ' creados, ' + errCount + ' con error';
-  document.getElementById('modalBody').innerHTML = '<div style="max-height:300px;overflow-y:auto">' + resumenHTML + '</div>';
-  document.getElementById('modalFooter').innerHTML = '<button class="btn-primary" onclick="closeModal();_e_cargando=true;_e_render();_e_cargarEmpleados().then(function(){_e_cargando=false;_e_render();})">Cerrar</button>';
+    const resumenHTML = results.map(function(r) {
+      const safeId = escapeHtml(r.id || 'Sin ID');
+      const safeEmail = escapeHtml(r.email || 'Sin correo');
+      const safeMessage = escapeHtml(r.message || r.error || 'Sin detalle');
+      if (!r.ok) return '<div style="padding:8px 0;border-bottom:1px solid #FEE2E2;font-size:12px;color:#DC2626">❌ <strong>' + safeId + '</strong>: ' + safeMessage + '</div>';
+      const icon = r.auth_action === 'created' ? '🔐' : (r.auth_action === 'linked' ? '🔗' : '✅');
+      return '<div style="padding:8px 0;border-bottom:1px solid #F1F5F9;font-size:12px;color:#166534">' + icon + ' <strong>' + safeId + '</strong> · <strong>' + safeEmail + '</strong><br><span style="color:#64748B">' + safeMessage + '</span></div>';
+    }).join('');
+
+    document.getElementById('modalTitle').textContent = 'Resultado de la carga masiva';
+    document.getElementById('modalSub').textContent = okCount + ' correctos, ' + errCount + ' con error';
+    document.getElementById('modalBody').innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:14px">
+        <div style="background:#DCFCE7;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#16A34A">${okCount}</div><div style="font-size:10px;color:#166534">Empleados listos</div></div>
+        <div style="background:#FEE2E2;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#DC2626">${errCount}</div><div style="font-size:10px;color:#991B1B">Requieren revisión</div></div>
+        <div style="background:#EFF6FF;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#2563EB">${createdAuth}</div><div style="font-size:10px;color:#1E40AF">Accesos nuevos</div></div>
+        <div style="background:#F8FAFC;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#475569">${linkedAuth + existingAuth}</div><div style="font-size:10px;color:#475569">Accesos vinculados/existentes</div></div>
+      </div>
+      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400E;margin-bottom:12px">Contraseña temporal: <strong>0000</strong>. Descarga el resultado para entregar cada correo generado.</div>
+      <div style="max-height:300px;overflow-y:auto">${resumenHTML}</div>`;
+    document.getElementById('modalFooter').innerHTML = '<button class="btn-ghost" onclick="_e_descargarResultadoBulk()">⬇️ Descargar resultado CSV</button><button class="btn-primary" onclick="closeModal();_e_cargando=true;_e_render();_e_cargarEmpleados().then(function(){_e_cargando=false;_e_render();})">Cerrar</button>';
+  } catch(e) {
+    console.error('[Impulse] Error alta masiva:', e);
+    document.getElementById('modalTitle').textContent = 'No se pudo completar la carga';
+    document.getElementById('modalSub').textContent = 'No se modificó la sesión de People';
+    document.getElementById('modalBody').innerHTML = `<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px;font-size:13px;color:#991B1B"><strong>Error:</strong> ${escapeHtml(e.message || String(e))}</div><div style="margin-top:10px;font-size:12px;color:#64748B">Revisa que la Edge Function <strong>bulk-create-employees</strong> esté desplegada y que Supabase permita contraseñas de 4 caracteres.</div>`;
+    document.getElementById('modalFooter').innerHTML = '<button class="btn-ghost" onclick="closeModal()">Cerrar</button>';
+  } finally { if (btn) btn.disabled = false; }
 }
 
 function _e_abrirReingreso(empId) {
