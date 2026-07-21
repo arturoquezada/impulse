@@ -2888,10 +2888,15 @@ async function _a_cargarQDAYS(empId, from, to) {
 
     // Excepción de falta/permiso/incapacidad/vacación del día.
     // Aquí sí tomamos pending para mostrar "Permiso pend.", "Falta inj. pend.", etc.
+    const exRetardoJustificado = exListDiaAll.find(x =>
+      _a_esTipoRetardoJustificado(x.type)
+    ) || null;
+
     const ex = exListDiaAll.find(x =>
       !_a_esPermutaTrabajo(x.type) &&
       !_a_esPermutaDescanso(x.type) &&
-      String(x.type || '').trim().toLowerCase() !== 'permuta_horario'
+      String(x.type || '').trim().toLowerCase() !== 'permuta_horario' &&
+      !_a_esTipoRetardoJustificado(x.type)
     ) || null;
 
     const vac = vacaciones.find(v =>
@@ -3037,6 +3042,9 @@ async function _a_cargarQDAYS(empId, from, to) {
             : ex?.notes || s?.exception_notes || null,
 
       motivo_retardo: esDescanso || esVacacion ? null : n?.notes || null,
+      retardo_justificacion_status: _a_estadoRetardoJustificado(exRetardoJustificado),
+      retardo_justificacion_id: exRetardoJustificado?.id || null,
+      retardo_justificacion_notes: exRetardoJustificado?.notes || null,
 
       // Campos nuevos de auditoría/cálculo si vienen desde attendance_daily_summary
       time_in_for_calculation: s?.time_in_for_calculation || null,
@@ -3136,7 +3144,7 @@ async function _a_cargarDatos() {
       for (const chunk of _a_chunks(cleanIds, 100)) {
         const { data, error } = await _a_sb
           .from('attendance_exceptions')
-          .select('employee_id, exception_date, type, notes, status, shift_start_override, shift_end_override')
+          .select('id, employee_id, exception_date, type, notes, status, shift_start_override, shift_end_override, source_punch_id, minutes_late')
           .eq('exception_date', hoy)
           .in('employee_id', chunk);
 
@@ -4463,62 +4471,93 @@ function _a_abrirModalRetardo(agentId){
   const a = _a_TEAM.find(x=>x.id===agentId);
   if(!a) return;
 
-  // Buscar registro de hoy — si no existe, crearlo
-  let rec = _a_RETARDO_LOG.find(r=>r.agentId===agentId && r.fecha===_a_TODAY && r.pendiente);
+  let rec = _a_RETARDO_LOG.find(r=>r.agentId===agentId && r.fecha===_a_TODAY);
   if(!rec){
     rec = {
       id:         'RET-'+Date.now(),
       agentId:    agentId,
       agentName:  a.name,
-      supId:      'CX00501',
+      supId:      ROLES[currentRole]?.id || null,
       fecha:      _a_TODAY,
       lateMin:    a.lateMin,
-      motivo:     null,
+      motivo:     a.motivoRetardo || null,
       marcadoPor: null,
-      pendiente:  true,
+      pendiente:  !a.motivoRetardo,
+      justificationStatus: a.lateJustificationStatus || null
     };
     _a_RETARDO_LOG.unshift(rec);
   }
+
   _a_retardoModal = { agentId, retardoId: rec.id };
 
   const grupos = [...new Set(_a_MOTIVOS_RETARDO.map(m=>m.grupo))];
   const optsHTML = grupos.map(g=>`
     <optgroup label="${g}">
       ${_a_MOTIVOS_RETARDO.filter(m=>m.grupo===g).map(m=>
-        `<option value="${m.label}">${m.label}</option>`
+        `<option value="${m.label}" ${rec.motivo===m.label?'selected':''}>${m.label}</option>`
       ).join('')}
     </optgroup>`).join('');
 
-  document.getElementById('modalTitle').textContent = `Motivo de retardo — ${a.name}`;
-  document.getElementById('modalSub').textContent   = `${a.id} · ${rec.lateMin} minutos tarde · ${NOW.toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'long'})}`;
+  const status = rec.justificationStatus || a.lateJustificationStatus || null;
+  const locked = ['pending','approved'].includes(String(status || '').toLowerCase());
+
+  document.getElementById('modalTitle').textContent = `Retardo — ${a.name}`;
+  document.getElementById('modalSub').textContent =
+    `${a.id} · ${rec.lateMin} minutos tarde · ${new Date(rec.fecha+'T12:00:00').toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'long'})}`;
+
   document.getElementById('modalBody').innerHTML = `
+    ${status ? `
+      <div class="alert ${status==='approved'?'alert-green':status==='rejected'?'alert-red':'alert-amber'}" style="margin-bottom:0">
+        ${_a_retardoJustificadoPill(status)}
+        <span>
+          ${status==='approved'
+            ? 'El Manager aprobó este retardo como justificado. Sigue visible en asistencia, pero no cuenta para Acción People.'
+            : status==='pending'
+              ? 'La solicitud está pendiente de revisión. Mientras tanto no puede usarse para una Acción People.'
+              : 'La solicitud fue rechazada. El retardo vuelve a contar para Acción People dentro de la ventana permitida.'}
+        </span>
+      </div>
+    ` : ''}
+
     <div class="modal-section">
-      <div class="ms-title">Motivo <span style="color:#EF4444">*</span></div>
+      <div class="ms-title">Motivo del retardo <span style="color:#EF4444">*</span></div>
       <select id="retardo-motivo"
+        ${locked?'disabled':''}
         style="width:100%;border:1px solid #E2E8F0;border-radius:8px;padding:10px 11px;font-size:13px;font-family:'DM Sans',sans-serif;outline:none;background:#fff;color:#0F172A">
         <option value="">— Selecciona un motivo —</option>
         ${optsHTML}
       </select>
       <div style="font-size:11px;color:#94A3B8;margin-top:6px">
-        Debes registrar el motivo hoy — mañana el sistema lo marcará como <strong>No avisó</strong> automáticamente.
+        Guardar el motivo no justifica el retardo. Para excluirlo de Acción People necesitas enviarlo a aprobación.
       </div>
     </div>
-    <div class="modal-section" style="background:#FFF7ED;border-color:#FED7AA">
-      <div class="ms-title" style="color:#92400E">⏰ Impacto disciplinario</div>
-      <div class="kv"><span class="k">Minutos tarde</span><span class="v" style="font-family:'DM Mono',monospace;color:#D97706">${rec.lateMin} min</span></div>
-      <div class="kv"><span class="k">Tolerancia</span><span class="v">0 minutos</span></div>
-      <div class="kv"><span class="k">Retardos en ventana 30d</span><span class="v" style="color:#DC2626">${a.retardos30}</span></div>
-      <div class="kv"><span class="k">El motivo elimina el retardo</span><span class="v" style="color:#DC2626">No — nada elimina el retardo</span></div>
+
+    <div class="modal-section">
+      <div class="ms-title">Justificación para Manager</div>
+      <textarea id="retardo-justificacion"
+        ${locked?'disabled':''}
+        placeholder="Explica objetivamente por qué este retardo debería considerarse justificado."
+        style="width:100%;min-height:88px;border:1px solid #E2E8F0;border-radius:8px;padding:10px 11px;font-size:13px;font-family:'DM Sans',sans-serif;resize:vertical;outline:none"></textarea>
+      <div style="font-size:11px;color:#94A3B8;margin-top:6px">
+        La solicitud se enviará al Manager / People. El retardo no desaparece y su hora original no se modifica.
+      </div>
     </div>
-    <div class="modal-section" style="background:#F0FDF4;border-color:#BBF7D0">
-      <div class="ms-title" style="color:#166534">📋 Se registrará como</div>
-      <div class="kv"><span class="k">Registrado por</span><span class="v" style="color:#16A34A">Supervisor · ${ROLES[currentRole]?.name||'Supervisor'}</span></div>
-      <div class="kv"><span class="k">Fecha límite</span><span class="v">Hoy — ${NOW.toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'long'})}</span></div>
+
+    <div class="modal-section" style="background:#FFF7ED;border-color:#FED7AA">
+      <div class="ms-title" style="color:#92400E">⏰ Impacto</div>
+      <div class="kv"><span class="k">Minutos tarde</span><span class="v" style="font-family:'DM Mono',monospace;color:#D97706">${rec.lateMin} min</span></div>
+      <div class="kv"><span class="k">Retardos en ventana 30d</span><span class="v" style="color:#DC2626">${a.retardos30}</span></div>
+      <div class="kv"><span class="k">¿Se modifica la entrada?</span><span class="v">No</span></div>
+      <div class="kv"><span class="k">¿Cuenta mientras está pendiente?</span><span class="v">No para Acción People</span></div>
     </div>`;
 
-  document.querySelector('.modal-footer').innerHTML = `
-    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-primary" onclick="_a_guardarMotivosRetardo()">Guardar motivo</button>`;
+  document.querySelector('.modal-footer').innerHTML = locked
+    ? `<button class="btn-primary" onclick="closeModal()">Cerrar</button>`
+    : `
+      <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button class="btn-ghost" id="btnGuardarMotivoRetardo" onclick="_a_guardarMotivosRetardo()">Guardar motivo</button>
+      <button class="btn-primary" id="btnSolicitarJustificacionRetardo" onclick="_a_solicitarJustificacionRetardo()">Guardar y solicitar justificación</button>
+    `;
 
   document.getElementById('modalBackdrop').style.display='flex';
 }
@@ -4526,45 +4565,40 @@ function _a_abrirModalRetardo(agentId){
 async function _a_guardarMotivosRetardo(){
   const motivo = document.getElementById('retardo-motivo')?.value;
   if(!motivo){ alert('Selecciona un motivo'); return; }
+
   const rec = _a_RETARDO_LOG.find(r=>r.id===_a_retardoModal.retardoId);
   if(!rec) return;
 
-  const btn = document.querySelector('.modal-footer .btn-primary');
+  const btn = document.getElementById('btnGuardarMotivoRetardo');
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
 
   const { data: updatedPunch, error } = await _a_sb
-  .from('attendance_punches')
-  .update({
-    notes: motivo
-  })
-  .eq('employee_id', rec.agentId)
-  .eq('punch_date', rec.fecha)
-  .eq('punch_type', 'entrada')
-  .select('id, punch_time, punched_at')
-  .maybeSingle();
+    .from('attendance_punches')
+    .update({ notes: motivo })
+    .eq('employee_id', rec.agentId)
+    .eq('punch_date', rec.fecha)
+    .eq('punch_type', 'entrada')
+    .select('id, punch_time, punched_at')
+    .maybeSingle();
 
-  if (!error && !updatedPunch) {
-  alert('No se encontró la entrada de ese día. El motivo no fue guardado para evitar crear una entrada incorrecta.');
-  if (btn) {
-    btn.disabled = false;
-    btn.textContent = 'Guardar motivo';
-  }
-  return;
-}
-
-  if (error) {
+  if (error || !updatedPunch) {
     console.error('Error guardando motivo de retardo:', error);
-    alert('No se pudo guardar el motivo en Supabase. Intenta de nuevo.\n\n' + error.message);
+    alert(!updatedPunch && !error
+      ? 'No se encontró la entrada de ese día. No se creó ningún registro nuevo.'
+      : 'No se pudo guardar el motivo.\n\n' + (error?.message || 'Error desconocido'));
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar motivo'; }
     return;
   }
 
-  rec.motivo     = motivo;
-  rec.marcadoPor = 'supervisor';
-  rec.pendiente  = false;
+  rec.motivo = motivo;
+  rec.marcadoPor = currentRole;
+  rec.pendiente = false;
 
-  await _a_cargarQDAYS(rec.agentId, _a_dateFilter.from, _a_dateFilter.to);
+  const agent = _a_TEAM.find(x=>x.id===rec.agentId);
+  if (agent) agent.motivoRetardo = motivo;
+
   closeModal();
+  await _a_cargarDatos();
   _a_render();
 }
 // categoria: 'falta_injustificada' | 'falta_justificada' | 'permiso' | 'incapacidad'
@@ -4798,6 +4832,121 @@ function _a_onMotivoChange(motivo){
     btn.style.cursor = 'pointer';
     btn.textContent = requiereAprobacion ? 'Enviar a aprobación' : 'Registrar';
   }
+}
+
+
+async function _a_solicitarJustificacionRetardo(){
+  const motivo = document.getElementById('retardo-motivo')?.value;
+  const justificacion = document.getElementById('retardo-justificacion')?.value?.trim();
+
+  if (!motivo) {
+    alert('Selecciona el motivo del retardo.');
+    return;
+  }
+
+  if (!justificacion || justificacion.length < 10) {
+    alert('Escribe una justificación objetiva de al menos 10 caracteres.');
+    return;
+  }
+
+  const rec = _a_RETARDO_LOG.find(r=>r.id===_a_retardoModal.retardoId);
+  if (!rec) return;
+
+  const btn = document.getElementById('btnSolicitarJustificacionRetardo');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+  }
+
+  const { data: punch, error: punchError } = await _a_sb
+    .from('attendance_punches')
+    .update({ notes: motivo })
+    .eq('employee_id', rec.agentId)
+    .eq('punch_date', rec.fecha)
+    .eq('punch_type', 'entrada')
+    .select('id,punch_time,punched_at')
+    .maybeSingle();
+
+  if (punchError || !punch) {
+    console.error('No se encontró/actualizó punch para justificación:', punchError);
+    alert(!punch && !punchError
+      ? 'No se encontró la entrada original. La solicitud no fue creada.'
+      : 'No se pudo guardar el motivo.\n\n' + (punchError?.message || 'Error desconocido'));
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Guardar y solicitar justificación';
+    }
+    return;
+  }
+
+  const actorId = ROLES[currentRole]?.id || null;
+
+  const { data: existing } = await _a_sb
+    .from('attendance_exceptions')
+    .select('id,status,type')
+    .eq('employee_id', rec.agentId)
+    .eq('exception_date', rec.fecha)
+    .maybeSingle();
+
+  if (existing && !_a_esTipoRetardoJustificado(existing.type)) {
+    alert('Ese día ya tiene otra excepción de asistencia registrada. People debe revisar el caso antes de crear la justificación.');
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Guardar y solicitar justificación';
+    }
+    return;
+  }
+
+  const payload = {
+    employee_id: rec.agentId,
+    exception_date: rec.fecha,
+    type: 'retardo_justificado',
+    notes: `${motivo} — ${justificacion}`,
+    status: 'pending',
+    requested_by: actorId,
+    requested_at: new Date().toISOString(),
+    reviewed_by: null,
+    reviewed_at: null,
+    review_notes: null,
+    source_punch_id: punch.id,
+    source_type: 'late_arrival',
+    request_reason: motivo,
+    request_detail: justificacion,
+    minutes_late: Number(rec.lateMin || 0)
+  };
+
+  const query = existing
+    ? _a_sb.from('attendance_exceptions').update(payload).eq('id', existing.id)
+    : _a_sb.from('attendance_exceptions').insert(payload);
+
+  const { error } = await query;
+
+  if (error) {
+    console.error('Error creando justificación de retardo:', error);
+    alert('No se pudo enviar la solicitud.\n\n' + (error.message || 'Error desconocido'));
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Guardar y solicitar justificación';
+    }
+    return;
+  }
+
+  rec.motivo = motivo;
+  rec.pendiente = false;
+  rec.justificationStatus = 'pending';
+
+  const agent = _a_TEAM.find(x=>x.id===rec.agentId);
+  if (agent) {
+    agent.motivoRetardo = motivo;
+    agent.lateJustificationStatus = 'pending';
+  }
+
+  closeModal();
+  await _a_cargarDatos();
+  await _a_refrescarPendientesExcepciones(false);
+  _a_render();
+
+  alert('Solicitud enviada. Mientras esté pendiente, este retardo no estará disponible para Acción People.');
 }
 
 async function _a_guardarFalta(){
@@ -5598,6 +5747,39 @@ function _a_renderAuditoria() {
 let _a_PENDING_EXCEPTIONS = [];
 let _a_PENDING_EXC_LOADING = false;
 
+
+function _a_normRetardoJustificado(v) {
+  return String(v || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, '_');
+}
+
+function _a_esTipoRetardoJustificado(tipo) {
+  return [
+    'retardo_justificado',
+    'retardo_justificado_manager',
+    'justified_late',
+    'late_justification',
+    'late_justified'
+  ].includes(_a_normRetardoJustificado(tipo));
+}
+
+function _a_estadoRetardoJustificado(excepcion) {
+  if (!excepcion || !_a_esTipoRetardoJustificado(excepcion.type)) return null;
+  return _a_normRetardoJustificado(excepcion.status || 'pending');
+}
+
+function _a_retardoJustificadoPill(status) {
+  const s = _a_normRetardoJustificado(status);
+  if (s === 'approved') return `<span class="pill pill-green"><span class="dot"></span>Justificado</span>`;
+  if (s === 'rejected') return `<span class="pill pill-red"><span class="dot"></span>Justificación rechazada</span>`;
+  if (s === 'pending') return `<span class="pill pill-amber"><span class="dot"></span>Justificación pendiente</span>`;
+  return '';
+}
+
 function _a_normAusenciaType(v) {
   return String(v || '')
     .trim()
@@ -5634,7 +5816,12 @@ function _a_exceptionTypeLabel(tipo) {
     falta_justificada: 'Falta justificada',
     'falta justificada': 'Falta justificada',
     justified_absence: 'Falta justificada',
-    excused_absence: 'Permiso'
+    excused_absence: 'Permiso',
+    retardo_justificado: 'Retardo justificado',
+    retardo_justificado_manager: 'Retardo justificado',
+    justified_late: 'Retardo justificado',
+    late_justification: 'Retardo justificado',
+    late_justified: 'Retardo justificado'
   };
 
   return map[t] || tipo || '—';
@@ -5667,12 +5854,17 @@ async function _a_cargarPendientesExcepciones() {
     'falta_justificada',
     'falta justificada',
     'justified_absence',
-    'excused_absence'
+    'excused_absence',
+    'retardo_justificado',
+    'retardo_justificado_manager',
+    'justified_late',
+    'late_justification',
+    'late_justified'
   ];
 
   const { data, error } = await _a_sb
     .from('attendance_exceptions')
-    .select('id, employee_id, exception_date, type, status, notes, requested_by, requested_at, created_at, reviewed_by, reviewed_at, review_notes')
+    .select('id, employee_id, exception_date, type, status, notes, requested_by, requested_at, created_at, reviewed_by, reviewed_at, review_notes, source_punch_id, source_type, request_reason, request_detail, minutes_late')
     .eq('status', 'pending')
     .in('type', tipos)
     .order('exception_date', { ascending: false })
@@ -5722,7 +5914,7 @@ function _a_renderPendientesExcepcionesCard() {
   if (_a_PENDING_EXC_LOADING) {
     return `
       <div class="card" id="attendanceExceptionApprovalCard" style="border-left:4px solid #F59E0B">
-        <div class="card-title">⏳ Permisos / faltas justificadas pendientes</div>
+        <div class="card-title">⏳ Excepciones de asistencia pendientes</div>
         <div style="font-size:12px;color:#64748B">Cargando pendientes...</div>
       </div>
     `;
@@ -5735,7 +5927,7 @@ function _a_renderPendientesExcepcionesCard() {
       <div class="card" id="attendanceExceptionApprovalCard" style="border-left:4px solid #16A34A">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
           <div>
-            <div class="card-title" style="margin-bottom:4px">✅ Permisos / faltas justificadas</div>
+            <div class="card-title" style="margin-bottom:4px">✅ Excepciones de asistencia</div>
             <div style="font-size:11px;color:#64748B">No hay solicitudes pendientes de aprobación.</div>
           </div>
           <button class="btn-ghost" onclick="_a_refrescarPendientesExcepciones()">🔄 Refrescar</button>
@@ -5764,6 +5956,9 @@ function _a_renderPendientesExcepcionesCard() {
       <td>${_a_exceptionStatusPill(r.status)}</td>
 
       <td style="font-size:11px;color:#64748B;max-width:360px;white-space:normal;line-height:1.35">
+        ${_a_esTipoRetardoJustificado(r.type) && r.minutes_late != null
+          ? `<div style="font-weight:800;color:#D97706;margin-bottom:4px">${r.minutes_late} minutos tarde</div>`
+          : ''}
         ${r.notes || '—'}
         <div style="margin-top:4px;color:#94A3B8">
           Solicitado por: ${r.requested_by_name || '—'}
@@ -5794,9 +5989,9 @@ function _a_renderPendientesExcepcionesCard() {
     <div class="card" id="attendanceExceptionApprovalCard" style="border-left:4px solid #F59E0B">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
         <div>
-          <div class="card-title" style="margin-bottom:4px">⏳ Permisos / faltas justificadas pendientes</div>
+          <div class="card-title" style="margin-bottom:4px">⏳ Excepciones de asistencia pendientes</div>
           <div style="font-size:11px;color:#64748B">
-            Solicitudes cargadas por supervisores que requieren aprobación de Manager o People.
+            Solicitudes de permisos, faltas justificadas y retardos que requieren aprobación de Manager o People.
           </div>
         </div>
 
@@ -9566,12 +9761,37 @@ function _dd_isOperationallyOnTime(row = {}) {
   return false;
 }
 
+
+function _dd_lateJustKey(employeeId, date) {
+  return `${String(employeeId || '').trim().toUpperCase()}|${String(date || '').slice(0,10)}`;
+}
+
+function _dd_markLateJustifications(rows, exceptions) {
+  const map = new Map(
+    (exceptions || [])
+      .filter(e => _a_esTipoRetardoJustificado(e.type))
+      .map(e => [_dd_lateJustKey(e.employee_id, e.exception_date), String(e.status || '').toLowerCase()])
+  );
+
+  return (rows || []).map(r => ({
+    ...r,
+    late_justification_status: map.get(_dd_lateJustKey(r.employee_id, r.work_date)) || null,
+    late_justified: map.get(_dd_lateJustKey(r.employee_id, r.work_date)) === 'approved',
+    late_justification_pending: map.get(_dd_lateJustKey(r.employee_id, r.work_date)) === 'pending'
+  }));
+}
+
 function _dd_attendanceSummary(rows) {
   const total = rows.length;
 
   const complete = _dd_statusCount(rows, 'completo');
   const tolerancia = _dd_statusCount(rows, 'tolerancia');
-  const retardo = _dd_statusCount(rows, 'retardo');
+  const retardoJustificado = rows.filter(r => r.audit_status === 'retardo' && r.late_justified).length;
+  const retardoPendiente = rows.filter(r => r.audit_status === 'retardo' && r.late_justification_pending).length;
+  const retardo = rows.filter(r =>
+    r.audit_status === 'retardo' &&
+    !['pending','approved'].includes(String(r.late_justification_status || '').toLowerCase())
+  ).length;
   const falta = _dd_statusCount(rows, 'falta_injustificada');
   const sinEntrada = _dd_statusCount(rows, 'sin_entrada');
   const sinSalida = _dd_statusCount(rows, 'sin_salida');
@@ -9601,6 +9821,8 @@ function _dd_attendanceSummary(rows) {
 
     tolerancia,
     retardo,
+    retardoJustificado,
+    retardoPendiente,
     falta,
     sinEntrada,
     sinSalida,
@@ -9616,11 +9838,16 @@ function _dd_attendanceSummary(rows) {
 }
 
 function _dd_expectedActions(rows) {
-  const retardos = rows.filter(r => r.audit_status === 'retardo');
+  const retardos = rows.filter(r =>
+    r.audit_status === 'retardo' &&
+    !['pending','approved'].includes(String(r.late_justification_status || '').toLowerCase())
+  );
   const faltas = rows.filter(r => r.audit_status === 'falta_injustificada');
 
   return {
     retardsExpected: retardos.length,
+    justifiedRetards: rows.filter(r => r.audit_status === 'retardo' && r.late_justified).length,
+    pendingRetards: rows.filter(r => r.audit_status === 'retardo' && r.late_justification_pending).length,
     faltasExpected: faltas.length,
     totalExpected: retardos.length + faltas.length
   };
@@ -10007,8 +10234,19 @@ async function _dd_loadData() {
     return;
   }
 
-  const curRowsRaw = attCur.data || [];
-  const prevRowsRaw = attPrev.data || [];
+  const [lateJustCur, lateJustPrev] = await Promise.all([
+    _a_sb.from('attendance_exceptions')
+      .select('employee_id,exception_date,type,status')
+      .gte('exception_date', from)
+      .lte('exception_date', to),
+    _a_sb.from('attendance_exceptions')
+      .select('employee_id,exception_date,type,status')
+      .gte('exception_date', prevFrom)
+      .lte('exception_date', prevTo)
+  ]);
+
+  const curRowsRaw = _dd_markLateJustifications(attCur.data || [], lateJustCur.data || []);
+  const prevRowsRaw = _dd_markLateJustifications(attPrev.data || [], lateJustPrev.data || []);
 
   const campaigns = [...new Set(curRowsRaw.map(r => r.campaign_id).filter(Boolean))].sort();
   const supervisorsMap = {};
@@ -10213,6 +10451,7 @@ function _dd_supervisorIncidentRows(supervisorId) {
   return (_dd_DATA.current.rows || [])
     .filter(r => r.supervisor_id === supervisorId)
     .filter(r => ['retardo', 'falta_injustificada'].includes(r.audit_status))
+    .filter(r => r.audit_status !== 'retardo' || !['pending','approved'].includes(String(r.late_justification_status || '').toLowerCase()))
     .sort((a, b) => {
       const nameA = String(a.employee_name || '');
       const nameB = String(b.employee_name || '');
@@ -10441,6 +10680,7 @@ function _dd_timeValue(row, keys) {
 function _dd_incidentRows(type, supervisorId='all') {
   return (_dd_DATA?.current?.rows || [])
     .filter(r => r.audit_status === type)
+    .filter(r => type !== 'retardo' || !['pending','approved'].includes(String(r.late_justification_status || '').toLowerCase()))
     .filter(r => supervisorId === 'all' || r.supervisor_id === supervisorId)
     .sort((a,b) => String(b.work_date || '').localeCompare(String(a.work_date || '')) ||
       String(a.employee_name || '').localeCompare(String(b.employee_name || '')));
@@ -10992,7 +11232,9 @@ function _dd_render() {
     <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 1 · Qué pasó</div><div class="dd-section-title">Salud operativa de la asistencia</div></div><div class="dd-section-copy">De la puntualidad al cierre de jornada. Haz clic en una incidencia para ver exactamente quién, cuándo y bajo qué supervisor.</div></div>
       <div class="dd-metric-grid">
         ${_dd_metric('Puntualidad operativa',a.operationalPunctuality+'%',`${_dd_delta(a.operationalPunctuality,p.operationalPunctuality).label} vs anterior`,'#16A34A')}
-        ${_dd_metric('Retardos reales',a.retardo,`${_dd_uniqueCount(data.current.rows.filter(x=>x.audit_status==='retardo'),'employee_id')} personas involucradas`,'#D97706',"_dd_openIncidentDrawer('retardo')")}
+        ${_dd_metric('Retardos para acción',a.retardo,`${_dd_uniqueCount(data.current.rows.filter(x=>x.audit_status==='retardo' && !['pending','approved'].includes(String(x.late_justification_status||'').toLowerCase())),'employee_id')} personas involucradas`,'#D97706',"_dd_openIncidentDrawer('retardo')")}
+        ${_dd_metric('Retardos justificados',a.retardoJustificado || 0,'Aprobados por Manager / People','#16A34A')}
+        ${_dd_metric('Justificaciones pendientes',a.retardoPendiente || 0,'Temporalmente excluidos de Acción People','#F59E0B')}
         ${_dd_metric('Faltas injustificadas',a.falta,`${_dd_uniqueCount(data.current.rows.filter(x=>x.audit_status==='falta_injustificada'),'employee_id')} personas involucradas`,'#DC2626',"_dd_openIncidentDrawer('falta_injustificada')")}
         ${_dd_metric('Sin salida',a.sinSalida,`${a.checkoutCompliance}% de cumplimiento de salida`,'#7C3AED',"_dd_openIncidentDrawer('sin_salida')")}
       </div>
@@ -16565,6 +16807,15 @@ async function _d_onNuevoCambio() {
   await _d_cargarIncidenciasAsistencia();
 }
 
+
+function _d_sourceAlreadyUsed(sourceId) {
+  if (!sourceId) return false;
+  return (_d_CASES || []).some(c =>
+    String(c.attendance_source_id || '') === String(sourceId) &&
+    !['rejected','cancelled','voided'].includes(String(c.status || '').toLowerCase())
+  );
+}
+
 async function _d_cargarIncidenciasAsistencia() {
   const box = document.getElementById('d-att-incidents-box');
   if (!box) return;
@@ -16584,9 +16835,7 @@ async function _d_cargarIncidenciasAsistencia() {
   box.innerHTML = `
     <div class="modal-section">
       <div class="ms-title">Incidencias reales de asistencia</div>
-      <div style="font-size:12px;color:#64748B">
-        Cargando incidencias reales de los últmos días...
-      </div>
+      <div style="font-size:12px;color:#64748B">Cargando incidencias disponibles...</div>
     </div>
   `;
 
@@ -16597,22 +16846,49 @@ async function _d_cargarIncidenciasAsistencia() {
 
   if (error) {
     console.error('Error cargando incidencias de asistencia:', error);
-    box.innerHTML = `
-      <div class="alert alert-red">
-        No se pudieron cargar las incidencias de asistencia:<br>
-        ${_d_esc(error.message || 'Error desconocido')}
-      </div>
-    `;
+    box.innerHTML = `<div class="alert alert-red">No se pudieron cargar las incidencias: ${_d_esc(error.message || 'Error desconocido')}</div>`;
     return;
   }
 
-  _d_ATT_INCIDENTS = data || [];
+  let incidents = data || [];
+  const alreadyUsed = incidents.filter(i => _d_sourceAlreadyUsed(i.source_id)).length;
+  incidents = incidents.filter(i => !_d_sourceAlreadyUsed(i.source_id));
 
-  if (!_d_ATT_INCIDENTS.length) {
+  let blockedLateDates = new Set();
+
+  if (linkType === 'late' && incidents.length) {
+    const dates = incidents.map(i => String(i.incident_date || '').slice(0,10)).filter(Boolean).sort();
+    const { data: exceptions, error: excError } = await _d_sb
+      .from('attendance_exceptions')
+      .select('exception_date,type,status')
+      .eq('employee_id', empId)
+      .gte('exception_date', dates[0])
+      .lte('exception_date', dates[dates.length - 1]);
+
+    if (excError) {
+      console.warn('No se pudieron validar justificaciones de retardo:', excError);
+    } else {
+      blockedLateDates = new Set(
+        (exceptions || [])
+          .filter(e =>
+            _a_esTipoRetardoJustificado(e.type) &&
+            ['pending','approved'].includes(String(e.status || '').toLowerCase())
+          )
+          .map(e => String(e.exception_date).slice(0,10))
+      );
+      incidents = incidents.filter(i => !blockedLateDates.has(String(i.incident_date).slice(0,10)));
+    }
+  }
+
+  _d_ATT_INCIDENTS = incidents;
+
+  if (!incidents.length) {
     box.innerHTML = `
       <div class="alert alert-amber">
-      No hay ${linkType === 'late' ? 'retardos' : 'faltas/ausencias'} reales para este colaborador dentro de hoy, ayer o antier.
-      No se puede levantar esta Acción People con este criterio.
+        No hay ${linkType === 'late' ? 'retardos' : 'faltas/ausencias'} disponibles dentro de hoy, ayer o antier.
+        ${(alreadyUsed || blockedLateDates.size)
+          ? `<br><b>Excluidos:</b> ${alreadyUsed} ya utilizado(s) · ${blockedLateDates.size} con justificación pendiente/aprobada.`
+          : ''}
       </div>
     `;
     return;
@@ -16620,29 +16896,19 @@ async function _d_cargarIncidenciasAsistencia() {
 
   box.innerHTML = `
     <div class="modal-section">
-      <div class="ms-title">Incidencias reales de asistencia · últimos 3 días</div>
-
+      <div class="ms-title">Incidencias reales · últimos 3 días</div>
       <div style="font-size:12px;color:#64748B;margin-bottom:10px">
-        Selecciona la incidencia que respalda esta Acción People.
+        Una incidencia solo puede utilizarse una vez. Los retardos pendientes o aprobados como justificados no aparecen.
       </div>
-
       <div style="display:grid;gap:8px">
-        ${_d_ATT_INCIDENTS.map(i => `
+        ${incidents.map(i => `
           <label style="display:flex;gap:10px;align-items:flex-start;border:1px solid #E2E8F0;border-radius:10px;padding:10px;background:#fff;cursor:pointer">
-            <input
-              type="radio"
-              name="d-att-incident"
-              value="${_d_esc(i.source_id)}"
+            <input type="radio" name="d-att-incident" value="${_d_esc(i.source_id)}"
               onchange="_d_selectIncidenciaAsistencia('${_d_esc(i.source_id)}')"
-              style="margin-top:3px;width:auto"
-            >
+              style="margin-top:3px;width:auto">
             <div>
-              <div style="font-size:13px;font-weight:800;color:#0F172A">
-                ${_d_esc(_d_labelIncidencia(i))}
-              </div>
-              <div style="font-size:12px;color:#64748B;margin-top:3px">
-                ${_d_esc(i.facts_suggestion || '')}
-              </div>
+              <div style="font-size:13px;font-weight:800;color:#0F172A">${_d_esc(_d_labelIncidencia(i))}</div>
+              <div style="font-size:12px;color:#64748B;margin-top:3px">${_d_esc(i.facts_suggestion || '')}</div>
             </div>
           </label>
         `).join('')}
@@ -17062,6 +17328,13 @@ if (!_d_fechaIncidentePermitida(date)) {
 if (!facts) { 
   alert('Describe los hechos de forma objetiva.'); 
   return; 
+}
+
+if (_d_SELECTED_ATT_INCIDENT && _d_sourceAlreadyUsed(_d_SELECTED_ATT_INCIDENT.source_id)) {
+  alert('Esta incidencia ya fue utilizada en otra Acción People. Actualiza y selecciona otra.');
+  await _d_cargarDatos();
+  await _d_cargarIncidenciasAsistencia();
+  return;
 }
 
 const { data: caseId, error } = await _d_sb.rpc('request_people_action_case', {
