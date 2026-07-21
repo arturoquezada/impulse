@@ -1358,6 +1358,7 @@ body{font-family:var(--f);background:#F0F2F7;min-height:100vh;color:#0F172A;font
 @media(max-width:620px){.dd-metric-grid,.dd-flow{grid-template-columns:1fr}.dd-title{font-size:23px}}
 
 </style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <div id="app-root" style="font-family:'DM Sans',-apple-system,sans-serif"></div>
@@ -6122,12 +6123,14 @@ async function _a_revisarExcepcionAsistencia(exceptionId, decision) {
 
 
 // ─────────────────────────────────────────────
-// HORARIOS TEMPORALES · TRAINING SCHEDULES
+// HORARIOS TEMPORALES · TRAINING MANAGER
 // ─────────────────────────────────────────────
 let _a_TRAINING_GROUPS = [];
 let _a_TRAINING_EMPLOYEES = [];
+let _a_TRAINING_IMPORTS = [];
 let _a_TRAINING_LOADING = false;
 let _a_TRAINING_SELECTED = null;
+let _a_TRAINING_IMPORT_PREVIEW = null;
 
 function _a_canManageTrainingSchedules(){
   return ['workforce','people','head_people','ceo','manager'].includes(currentRole);
@@ -6153,6 +6156,10 @@ function _a_trainingDayLabel(n){
   return ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][Number(n)] || String(n);
 }
 
+function _a_trainingTypeLabel(v){
+  return ({training:'Capacitación',nesting:'Nesting',temporary_operation:'Operación temporal',special_project:'Proyecto especial',medical_adjustment:'Ajuste médico'})[v] || v || 'Capacitación';
+}
+
 async function _a_openTrainingSchedules(){
   if(!_a_canManageTrainingSchedules()){
     alert('No tienes permiso para administrar horarios temporales.');
@@ -6173,368 +6180,237 @@ function _a_closeTrainingSchedules(){
 }
 
 async function _a_loadTrainingSchedules(){
-  const [groups, employees] = await Promise.all([
+  const [groups, employees, imports] = await Promise.all([
     _a_sb
       .from('schedule_override_groups')
       .select('*, employee_schedule_overrides(id,employee_id,status)')
-      .order('start_date', {ascending:false}),
+      .order('start_date', { ascending: false }),
+
     _a_sb
       .from('employees')
-      .select('id,full_name,campaign_id,position_title,status,hire_date,start_date')
-      .eq('status','active')
-      .order('full_name')
+      .select('id,full_name,campaign_id,position_title,status,hire_date')
+      .eq('status', 'active')
+      .order('full_name', { ascending: true }),
+
+    _a_sb
+      .from('training_schedule_imports')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10)
   ]);
 
   if(groups.error){
     console.error('Training Schedules:', groups.error);
-    alert('No se pudieron cargar las generaciones.\n\n' + groups.error.message);
+    alert(
+      'No se pudieron cargar las generaciones.\n\n' +
+      groups.error.message
+    );
     _a_TRAINING_GROUPS = [];
-  }else{
+  } else {
     _a_TRAINING_GROUPS = groups.data || [];
   }
 
   if(employees.error){
     console.error('Training employees:', employees.error);
+    alert(
+      'No se pudieron cargar los empleados activos.\n\n' +
+      employees.error.message
+    );
     _a_TRAINING_EMPLOYEES = [];
-  }else{
+  } else {
     _a_TRAINING_EMPLOYEES = employees.data || [];
   }
+
+  if(imports.error){
+    console.error('Training imports:', imports.error);
+    _a_TRAINING_IMPORTS = [];
+  } else {
+    _a_TRAINING_IMPORTS = imports.data || [];
+  }
+
+  console.log(
+    '[Impulse] Training employees loaded:',
+    _a_TRAINING_EMPLOYEES.length
+  );
 }
 
 function _a_renderTrainingSchedules(){
   if(_a_TRAINING_LOADING){
-    return `
-      <div style="display:flex;align-items:center;justify-content:center;min-height:420px;color:#64748B">
-        <div style="text-align:center">
-          <div style="width:38px;height:38px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
-          Cargando horarios temporales...
-        </div>
-      </div>`;
+    return `<div style="display:flex;align-items:center;justify-content:center;min-height:420px;color:#64748B"><div style="text-align:center"><div style="width:38px;height:38px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando Training Manager...</div></div>`;
   }
 
   const groups = _a_TRAINING_GROUPS || [];
   const active = groups.filter(g => _a_trainingStatus(g)==='active').length;
   const scheduled = groups.filter(g => _a_trainingStatus(g)==='scheduled').length;
-  const people = groups
-    .filter(g => ['active','scheduled'].includes(_a_trainingStatus(g)))
-    .reduce((n,g)=>n+(g.employee_schedule_overrides||[]).filter(x=>x.status!=='cancelled').length,0);
+  const people = groups.filter(g => ['active','scheduled'].includes(_a_trainingStatus(g))).reduce((n,g)=>n+(g.employee_schedule_overrides||[]).filter(x=>x.status!=='cancelled').length,0);
 
   return `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:18px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:18px;flex-wrap:wrap">
       <div>
         <button class="btn-ghost" onclick="_a_closeTrainingSchedules()" style="margin-bottom:12px">← Volver a Asistencia</button>
-        <div style="font-size:25px;font-weight:900;color:#0F172A">🎓 Training Schedules</div>
-        <div style="font-size:13px;color:#64748B;margin-top:5px">
-          Horarios temporales que tienen prioridad sobre el turno operativo durante su vigencia.
-        </div>
+        <div style="font-size:25px;font-weight:900;color:#0F172A">🎓 Training Manager</div>
+        <div style="font-size:13px;color:#64748B;margin-top:5px">Crea, importa, duplica, mueve y administra generaciones sin alterar el turno operativo.</div>
       </div>
-      <button class="btn-primary" onclick="_a_openNewTrainingGeneration()">+ Nueva generación</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn-ghost" onclick="_a_downloadTrainingTemplate()">📥 Plantilla</button>
+        <button class="btn-cyan" onclick="_a_openTrainingImport()">⬆ Importar CSV / Excel</button>
+        <button class="btn-primary" onclick="_a_openNewTrainingGeneration()">+ Nueva generación</button>
+      </div>
     </div>
 
     <div class="kpi-grid" style="margin-bottom:18px">
       <div class="kpi-card"><div class="kpi-label">Generaciones activas</div><div class="kpi-value">${active}</div></div>
       <div class="kpi-card"><div class="kpi-label">Programadas</div><div class="kpi-value">${scheduled}</div></div>
       <div class="kpi-card"><div class="kpi-label">Personas con horario temporal</div><div class="kpi-value">${people}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Importaciones recientes</div><div class="kpi-value">${_a_TRAINING_IMPORTS.length}</div></div>
     </div>
 
-    <div class="alert alert-blue" style="margin-bottom:18px">
-      <b>Prioridad del horario:</b>&nbsp; permuta/cambio aprobado → horario temporal → override especial del día → horario operativo.
-    </div>
+    <div class="alert alert-blue" style="margin-bottom:18px"><b>Prioridad:</b>&nbsp; permuta aprobada → horario temporal → excepción del día → horario operativo.</div>
 
     <div class="card">
       <div class="card-title">Generaciones y horarios temporales</div>
-      ${groups.length ? `
-        <div class="tbl-wrap">
-          <div style="overflow-x:auto">
-            <table style="min-width:920px">
-              <thead>
-                <tr>
-                  <th>Generación</th>
-                  <th>Tipo</th>
-                  <th>Horario</th>
-                  <th>Vigencia</th>
-                  <th>Descansos</th>
-                  <th>Personas</th>
-                  <th>Estatus</th>
-                  <th style="text-align:right">Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${groups.map(g => {
-                  const members = (g.employee_schedule_overrides || []).filter(x=>x.status!=='cancelled').length;
-                  const rests = (g.rest_days || []).map(_a_trainingDayLabel).join(', ') || 'Sin descanso';
-                  return `
-                    <tr>
-                      <td>
-                        <div style="font-weight:900;color:#0F172A">${_d_esc(g.name || 'Sin nombre')}</div>
-                        <div style="font-size:11px;color:#94A3B8;margin-top:3px">${_d_esc(g.notes || '')}</div>
-                      </td>
-                      <td>${_d_esc(g.override_type || 'training')}</td>
-                      <td style="font-family:'DM Mono',monospace">${String(g.start_time||'').slice(0,5)}–${String(g.end_time||'').slice(0,5)}</td>
-                      <td>${fmtDateShort(g.start_date)} → ${fmtDateShort(g.end_date)}</td>
-                      <td>${rests}</td>
-                      <td><b>${members}</b></td>
-                      <td>${_a_trainingStatusPill(g)}</td>
-                      <td style="text-align:right">
-                        <button class="btn-ghost" onclick="_a_viewTrainingGeneration('${g.id}')">Ver</button>
-                      </td>
-                    </tr>`;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ` : `
-        <div style="padding:42px;text-align:center;color:#64748B">
-          <div style="font-size:42px;margin-bottom:10px">🎓</div>
-          Todavía no hay generaciones configuradas.
-        </div>
-      `}
+      ${groups.length ? `<div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:1040px"><thead><tr><th>Generación</th><th>Tipo</th><th>Horario</th><th>Vigencia</th><th>Descansos</th><th>Personas</th><th>Estatus</th><th style="text-align:right">Acciones</th></tr></thead><tbody>
+        ${groups.map(g=>{ const members=(g.employee_schedule_overrides||[]).filter(x=>x.status!=='cancelled').length; const rests=(g.rest_days||[]).map(_a_trainingDayLabel).join(', ')||'Sin descanso'; return `<tr><td><div style="font-weight:900;color:#0F172A">${_d_esc(g.name||'Sin nombre')}</div><div style="font-size:11px;color:#94A3B8;margin-top:3px">${_d_esc(g.notes||'')}</div></td><td>${_d_esc(_a_trainingTypeLabel(g.override_type))}</td><td style="font-family:'DM Mono',monospace">${String(g.start_time||'').slice(0,5)}–${String(g.end_time||'').slice(0,5)}</td><td>${fmtDateShort(g.start_date)} → ${fmtDateShort(g.end_date)}</td><td>${rests}</td><td><b>${members}</b></td><td>${_a_trainingStatusPill(g)}</td><td style="text-align:right;white-space:nowrap"><button class="btn-ghost" onclick="_a_viewTrainingGeneration('${g.id}')">Administrar</button></td></tr>`;}).join('')}
+      </tbody></table></div></div>` : `<div style="padding:42px;text-align:center;color:#64748B"><div style="font-size:42px;margin-bottom:10px">🎓</div>Todavía no hay generaciones configuradas.</div>`}
     </div>
+
+    ${_a_TRAINING_IMPORTS.length ? `<div class="card"><div class="card-title">Historial de importaciones</div><div class="tbl-wrap"><table><thead><tr><th>Archivo / lote</th><th>Fecha</th><th>Generaciones</th><th>Personas</th><th>Estatus</th></tr></thead><tbody>${_a_TRAINING_IMPORTS.map(i=>`<tr><td><b>${_d_esc(i.batch_name||i.file_name||'Importación')}</b><div style="font-size:11px;color:#94A3B8">${_d_esc(i.file_name||'')}</div></td><td>${fmtDate(i.created_at)}</td><td>${i.groups_created||0}</td><td>${i.employees_assigned||0}</td><td>${i.status==='completed'?'<span class="pill pill-green">Completada</span>':i.status==='failed'?'<span class="pill pill-red">Fallida</span>':'<span class="pill pill-blue">Procesando</span>'}</td></tr>`).join('')}</tbody></table></div></div>`:''}
   `;
 }
 
-function _a_openNewTrainingGeneration(){
-  const recentCutoff = addDays(ymd(new Date()), -45);
-  const emps = (_a_TRAINING_EMPLOYEES || []).filter(e => {
-    const d = e.hire_date || e.start_date || '';
-    return !d || d >= recentCutoff;
-  });
-
-  document.getElementById('modalTitle').textContent = 'Nueva generación de capacitación';
-  document.getElementById('modalSub').textContent = 'Asigna un horario temporal a varias personas sin modificar su turno operativo.';
-  document.getElementById('modalBody').innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="modal-section">
-        <div class="ms-title">Nombre de la generación *</div>
-        <input id="ts-name" placeholder="Ej. Generación 22 Julio 2026" style="width:100%">
-      </div>
-      <div class="modal-section">
-        <div class="ms-title">Tipo *</div>
-        <select id="ts-type" style="width:100%">
-          <option value="training">Capacitación</option>
-          <option value="nesting">Nesting</option>
-          <option value="temporary_operation">Operación temporal</option>
-          <option value="special_project">Proyecto especial</option>
-          <option value="medical_adjustment">Ajuste médico</option>
-        </select>
-      </div>
-      <div class="modal-section">
-        <div class="ms-title">Fecha de inicio *</div>
-        <input id="ts-start-date" type="date" value="${ymd(new Date())}" style="width:100%">
-      </div>
-      <div class="modal-section">
-        <div class="ms-title">Fecha de término *</div>
-        <input id="ts-end-date" type="date" value="${addDays(ymd(new Date()),14)}" style="width:100%">
-      </div>
-      <div class="modal-section">
-        <div class="ms-title">Entrada *</div>
-        <input id="ts-start-time" type="time" value="09:00" style="width:100%">
-      </div>
-      <div class="modal-section">
-        <div class="ms-title">Salida *</div>
-        <input id="ts-end-time" type="time" value="16:00" style="width:100%">
-      </div>
-    </div>
-
-    <div class="modal-section">
-      <div class="ms-title">Días de descanso</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">
-        ${[0,1,2,3,4,5,6].map(n=>`
-          <label style="display:flex;gap:6px;align-items:center;border:1px solid #E2E8F0;border-radius:8px;padding:8px 10px">
-            <input type="checkbox" class="ts-rest-day" value="${n}" ${n===0?'checked':''} style="width:auto">
-            ${_a_trainingDayLabel(n)}
-          </label>`).join('')}
-      </div>
-    </div>
-
-    <div class="modal-section">
-      <div class="ms-title">Comentarios</div>
-      <textarea id="ts-notes" placeholder="Responsable de Training, salón, contexto adicional..." style="width:100%;min-height:70px"></textarea>
-    </div>
-
-    <div class="modal-section">
-      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:9px">
-        <div class="ms-title" style="margin:0">Participantes *</div>
-        <input id="ts-search" placeholder="Buscar empleado..." oninput="_a_filterTrainingEmployees()" style="max-width:260px">
-      </div>
-      <div id="ts-employee-list" style="max-height:260px;overflow:auto;border:1px solid #E2E8F0;border-radius:10px">
-        ${_a_trainingEmployeeRows(emps)}
-      </div>
-      <div style="font-size:11px;color:#94A3B8;margin-top:7px">
-        Se muestran primero ingresos recientes. Puedes buscar cualquier persona activa.
-      </div>
-    </div>
-  `;
-  document.querySelector('.modal-footer').innerHTML = `
-    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-primary" id="ts-save-btn" onclick="_a_saveTrainingGeneration()">Crear generación</button>
-  `;
-  document.getElementById('modalBackdrop').style.display='flex';
-}
-
-function _a_trainingEmployeeRows(list){
-  return (list || []).map(e=>`
-    <label class="ts-employee-row" data-search="${_d_esc((e.full_name+' '+e.id+' '+(e.campaign_id||'')).toLowerCase())}"
-      style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid #F1F5F9;cursor:pointer">
-      <input type="checkbox" class="ts-employee-check" value="${_d_esc(e.id)}" style="width:auto">
-      <div style="flex:1">
-        <div style="font-size:13px;font-weight:800;color:#0F172A">${_d_esc(e.full_name || e.id)}</div>
-        <div style="font-size:11px;color:#94A3B8">${_d_esc(e.id)} · ${_d_esc(e.campaign_id || 'Sin campaña')}</div>
-      </div>
-      <div style="font-size:11px;color:#64748B">${fmtDateShort(e.hire_date || e.start_date)}</div>
-    </label>`).join('') || '<div style="padding:20px;text-align:center;color:#94A3B8">No hay empleados activos.</div>';
+function _a_trainingEmployeeRows(list, selectedIds=[]){
+  const selected=new Set((selectedIds||[]).map(String));
+  return (list||[]).map(e=>`<label class="ts-employee-row" data-search="${_d_esc((e.full_name+' '+e.id+' '+(e.campaign_id||'')).toLowerCase())}" style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid #F1F5F9;cursor:pointer"><input type="checkbox" class="ts-employee-check" value="${_d_esc(e.id)}" ${selected.has(String(e.id))?'checked':''} style="width:auto"><div style="flex:1"><div style="font-size:13px;font-weight:800;color:#0F172A">${_d_esc(e.full_name||e.id)}</div><div style="font-size:11px;color:#94A3B8">${_d_esc(e.id)} · ${_d_esc(e.campaign_id||'Sin campaña')}</div></div><div style="font-size:11px;color:#64748B">${fmtDateShort(e.hire_date||e.start_date)}</div></label>`).join('') || '<div style="padding:20px;text-align:center;color:#94A3B8">No hay empleados activos.</div>';
 }
 
 function _a_filterTrainingEmployees(){
-  const q = String(document.getElementById('ts-search')?.value || '').trim().toLowerCase();
-  const list = document.getElementById('ts-employee-list');
-  if(!list) return;
-  list.innerHTML = _a_trainingEmployeeRows(
-    (_a_TRAINING_EMPLOYEES || []).filter(e =>
-      !q || `${e.full_name} ${e.id} ${e.campaign_id||''}`.toLowerCase().includes(q)
-    )
-  );
+  const q=String(document.getElementById('ts-search')?.value||'').trim().toLowerCase();
+  const selected=[...document.querySelectorAll('.ts-employee-check:checked')].map(x=>x.value);
+  const list=document.getElementById('ts-employee-list'); if(!list)return;
+  list.innerHTML=_a_trainingEmployeeRows((_a_TRAINING_EMPLOYEES||[]).filter(e=>!q||`${e.full_name} ${e.id} ${e.campaign_id||''}`.toLowerCase().includes(q)),selected);
 }
 
-async function _a_saveTrainingGeneration(){
-  const name = document.getElementById('ts-name')?.value?.trim();
-  const overrideType = document.getElementById('ts-type')?.value;
-  const startDate = document.getElementById('ts-start-date')?.value;
-  const endDate = document.getElementById('ts-end-date')?.value;
-  const startTime = document.getElementById('ts-start-time')?.value;
-  const endTime = document.getElementById('ts-end-time')?.value;
-  const notes = document.getElementById('ts-notes')?.value?.trim() || null;
-  const restDays = [...document.querySelectorAll('.ts-rest-day:checked')].map(x=>Number(x.value));
-  const employeeIds = [...document.querySelectorAll('.ts-employee-check:checked')].map(x=>x.value);
-
-  if(!name || !startDate || !endDate || !startTime || !endTime){
-    alert('Completa nombre, vigencia y horario.');
-    return;
-  }
-  if(startDate > endDate){
-    alert('La fecha inicial no puede ser posterior a la final.');
-    return;
-  }
-  if(!employeeIds.length){
-    alert('Selecciona al menos una persona.');
-    return;
-  }
-
-  const btn = document.getElementById('ts-save-btn');
-  if(btn){ btn.disabled=true; btn.textContent='Creando...'; }
-
-  const actorId = ROLES[currentRole]?.id || null;
-  const { data: group, error: groupError } = await _a_sb
-    .from('schedule_override_groups')
-    .insert({
-      name,
-      override_type: overrideType,
-      start_date: startDate,
-      end_date: endDate,
-      start_time: startTime,
-      end_time: endTime,
-      rest_days: restDays,
-      notes,
-      responsible_id: actorId,
-      created_by: actorId,
-      status: 'active'
-    })
-    .select('id')
-    .single();
-
-  if(groupError){
-    console.error(groupError);
-    alert('No se pudo crear la generación.\n\n' + groupError.message);
-    if(btn){ btn.disabled=false; btn.textContent='Crear generación'; }
-    return;
-  }
-
-  const rows = employeeIds.map(employeeId=>({
-    group_id: group.id,
-    employee_id: employeeId,
-    override_type: overrideType,
-    start_date: startDate,
-    end_date: endDate,
-    start_time: startTime,
-    end_time: endTime,
-    rest_days: restDays,
-    priority: overrideType === 'training' ? 200 : 150,
-    status: 'active',
-    assigned_by: actorId
-  }));
-
-  const { error: memberError } = await _a_sb
-    .from('employee_schedule_overrides')
-    .insert(rows);
-
-  if(memberError){
-    await _a_sb.from('schedule_override_groups').delete().eq('id',group.id);
-    console.error(memberError);
-    alert('No se pudieron asignar los participantes.\n\n' + memberError.message);
-    if(btn){ btn.disabled=false; btn.textContent='Crear generación'; }
-    return;
-  }
-
-  closeModal();
-  await _a_loadTrainingSchedules();
-  _a_render();
+function _a_generationFormHtml(values={}){
+  const restSet=new Set((values.rest_days||[0]).map(Number));
+  return `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="modal-section"><div class="ms-title">Nombre *</div><input id="ts-name" value="${_d_esc(values.name||'')}" placeholder="Ej. Generación 22 Julio 2026" style="width:100%"></div><div class="modal-section"><div class="ms-title">Tipo *</div><select id="ts-type" style="width:100%">${[['training','Capacitación'],['nesting','Nesting'],['temporary_operation','Operación temporal'],['special_project','Proyecto especial'],['medical_adjustment','Ajuste médico']].map(([v,l])=>`<option value="${v}" ${values.override_type===v?'selected':''}>${l}</option>`).join('')}</select></div><div class="modal-section"><div class="ms-title">Fecha de inicio *</div><input id="ts-start-date" type="date" value="${values.start_date||ymd(new Date())}" style="width:100%"></div><div class="modal-section"><div class="ms-title">Fecha de término *</div><input id="ts-end-date" type="date" value="${values.end_date||addDays(ymd(new Date()),14)}" style="width:100%"></div><div class="modal-section"><div class="ms-title">Entrada *</div><input id="ts-start-time" type="time" value="${String(values.start_time||'09:00').slice(0,5)}" style="width:100%"></div><div class="modal-section"><div class="ms-title">Salida *</div><input id="ts-end-time" type="time" value="${String(values.end_time||'16:00').slice(0,5)}" style="width:100%"></div></div><div class="modal-section"><div class="ms-title">Días de descanso</div><div style="display:flex;flex-wrap:wrap;gap:8px">${[0,1,2,3,4,5,6].map(n=>`<label style="display:flex;gap:6px;align-items:center;border:1px solid #E2E8F0;border-radius:8px;padding:8px 10px"><input type="checkbox" class="ts-rest-day" value="${n}" ${restSet.has(n)?'checked':''} style="width:auto">${_a_trainingDayLabel(n)}</label>`).join('')}</div></div><div class="modal-section"><div class="ms-title">Comentarios</div><textarea id="ts-notes" style="width:100%;min-height:70px">${_d_esc(values.notes||'')}</textarea></div>`;
 }
 
-async function _a_viewTrainingGeneration(groupId){
-  const g = (_a_TRAINING_GROUPS || []).find(x=>x.id===groupId);
-  if(!g) return;
-
-  const ids = (g.employee_schedule_overrides || []).filter(x=>x.status!=='cancelled').map(x=>x.employee_id);
-  const names = ids.map(id => {
-    const e = (_a_TRAINING_EMPLOYEES || []).find(x=>String(x.id)===String(id));
-    return e ? e.full_name : id;
-  });
-
-  document.getElementById('modalTitle').textContent = g.name || 'Generación';
-  document.getElementById('modalSub').textContent = `${fmtDate(g.start_date)} → ${fmtDate(g.end_date)}`;
-  document.getElementById('modalBody').innerHTML = `
-    <div class="modal-section">
-      <div class="kv"><span class="k">Tipo</span><span class="v">${_d_esc(g.override_type)}</span></div>
-      <div class="kv"><span class="k">Horario temporal</span><span class="v" style="font-family:'DM Mono',monospace">${String(g.start_time).slice(0,5)}–${String(g.end_time).slice(0,5)}</span></div>
-      <div class="kv"><span class="k">Descansos</span><span class="v">${(g.rest_days||[]).map(_a_trainingDayLabel).join(', ') || 'Sin descanso'}</span></div>
-      <div class="kv"><span class="k">Estatus</span><span class="v">${_a_trainingStatusPill(g)}</span></div>
-    </div>
-    <div class="modal-section">
-      <div class="ms-title">Participantes · ${names.length}</div>
-      <div style="display:grid;gap:6px;max-height:300px;overflow:auto">
-        ${names.map(n=>`<div style="padding:8px 10px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px">${_d_esc(n)}</div>`).join('')}
-      </div>
-    </div>
-    ${g.notes ? `<div class="modal-section"><div class="ms-title">Comentarios</div><div style="font-size:13px;color:#475569">${_d_esc(g.notes)}</div></div>` : ''}
-  `;
-
-  document.querySelector('.modal-footer').innerHTML = `
-    <button class="btn-ghost" onclick="closeModal()">Cerrar</button>
-    ${!['cancelled','finished'].includes(_a_trainingStatus(g))
-      ? `<button class="btn-danger" onclick="_a_cancelTrainingGeneration('${g.id}')">Cancelar generación</button>`
-      : ''}
-  `;
+function _a_openNewTrainingGeneration(){
+  const recentCutoff=addDays(ymd(new Date()),-45);
+  const emps=(_a_TRAINING_EMPLOYEES||[]).filter(e=>{const d=e.hire_date||e.start_date||'';return !d||d>=recentCutoff;});
+  document.getElementById('modalTitle').textContent='Nueva generación de capacitación';
+  document.getElementById('modalSub').textContent='Asigna un horario temporal a varias personas.';
+  document.getElementById('modalBody').innerHTML=_a_generationFormHtml()+`<div class="modal-section"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:9px"><div class="ms-title" style="margin:0">Participantes *</div><input id="ts-search" placeholder="Buscar empleado..." oninput="_a_filterTrainingEmployees()" style="max-width:260px"></div><div id="ts-employee-list" style="max-height:260px;overflow:auto;border:1px solid #E2E8F0;border-radius:10px">${_a_trainingEmployeeRows(emps)}</div></div>`;
+  document.querySelector('.modal-footer').innerHTML='<button class="btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn-primary" id="ts-save-btn" onclick="_a_saveTrainingGeneration()">Crear generación</button>';
   document.getElementById('modalBackdrop').style.display='flex';
 }
 
-async function _a_cancelTrainingGeneration(groupId){
-  if(!confirm('¿Cancelar esta generación? El horario operativo volverá a aplicar desde este momento.')) return;
-  const actorId = ROLES[currentRole]?.id || null;
-
-  const { error } = await _a_sb.rpc('cancel_schedule_override_group',{
-    p_group_id: groupId,
-    p_cancelled_by: actorId
-  });
-
-  if(error){
-    alert('No se pudo cancelar.\n\n' + error.message);
-    return;
-  }
-  closeModal();
-  await _a_loadTrainingSchedules();
-  _a_render();
+async function _a_saveTrainingGeneration(){
+  const payload=_a_readGenerationForm();
+  const employeeIds=[...document.querySelectorAll('.ts-employee-check:checked')].map(x=>x.value);
+  if(!payload||!employeeIds.length){ if(!employeeIds.length)alert('Selecciona al menos una persona.'); return; }
+  const btn=document.getElementById('ts-save-btn'); if(btn){btn.disabled=true;btn.textContent='Creando...';}
+  const {error}=await _a_sb.rpc('bulk_import_training_schedules',{p_groups:[{...payload,employee_ids:employeeIds}],p_file_name:null,p_batch_name:payload.name});
+  if(error){alert('No se pudo crear la generación.\n\n'+error.message);if(btn){btn.disabled=false;btn.textContent='Crear generación';}return;}
+  closeModal(); await _a_loadTrainingSchedules(); _a_render();
 }
+
+function _a_readGenerationForm(){
+  const p={name:document.getElementById('ts-name')?.value?.trim(),override_type:document.getElementById('ts-type')?.value,start_date:document.getElementById('ts-start-date')?.value,end_date:document.getElementById('ts-end-date')?.value,start_time:document.getElementById('ts-start-time')?.value,end_time:document.getElementById('ts-end-time')?.value,notes:document.getElementById('ts-notes')?.value?.trim()||null,rest_days:[...document.querySelectorAll('.ts-rest-day:checked')].map(x=>Number(x.value))};
+  if(!p.name||!p.start_date||!p.end_date||!p.start_time||!p.end_time){alert('Completa nombre, vigencia y horario.');return null;} if(p.start_date>p.end_date){alert('La fecha inicial no puede ser posterior a la final.');return null;} return p;
+}
+
+function _a_downloadTrainingTemplate(){
+  const csv='employee_id,generation,start_date,end_date,start_time,end_time,rest_days,override_type,notes\nCX00001,Generación Aplazo,2026-07-22,2026-08-05,09:00,18:00,0|6,training,Training inicial\nCX00002,Generación Aplazo,2026-07-22,2026-08-05,09:00,18:00,0|6,training,Training inicial';
+  _a_downloadTextFile('plantilla_training_schedules.csv','\ufeff'+csv,'text/csv;charset=utf-8');
+}
+
+function _a_downloadTextFile(name,text,type){ const blob=new Blob([text],{type:type||'text/plain'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url); }
+
+function _a_openTrainingImport(){
+  _a_TRAINING_IMPORT_PREVIEW=null;
+  document.getElementById('modalTitle').textContent='Importar generaciones';
+  document.getElementById('modalSub').textContent='Acepta CSV y Excel (.xlsx). Se agrupan filas con la misma configuración.';
+  document.getElementById('modalBody').innerHTML=`<div class="modal-section"><div class="ms-title">Archivo</div><input id="ts-import-file" type="file" accept=".csv,.xlsx,.xls" onchange="_a_parseTrainingImport(this.files[0])" style="width:100%"><div style="font-size:11px;color:#64748B;margin-top:8px">Columnas: employee_id, generation, start_date, end_date, start_time, end_time, rest_days, override_type, notes.</div></div><div id="ts-import-preview"><div style="padding:28px;text-align:center;color:#94A3B8">Selecciona un archivo para validar la carga.</div></div>`;
+  document.querySelector('.modal-footer').innerHTML='<button class="btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn-primary" id="ts-import-save" disabled onclick="_a_commitTrainingImport()">Importar</button>';
+  document.getElementById('modalBackdrop').style.display='flex';
+}
+
+async function _a_parseTrainingImport(file){
+  if(!file)return;
+  try{
+    let rows=[];
+    if(/\.csv$/i.test(file.name)){ rows=_a_parseCsv(await file.text()); }
+    else { if(typeof XLSX==='undefined') throw new Error('No se cargó el lector de Excel. Recarga la página e intenta nuevamente.'); const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}); }
+    const result=_a_validateTrainingRows(rows,file.name); _a_TRAINING_IMPORT_PREVIEW=result; _a_renderTrainingImportPreview(result);
+  }catch(e){ console.error(e); alert('No se pudo leer el archivo.\n\n'+e.message); }
+}
+
+function _a_parseCsv(text){
+  const lines=String(text||'').replace(/^\ufeff/,'').split(/\r?\n/).filter(x=>x.trim()); if(!lines.length)return[];
+  const parse=line=>{const out=[];let cur='',q=false;for(let i=0;i<line.length;i++){const c=line[i];if(c==='"'){if(q&&line[i+1]==='"'){cur+='"';i++;}else q=!q;}else if(c===','&&!q){out.push(cur.trim());cur='';}else cur+=c;}out.push(cur.trim());return out;};
+  const h=parse(lines[0]).map(x=>x.trim()); return lines.slice(1).map(line=>Object.fromEntries(parse(line).map((v,i)=>[h[i],v])));
+}
+
+function _a_validateTrainingRows(rows,fileName){
+  const employeeMap=new Map((_a_TRAINING_EMPLOYEES||[]).map(e=>[String(e.id),e])); const errors=[]; const warnings=[]; const groups=new Map();
+  (rows||[]).forEach((r,idx)=>{const line=idx+2; const employee_id=String(r.employee_id||r.Employee_ID||r.ID||'').trim(); const name=String(r.generation||r.generation_name||r.Generacion||'').trim(); const start_date=String(r.start_date||'').slice(0,10); const end_date=String(r.end_date||'').slice(0,10); const start_time=String(r.start_time||'').slice(0,5); const end_time=String(r.end_time||'').slice(0,5); const override_type=String(r.override_type||'training').trim()||'training'; const notes=String(r.notes||'').trim(); const rest_days=String(r.rest_days||'').split(/[|,; ]+/).filter(Boolean).map(Number);
+    if(!employee_id||!name||!start_date||!end_date||!start_time||!end_time){errors.push(`Fila ${line}: faltan datos obligatorios.`);return;} if(!employeeMap.has(employee_id)){errors.push(`Fila ${line}: el empleado ${employee_id} no existe o no está activo.`);return;} if(start_date>end_date){errors.push(`Fila ${line}: rango de fechas inválido.`);return;} if(rest_days.some(n=>!Number.isInteger(n)||n<0||n>6)){errors.push(`Fila ${line}: rest_days debe usar números de 0 a 6.`);return;}
+    const key=[name,start_date,end_date,start_time,end_time,override_type,[...rest_days].sort().join('|'),notes].join('§'); if(!groups.has(key))groups.set(key,{name,override_type,start_date,end_date,start_time,end_time,rest_days,notes,employee_ids:[]}); const g=groups.get(key); if(g.employee_ids.includes(employee_id))warnings.push(`Fila ${line}: ${employee_id} está duplicado en ${name}; se conservará una sola vez.`); else g.employee_ids.push(employee_id);
+  });
+  return {fileName,groups:[...groups.values()],errors,warnings,totalRows:(rows||[]).length};
+}
+
+function _a_renderTrainingImportPreview(r){
+  const el=document.getElementById('ts-import-preview'); if(!el)return; const people=r.groups.reduce((n,g)=>n+g.employee_ids.length,0); const ok=!r.errors.length&&r.groups.length;
+  el.innerHTML=`<div class="kpi-grid" style="margin:12px 0"><div class="kpi-card"><div class="kpi-label">Filas</div><div class="kpi-value">${r.totalRows}</div></div><div class="kpi-card"><div class="kpi-label">Generaciones</div><div class="kpi-value">${r.groups.length}</div></div><div class="kpi-card"><div class="kpi-label">Personas</div><div class="kpi-value">${people}</div></div><div class="kpi-card"><div class="kpi-label">Errores</div><div class="kpi-value" style="color:${r.errors.length?'#DC2626':'#16A34A'}">${r.errors.length}</div></div></div>${r.groups.length?`<div class="modal-section"><div class="ms-title">Generaciones detectadas</div>${r.groups.map(g=>`<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #F1F5F9"><div><b>${_d_esc(g.name)}</b><div style="font-size:11px;color:#64748B">${g.start_date} → ${g.end_date} · ${g.start_time}–${g.end_time}</div></div><b>${g.employee_ids.length}</b></div>`).join('')}</div>`:''}${r.errors.length?`<div class="alert alert-red"><div><b>Corrige estos errores:</b><br>${r.errors.slice(0,20).map(_d_esc).join('<br>')}</div></div>`:''}${r.warnings.length?`<div class="alert alert-amber"><div><b>Advertencias:</b><br>${r.warnings.slice(0,20).map(_d_esc).join('<br>')}</div></div>`:''}`;
+  const btn=document.getElementById('ts-import-save'); if(btn)btn.disabled=!ok;
+}
+
+async function _a_commitTrainingImport(){
+  const r=_a_TRAINING_IMPORT_PREVIEW; if(!r||r.errors.length||!r.groups.length)return; const btn=document.getElementById('ts-import-save'); btn.disabled=true;btn.textContent='Importando...';
+  const {data,error}=await _a_sb.rpc('bulk_import_training_schedules',{p_groups:r.groups,p_file_name:r.fileName,p_batch_name:r.fileName.replace(/\.[^.]+$/,'')});
+  if(error){alert('No se pudo completar la importación.\n\n'+error.message);btn.disabled=false;btn.textContent='Importar';return;} alert(`Importación completada: ${data?.groups_created||r.groups.length} generaciones y ${data?.employees_assigned||0} personas.`); closeModal(); await _a_loadTrainingSchedules(); _a_render();
+}
+
+async function _a_viewTrainingGeneration(groupId){
+  const g=(_a_TRAINING_GROUPS||[]).find(x=>x.id===groupId); if(!g)return; _a_TRAINING_SELECTED=groupId;
+  const ids=(g.employee_schedule_overrides||[]).filter(x=>x.status!=='cancelled').map(x=>String(x.employee_id)); const members=ids.map(id=>(_a_TRAINING_EMPLOYEES||[]).find(x=>String(x.id)===id)||{id,full_name:id});
+  document.getElementById('modalTitle').textContent=g.name||'Generación'; document.getElementById('modalSub').textContent=`${fmtDate(g.start_date)} → ${fmtDate(g.end_date)}`;
+  document.getElementById('modalBody').innerHTML=`<div class="modal-section"><div class="kv"><span class="k">Tipo</span><span class="v">${_d_esc(_a_trainingTypeLabel(g.override_type))}</span></div><div class="kv"><span class="k">Horario</span><span class="v" style="font-family:'DM Mono',monospace">${String(g.start_time).slice(0,5)}–${String(g.end_time).slice(0,5)}</span></div><div class="kv"><span class="k">Descansos</span><span class="v">${(g.rest_days||[]).map(_a_trainingDayLabel).join(', ')||'Sin descanso'}</span></div><div class="kv"><span class="k">Estatus</span><span class="v">${_a_trainingStatusPill(g)}</span></div></div><div class="modal-section"><div class="ms-title">Participantes · ${members.length}</div><div style="display:grid;gap:6px;max-height:300px;overflow:auto">${members.map(e=>`<div style="padding:8px 10px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px"><b>${_d_esc(e.full_name)}</b><div style="font-size:11px;color:#94A3B8">${_d_esc(e.id)}</div></div>`).join('')}</div></div>${g.notes?`<div class="modal-section"><div class="ms-title">Comentarios</div><div>${_d_esc(g.notes)}</div></div>`:''}`;
+  const editable=!['cancelled','finished'].includes(_a_trainingStatus(g));
+  document.querySelector('.modal-footer').innerHTML=`<button class="btn-ghost" onclick="closeModal()">Cerrar</button><button class="btn-ghost" onclick="_a_exportTrainingGeneration('${g.id}')">Exportar</button><button class="btn-ghost" onclick="_a_openDuplicateTrainingGeneration('${g.id}')">Duplicar</button>${editable?`<button class="btn-cyan" onclick="_a_openManageTrainingMembers('${g.id}')">Participantes</button><button class="btn-ghost" onclick="_a_openMoveTrainingMembers('${g.id}')">Mover</button><button class="btn-danger" onclick="_a_cancelTrainingGeneration('${g.id}')">Cancelar generación</button>`:''}`;
+  document.getElementById('modalBackdrop').style.display='flex';
+}
+
+function _a_exportTrainingGeneration(groupId){
+  const g=(_a_TRAINING_GROUPS||[]).find(x=>x.id===groupId);if(!g)return; const rows=(g.employee_schedule_overrides||[]).filter(x=>x.status!=='cancelled').map(x=>[x.employee_id,g.name,g.start_date,g.end_date,String(g.start_time).slice(0,5),String(g.end_time).slice(0,5),(g.rest_days||[]).join('|'),g.override_type,g.notes||'']); const esc=v=>`"${String(v??'').replace(/"/g,'""')}"`; const csv=[['employee_id','generation','start_date','end_date','start_time','end_time','rest_days','override_type','notes'],...rows].map(r=>r.map(esc).join(',')).join('\n'); _a_downloadTextFile((g.name||'generacion').replace(/[^a-z0-9]+/gi,'_')+'.csv','\ufeff'+csv,'text/csv;charset=utf-8');
+}
+
+function _a_openDuplicateTrainingGeneration(groupId){
+  const g=(_a_TRAINING_GROUPS||[]).find(x=>x.id===groupId);if(!g)return; document.getElementById('modalTitle').textContent='Duplicar generación';document.getElementById('modalSub').textContent='Conserva horario, descansos y participantes.';document.getElementById('modalBody').innerHTML=`<div class="modal-section"><div class="ms-title">Nuevo nombre</div><input id="ts-dup-name" value="${_d_esc(g.name+' - copia')}" style="width:100%"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><div class="modal-section"><div class="ms-title">Inicio</div><input id="ts-dup-start" type="date" value="${g.start_date}" style="width:100%"></div><div class="modal-section"><div class="ms-title">Término</div><input id="ts-dup-end" type="date" value="${g.end_date}" style="width:100%"></div></div>`;document.querySelector('.modal-footer').innerHTML=`<button class="btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="_a_duplicateTrainingGeneration('${groupId}')">Duplicar</button>`;
+}
+
+async function _a_duplicateTrainingGeneration(groupId){ const name=document.getElementById('ts-dup-name')?.value?.trim();const start=document.getElementById('ts-dup-start')?.value;const end=document.getElementById('ts-dup-end')?.value;if(!name||!start||!end||start>end){alert('Revisa nombre y fechas.');return;}const {error}=await _a_sb.rpc('duplicate_training_schedule_group',{p_group_id:groupId,p_name:name,p_start_date:start,p_end_date:end});if(error){alert('No se pudo duplicar.\n\n'+error.message);return;}closeModal();await _a_loadTrainingSchedules();_a_render(); }
+
+function _a_openManageTrainingMembers(groupId){
+  const g=(_a_TRAINING_GROUPS||[]).find(x=>x.id===groupId);if(!g)return;const ids=(g.employee_schedule_overrides||[]).filter(x=>x.status!=='cancelled').map(x=>String(x.employee_id));document.getElementById('modalTitle').textContent='Administrar participantes';document.getElementById('modalSub').textContent=g.name;document.getElementById('modalBody').innerHTML=`<div class="modal-section"><input id="ts-search" placeholder="Buscar empleado..." oninput="_a_filterTrainingEmployees()" style="width:100%;margin-bottom:9px"><div id="ts-employee-list" style="max-height:420px;overflow:auto;border:1px solid #E2E8F0;border-radius:10px">${_a_trainingEmployeeRows(_a_TRAINING_EMPLOYEES,ids)}</div></div><input type="hidden" id="ts-original-members" value="${_d_esc(ids.join('|'))}">`;document.querySelector('.modal-footer').innerHTML=`<button class="btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="_a_saveTrainingMembers('${groupId}')">Guardar cambios</button>`;
+}
+
+async function _a_saveTrainingMembers(groupId){ const original=new Set(String(document.getElementById('ts-original-members')?.value||'').split('|').filter(Boolean));const now=new Set([...document.querySelectorAll('.ts-employee-check:checked')].map(x=>x.value));const add=[...now].filter(x=>!original.has(x));const remove=[...original].filter(x=>!now.has(x));const {error}=await _a_sb.rpc('update_training_schedule_members',{p_group_id:groupId,p_add_employee_ids:add,p_remove_employee_ids:remove});if(error){alert('No se pudieron actualizar participantes.\n\n'+error.message);return;}closeModal();await _a_loadTrainingSchedules();_a_render(); }
+
+function _a_openMoveTrainingMembers(groupId){
+  const g=(_a_TRAINING_GROUPS||[]).find(x=>x.id===groupId);if(!g)return;const ids=(g.employee_schedule_overrides||[]).filter(x=>x.status!=='cancelled').map(x=>String(x.employee_id));const members=(_a_TRAINING_EMPLOYEES||[]).filter(e=>ids.includes(String(e.id)));const targets=(_a_TRAINING_GROUPS||[]).filter(x=>x.id!==groupId&&['active','scheduled'].includes(_a_trainingStatus(x)));
+  document.getElementById('modalTitle').textContent='Mover participantes';document.getElementById('modalSub').textContent=`Desde ${g.name}`;document.getElementById('modalBody').innerHTML=`<div class="modal-section"><div class="ms-title">1. Selecciona personas</div><div style="max-height:220px;overflow:auto">${_a_trainingEmployeeRows(members)}</div></div><div class="modal-section"><div class="ms-title">2. Destino</div><select id="ts-move-target" onchange="document.getElementById('ts-new-target').style.display=this.value==='__new__'?'block':'none'" style="width:100%"><option value="">Selecciona...</option>${targets.map(x=>`<option value="${x.id}">${_d_esc(x.name)}</option>`).join('')}<option value="__new__">+ Crear nueva generación</option></select></div><div id="ts-new-target" style="display:none">${_a_generationFormHtml({override_type:g.override_type,start_time:g.start_time,end_time:g.end_time,rest_days:g.rest_days})}</div>`;document.querySelector('.modal-footer').innerHTML=`<button class="btn-ghost" onclick="closeModal()">Cancelar</button><button class="btn-primary" onclick="_a_moveTrainingMembers('${groupId}')">Mover</button>`;
+}
+
+async function _a_moveTrainingMembers(sourceId){ const ids=[...document.querySelectorAll('.ts-employee-check:checked')].map(x=>x.value);const target=document.getElementById('ts-move-target')?.value;if(!ids.length||!target){alert('Selecciona personas y destino.');return;}let newGroup=null,targetId=null;if(target==='__new__'){newGroup=_a_readGenerationForm();if(!newGroup)return;}else targetId=target;const {error}=await _a_sb.rpc('move_training_schedule_members',{p_source_group_id:sourceId,p_employee_ids:ids,p_target_group_id:targetId,p_new_group:newGroup});if(error){alert('No se pudieron mover los participantes.\n\n'+error.message);return;}closeModal();await _a_loadTrainingSchedules();_a_render(); }
+
+async function _a_cancelTrainingGeneration(groupId){
+  if(!confirm('¿Cancelar esta generación? El horario operativo volverá a aplicar desde este momento.'))return;
+  const actorId=ROLES[currentRole]?.id||null;const {error}=await _a_sb.rpc('cancel_schedule_override_group',{p_group_id:groupId,p_cancelled_by:actorId});if(error){alert('No se pudo cancelar.\n\n'+error.message);return;}closeModal();await _a_loadTrainingSchedules();_a_render();
+}
+
 
 function _a_injectTrainingSchedulesLauncher(){
   if(!_a_canManageTrainingSchedules()) return;
