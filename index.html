@@ -14471,6 +14471,52 @@ function _t_renderBandeja() {
   `;
 }
 
+function _t_renderMisTickets() {
+  const ro = ROLES[currentRole] || {};
+
+  const lista = (_t_TICKETS || [])
+    .filter(ticket => ticket.employee_id === ro.id)
+    .sort((a, b) => {
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
+
+  return `
+    <div style="max-width:900px;margin:0 auto">
+
+      ${_t_renderTabs()}
+
+      <div
+        style="
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          margin-bottom:14px;
+          gap:10px;
+          flex-wrap:wrap;
+        "
+      >
+        <div style="font-size:13px;color:#64748B">
+          ${lista.length}
+          ticket${lista.length !== 1 ? 's' : ''}
+        </div>
+
+        <button
+          onclick="_t_abrirNuevo()"
+          class="btn-primary"
+        >
+          + Nuevo ticket
+        </button>
+      </div>
+
+      ${_t_renderTablaTickets(
+        lista,
+        'Aún no tienes tickets registrados'
+      )}
+
+    </div>
+  `;
+}
+
 function _t_renderTicketsEquipo() {
   const lista = [...(_t_TEAM_TICKETS || [])].sort((a, b) => {
     return new Date(b.created_at || 0) - new Date(a.created_at || 0);
@@ -14805,6 +14851,7 @@ function _t_render() {
   _t_vistaTickets = 'mis';
   c.innerHTML = _t_renderMisTickets();
 }
+
 
 function _t_renderDetalle(id) {
   const t = _t_TICKETS.find(x => x.id === id);
