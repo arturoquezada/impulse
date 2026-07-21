@@ -3144,7 +3144,7 @@ async function _a_cargarDatos() {
       for (const chunk of _a_chunks(cleanIds, 100)) {
         const { data, error } = await _a_sb
           .from('attendance_exceptions')
-          .select('id, employee_id, exception_date, type, notes, status, shift_start_override, shift_end_override, source_punch_id, minutes_late')
+          .select('id, employee_id, exception_date, type, notes, status, shift_start_override, shift_end_override')
           .eq('exception_date', hoy)
           .in('employee_id', chunk);
 
@@ -4915,15 +4915,36 @@ async function _a_solicitarJustificacionRetardo(){
     minutes_late: Number(rec.lateMin || 0)
   };
 
-  const query = existing
-    ? _a_sb.from('attendance_exceptions').update(payload).eq('id', existing.id)
-    : _a_sb.from('attendance_exceptions').insert(payload);
+  let result = existing
+    ? await _a_sb.from('attendance_exceptions').update(payload).eq('id', existing.id)
+    : await _a_sb.from('attendance_exceptions').insert(payload);
 
-  const { error } = await query;
+  // Compatibilidad: si las columnas extendidas todavía no existen,
+  // reintenta con la estructura base de attendance_exceptions.
+  if (result.error && String(result.error.code || '') === '42703') {
+    console.warn('Columnas extendidas de retardo aún no disponibles; usando payload compatible.', result.error);
 
-  if (error) {
-    console.error('Error creando justificación de retardo:', error);
-    alert('No se pudo enviar la solicitud.\n\n' + (error.message || 'Error desconocido'));
+    const compatiblePayload = {
+      employee_id: rec.agentId,
+      exception_date: rec.fecha,
+      type: 'retardo_justificado',
+      notes: `[${Number(rec.lateMin || 0)} min] ${motivo} — ${justificacion}`,
+      status: 'pending',
+      requested_by: actorId,
+      requested_at: new Date().toISOString(),
+      reviewed_by: null,
+      reviewed_at: null,
+      review_notes: null
+    };
+
+    result = existing
+      ? await _a_sb.from('attendance_exceptions').update(compatiblePayload).eq('id', existing.id)
+      : await _a_sb.from('attendance_exceptions').insert(compatiblePayload);
+  }
+
+  if (result.error) {
+    console.error('Error creando justificación de retardo:', result.error);
+    alert('No se pudo enviar la solicitud.\n\n' + (result.error.message || 'Error desconocido'));
     if (btn) {
       btn.disabled = false;
       btn.textContent = 'Guardar y solicitar justificación';
@@ -5864,7 +5885,7 @@ async function _a_cargarPendientesExcepciones() {
 
   const { data, error } = await _a_sb
     .from('attendance_exceptions')
-    .select('id, employee_id, exception_date, type, status, notes, requested_by, requested_at, created_at, reviewed_by, reviewed_at, review_notes, source_punch_id, source_type, request_reason, request_detail, minutes_late')
+    .select('id, employee_id, exception_date, type, status, notes, requested_by, requested_at, created_at, reviewed_by, reviewed_at, review_notes')
     .eq('status', 'pending')
     .in('type', tipos)
     .order('exception_date', { ascending: false })
@@ -5956,8 +5977,8 @@ function _a_renderPendientesExcepcionesCard() {
       <td>${_a_exceptionStatusPill(r.status)}</td>
 
       <td style="font-size:11px;color:#64748B;max-width:360px;white-space:normal;line-height:1.35">
-        ${_a_esTipoRetardoJustificado(r.type) && r.minutes_late != null
-          ? `<div style="font-weight:800;color:#D97706;margin-bottom:4px">${r.minutes_late} minutos tarde</div>`
+        ${_a_esTipoRetardoJustificado(r.type)
+          ? `<div style="font-weight:800;color:#D97706;margin-bottom:4px">Solicitud de justificación de retardo</div>`
           : ''}
         ${r.notes || '—'}
         <div style="margin-top:4px;color:#94A3B8">
@@ -6099,6 +6120,435 @@ async function _a_revisarExcepcionAsistencia(exceptionId, decision) {
 }
 
 
+
+// ─────────────────────────────────────────────
+// HORARIOS TEMPORALES · TRAINING SCHEDULES
+// ─────────────────────────────────────────────
+let _a_TRAINING_GROUPS = [];
+let _a_TRAINING_EMPLOYEES = [];
+let _a_TRAINING_LOADING = false;
+let _a_TRAINING_SELECTED = null;
+
+function _a_canManageTrainingSchedules(){
+  return ['workforce','people','head_people','ceo','manager'].includes(currentRole);
+}
+
+function _a_trainingStatus(g){
+  const today = ymd(new Date());
+  if (String(g.status || '').toLowerCase() === 'cancelled') return 'cancelled';
+  if (today < g.start_date) return 'scheduled';
+  if (today > g.end_date) return 'finished';
+  return 'active';
+}
+
+function _a_trainingStatusPill(g){
+  const s = _a_trainingStatus(g);
+  if (s === 'active') return '<span class="pill pill-green"><span class="dot"></span>Activo</span>';
+  if (s === 'scheduled') return '<span class="pill pill-blue"><span class="dot"></span>Programado</span>';
+  if (s === 'cancelled') return '<span class="pill pill-red"><span class="dot"></span>Cancelado</span>';
+  return '<span class="pill"><span class="dot"></span>Finalizado</span>';
+}
+
+function _a_trainingDayLabel(n){
+  return ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][Number(n)] || String(n);
+}
+
+async function _a_openTrainingSchedules(){
+  if(!_a_canManageTrainingSchedules()){
+    alert('No tienes permiso para administrar horarios temporales.');
+    return;
+  }
+  _a_vistaEspecial = 'training_schedules';
+  _a_TRAINING_LOADING = true;
+  _a_render();
+  await _a_loadTrainingSchedules();
+  _a_TRAINING_LOADING = false;
+  _a_render();
+}
+
+function _a_closeTrainingSchedules(){
+  _a_vistaEspecial = null;
+  _a_TRAINING_SELECTED = null;
+  _a_render();
+}
+
+async function _a_loadTrainingSchedules(){
+  const [groups, employees] = await Promise.all([
+    _a_sb
+      .from('schedule_override_groups')
+      .select('*, employee_schedule_overrides(id,employee_id,status)')
+      .order('start_date', {ascending:false}),
+    _a_sb
+      .from('employees')
+      .select('id,full_name,campaign_id,position_title,status,hire_date,start_date')
+      .eq('status','active')
+      .order('full_name')
+  ]);
+
+  if(groups.error){
+    console.error('Training Schedules:', groups.error);
+    alert('No se pudieron cargar las generaciones.\n\n' + groups.error.message);
+    _a_TRAINING_GROUPS = [];
+  }else{
+    _a_TRAINING_GROUPS = groups.data || [];
+  }
+
+  if(employees.error){
+    console.error('Training employees:', employees.error);
+    _a_TRAINING_EMPLOYEES = [];
+  }else{
+    _a_TRAINING_EMPLOYEES = employees.data || [];
+  }
+}
+
+function _a_renderTrainingSchedules(){
+  if(_a_TRAINING_LOADING){
+    return `
+      <div style="display:flex;align-items:center;justify-content:center;min-height:420px;color:#64748B">
+        <div style="text-align:center">
+          <div style="width:38px;height:38px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
+          Cargando horarios temporales...
+        </div>
+      </div>`;
+  }
+
+  const groups = _a_TRAINING_GROUPS || [];
+  const active = groups.filter(g => _a_trainingStatus(g)==='active').length;
+  const scheduled = groups.filter(g => _a_trainingStatus(g)==='scheduled').length;
+  const people = groups
+    .filter(g => ['active','scheduled'].includes(_a_trainingStatus(g)))
+    .reduce((n,g)=>n+(g.employee_schedule_overrides||[]).filter(x=>x.status!=='cancelled').length,0);
+
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:18px">
+      <div>
+        <button class="btn-ghost" onclick="_a_closeTrainingSchedules()" style="margin-bottom:12px">← Volver a Asistencia</button>
+        <div style="font-size:25px;font-weight:900;color:#0F172A">🎓 Training Schedules</div>
+        <div style="font-size:13px;color:#64748B;margin-top:5px">
+          Horarios temporales que tienen prioridad sobre el turno operativo durante su vigencia.
+        </div>
+      </div>
+      <button class="btn-primary" onclick="_a_openNewTrainingGeneration()">+ Nueva generación</button>
+    </div>
+
+    <div class="kpi-grid" style="margin-bottom:18px">
+      <div class="kpi-card"><div class="kpi-label">Generaciones activas</div><div class="kpi-value">${active}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Programadas</div><div class="kpi-value">${scheduled}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Personas con horario temporal</div><div class="kpi-value">${people}</div></div>
+    </div>
+
+    <div class="alert alert-blue" style="margin-bottom:18px">
+      <b>Prioridad del horario:</b>&nbsp; permuta/cambio aprobado → horario temporal → override especial del día → horario operativo.
+    </div>
+
+    <div class="card">
+      <div class="card-title">Generaciones y horarios temporales</div>
+      ${groups.length ? `
+        <div class="tbl-wrap">
+          <div style="overflow-x:auto">
+            <table style="min-width:920px">
+              <thead>
+                <tr>
+                  <th>Generación</th>
+                  <th>Tipo</th>
+                  <th>Horario</th>
+                  <th>Vigencia</th>
+                  <th>Descansos</th>
+                  <th>Personas</th>
+                  <th>Estatus</th>
+                  <th style="text-align:right">Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${groups.map(g => {
+                  const members = (g.employee_schedule_overrides || []).filter(x=>x.status!=='cancelled').length;
+                  const rests = (g.rest_days || []).map(_a_trainingDayLabel).join(', ') || 'Sin descanso';
+                  return `
+                    <tr>
+                      <td>
+                        <div style="font-weight:900;color:#0F172A">${_d_esc(g.name || 'Sin nombre')}</div>
+                        <div style="font-size:11px;color:#94A3B8;margin-top:3px">${_d_esc(g.notes || '')}</div>
+                      </td>
+                      <td>${_d_esc(g.override_type || 'training')}</td>
+                      <td style="font-family:'DM Mono',monospace">${String(g.start_time||'').slice(0,5)}–${String(g.end_time||'').slice(0,5)}</td>
+                      <td>${fmtDateShort(g.start_date)} → ${fmtDateShort(g.end_date)}</td>
+                      <td>${rests}</td>
+                      <td><b>${members}</b></td>
+                      <td>${_a_trainingStatusPill(g)}</td>
+                      <td style="text-align:right">
+                        <button class="btn-ghost" onclick="_a_viewTrainingGeneration('${g.id}')">Ver</button>
+                      </td>
+                    </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ` : `
+        <div style="padding:42px;text-align:center;color:#64748B">
+          <div style="font-size:42px;margin-bottom:10px">🎓</div>
+          Todavía no hay generaciones configuradas.
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function _a_openNewTrainingGeneration(){
+  const recentCutoff = addDays(ymd(new Date()), -45);
+  const emps = (_a_TRAINING_EMPLOYEES || []).filter(e => {
+    const d = e.hire_date || e.start_date || '';
+    return !d || d >= recentCutoff;
+  });
+
+  document.getElementById('modalTitle').textContent = 'Nueva generación de capacitación';
+  document.getElementById('modalSub').textContent = 'Asigna un horario temporal a varias personas sin modificar su turno operativo.';
+  document.getElementById('modalBody').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="modal-section">
+        <div class="ms-title">Nombre de la generación *</div>
+        <input id="ts-name" placeholder="Ej. Generación 22 Julio 2026" style="width:100%">
+      </div>
+      <div class="modal-section">
+        <div class="ms-title">Tipo *</div>
+        <select id="ts-type" style="width:100%">
+          <option value="training">Capacitación</option>
+          <option value="nesting">Nesting</option>
+          <option value="temporary_operation">Operación temporal</option>
+          <option value="special_project">Proyecto especial</option>
+          <option value="medical_adjustment">Ajuste médico</option>
+        </select>
+      </div>
+      <div class="modal-section">
+        <div class="ms-title">Fecha de inicio *</div>
+        <input id="ts-start-date" type="date" value="${ymd(new Date())}" style="width:100%">
+      </div>
+      <div class="modal-section">
+        <div class="ms-title">Fecha de término *</div>
+        <input id="ts-end-date" type="date" value="${addDays(ymd(new Date()),14)}" style="width:100%">
+      </div>
+      <div class="modal-section">
+        <div class="ms-title">Entrada *</div>
+        <input id="ts-start-time" type="time" value="09:00" style="width:100%">
+      </div>
+      <div class="modal-section">
+        <div class="ms-title">Salida *</div>
+        <input id="ts-end-time" type="time" value="16:00" style="width:100%">
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">Días de descanso</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${[0,1,2,3,4,5,6].map(n=>`
+          <label style="display:flex;gap:6px;align-items:center;border:1px solid #E2E8F0;border-radius:8px;padding:8px 10px">
+            <input type="checkbox" class="ts-rest-day" value="${n}" ${n===0?'checked':''} style="width:auto">
+            ${_a_trainingDayLabel(n)}
+          </label>`).join('')}
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">Comentarios</div>
+      <textarea id="ts-notes" placeholder="Responsable de Training, salón, contexto adicional..." style="width:100%;min-height:70px"></textarea>
+    </div>
+
+    <div class="modal-section">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:9px">
+        <div class="ms-title" style="margin:0">Participantes *</div>
+        <input id="ts-search" placeholder="Buscar empleado..." oninput="_a_filterTrainingEmployees()" style="max-width:260px">
+      </div>
+      <div id="ts-employee-list" style="max-height:260px;overflow:auto;border:1px solid #E2E8F0;border-radius:10px">
+        ${_a_trainingEmployeeRows(emps)}
+      </div>
+      <div style="font-size:11px;color:#94A3B8;margin-top:7px">
+        Se muestran primero ingresos recientes. Puedes buscar cualquier persona activa.
+      </div>
+    </div>
+  `;
+  document.querySelector('.modal-footer').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn-primary" id="ts-save-btn" onclick="_a_saveTrainingGeneration()">Crear generación</button>
+  `;
+  document.getElementById('modalBackdrop').style.display='flex';
+}
+
+function _a_trainingEmployeeRows(list){
+  return (list || []).map(e=>`
+    <label class="ts-employee-row" data-search="${_d_esc((e.full_name+' '+e.id+' '+(e.campaign_id||'')).toLowerCase())}"
+      style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-bottom:1px solid #F1F5F9;cursor:pointer">
+      <input type="checkbox" class="ts-employee-check" value="${_d_esc(e.id)}" style="width:auto">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:800;color:#0F172A">${_d_esc(e.full_name || e.id)}</div>
+        <div style="font-size:11px;color:#94A3B8">${_d_esc(e.id)} · ${_d_esc(e.campaign_id || 'Sin campaña')}</div>
+      </div>
+      <div style="font-size:11px;color:#64748B">${fmtDateShort(e.hire_date || e.start_date)}</div>
+    </label>`).join('') || '<div style="padding:20px;text-align:center;color:#94A3B8">No hay empleados activos.</div>';
+}
+
+function _a_filterTrainingEmployees(){
+  const q = String(document.getElementById('ts-search')?.value || '').trim().toLowerCase();
+  const list = document.getElementById('ts-employee-list');
+  if(!list) return;
+  list.innerHTML = _a_trainingEmployeeRows(
+    (_a_TRAINING_EMPLOYEES || []).filter(e =>
+      !q || `${e.full_name} ${e.id} ${e.campaign_id||''}`.toLowerCase().includes(q)
+    )
+  );
+}
+
+async function _a_saveTrainingGeneration(){
+  const name = document.getElementById('ts-name')?.value?.trim();
+  const overrideType = document.getElementById('ts-type')?.value;
+  const startDate = document.getElementById('ts-start-date')?.value;
+  const endDate = document.getElementById('ts-end-date')?.value;
+  const startTime = document.getElementById('ts-start-time')?.value;
+  const endTime = document.getElementById('ts-end-time')?.value;
+  const notes = document.getElementById('ts-notes')?.value?.trim() || null;
+  const restDays = [...document.querySelectorAll('.ts-rest-day:checked')].map(x=>Number(x.value));
+  const employeeIds = [...document.querySelectorAll('.ts-employee-check:checked')].map(x=>x.value);
+
+  if(!name || !startDate || !endDate || !startTime || !endTime){
+    alert('Completa nombre, vigencia y horario.');
+    return;
+  }
+  if(startDate > endDate){
+    alert('La fecha inicial no puede ser posterior a la final.');
+    return;
+  }
+  if(!employeeIds.length){
+    alert('Selecciona al menos una persona.');
+    return;
+  }
+
+  const btn = document.getElementById('ts-save-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Creando...'; }
+
+  const actorId = ROLES[currentRole]?.id || null;
+  const { data: group, error: groupError } = await _a_sb
+    .from('schedule_override_groups')
+    .insert({
+      name,
+      override_type: overrideType,
+      start_date: startDate,
+      end_date: endDate,
+      start_time: startTime,
+      end_time: endTime,
+      rest_days: restDays,
+      notes,
+      responsible_id: actorId,
+      created_by: actorId,
+      status: 'active'
+    })
+    .select('id')
+    .single();
+
+  if(groupError){
+    console.error(groupError);
+    alert('No se pudo crear la generación.\n\n' + groupError.message);
+    if(btn){ btn.disabled=false; btn.textContent='Crear generación'; }
+    return;
+  }
+
+  const rows = employeeIds.map(employeeId=>({
+    group_id: group.id,
+    employee_id: employeeId,
+    override_type: overrideType,
+    start_date: startDate,
+    end_date: endDate,
+    start_time: startTime,
+    end_time: endTime,
+    rest_days: restDays,
+    priority: overrideType === 'training' ? 200 : 150,
+    status: 'active',
+    assigned_by: actorId
+  }));
+
+  const { error: memberError } = await _a_sb
+    .from('employee_schedule_overrides')
+    .insert(rows);
+
+  if(memberError){
+    await _a_sb.from('schedule_override_groups').delete().eq('id',group.id);
+    console.error(memberError);
+    alert('No se pudieron asignar los participantes.\n\n' + memberError.message);
+    if(btn){ btn.disabled=false; btn.textContent='Crear generación'; }
+    return;
+  }
+
+  closeModal();
+  await _a_loadTrainingSchedules();
+  _a_render();
+}
+
+async function _a_viewTrainingGeneration(groupId){
+  const g = (_a_TRAINING_GROUPS || []).find(x=>x.id===groupId);
+  if(!g) return;
+
+  const ids = (g.employee_schedule_overrides || []).filter(x=>x.status!=='cancelled').map(x=>x.employee_id);
+  const names = ids.map(id => {
+    const e = (_a_TRAINING_EMPLOYEES || []).find(x=>String(x.id)===String(id));
+    return e ? e.full_name : id;
+  });
+
+  document.getElementById('modalTitle').textContent = g.name || 'Generación';
+  document.getElementById('modalSub').textContent = `${fmtDate(g.start_date)} → ${fmtDate(g.end_date)}`;
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <div class="kv"><span class="k">Tipo</span><span class="v">${_d_esc(g.override_type)}</span></div>
+      <div class="kv"><span class="k">Horario temporal</span><span class="v" style="font-family:'DM Mono',monospace">${String(g.start_time).slice(0,5)}–${String(g.end_time).slice(0,5)}</span></div>
+      <div class="kv"><span class="k">Descansos</span><span class="v">${(g.rest_days||[]).map(_a_trainingDayLabel).join(', ') || 'Sin descanso'}</span></div>
+      <div class="kv"><span class="k">Estatus</span><span class="v">${_a_trainingStatusPill(g)}</span></div>
+    </div>
+    <div class="modal-section">
+      <div class="ms-title">Participantes · ${names.length}</div>
+      <div style="display:grid;gap:6px;max-height:300px;overflow:auto">
+        ${names.map(n=>`<div style="padding:8px 10px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px">${_d_esc(n)}</div>`).join('')}
+      </div>
+    </div>
+    ${g.notes ? `<div class="modal-section"><div class="ms-title">Comentarios</div><div style="font-size:13px;color:#475569">${_d_esc(g.notes)}</div></div>` : ''}
+  `;
+
+  document.querySelector('.modal-footer').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cerrar</button>
+    ${!['cancelled','finished'].includes(_a_trainingStatus(g))
+      ? `<button class="btn-danger" onclick="_a_cancelTrainingGeneration('${g.id}')">Cancelar generación</button>`
+      : ''}
+  `;
+  document.getElementById('modalBackdrop').style.display='flex';
+}
+
+async function _a_cancelTrainingGeneration(groupId){
+  if(!confirm('¿Cancelar esta generación? El horario operativo volverá a aplicar desde este momento.')) return;
+  const actorId = ROLES[currentRole]?.id || null;
+
+  const { error } = await _a_sb.rpc('cancel_schedule_override_group',{
+    p_group_id: groupId,
+    p_cancelled_by: actorId
+  });
+
+  if(error){
+    alert('No se pudo cancelar.\n\n' + error.message);
+    return;
+  }
+  closeModal();
+  await _a_loadTrainingSchedules();
+  _a_render();
+}
+
+function _a_injectTrainingSchedulesLauncher(){
+  if(!_a_canManageTrainingSchedules()) return;
+  if(_a_vistaEspecial) return;
+  const c = document.getElementById('content');
+  if(!c || document.getElementById('trainingSchedulesLauncher')) return;
+
+  c.insertAdjacentHTML('afterbegin', `
+    <div id="trainingSchedulesLauncher" style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="btn-ghost" onclick="_a_openTrainingSchedules()">🎓 Training Schedules</button>
+    </div>
+  `);
+}
+
 // ── RENDER ROOT ──
 function _a_render(){
   console.log('[Impulse] _a_render called, role=' + currentRole + ' content=' + !!document.getElementById('content'));
@@ -6142,6 +6592,11 @@ function _a_render(){
     return;
   }
 
+  if (_a_vistaEspecial === 'training_schedules') {
+    c.innerHTML = _a_renderTrainingSchedules();
+    return;
+  }
+
   if (currentRole === 'agent') c.innerHTML = _a_renderAgent();
   else if (currentRole === 'supervisor') c.innerHTML = _a_renderSupervisor();
   else if (currentRole === 'manager') c.innerHTML = _a_renderManager();
@@ -6150,6 +6605,7 @@ function _a_render(){
   else if (currentRole === 'ceo') c.innerHTML = _a_renderCEO();
   else c.innerHTML = _a_renderHeadPeople();
 
+  _a_injectTrainingSchedulesLauncher();
   _a_injectAuditLauncher();
   _a_injectPendientesExcepciones();
 }
