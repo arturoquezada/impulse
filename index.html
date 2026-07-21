@@ -10732,23 +10732,35 @@ async function _dd_loadData() {
     supervisors: [],
     supervisorsOptions: Object.entries(supervisorsMap).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
     current: {
-      rows: curRows,
-      attendance: _dd_attendanceSummary(curRows),
-      expectedActions: _dd_expectedActions(curRows),
-      tickets: _dd_ticketSummary(curTickets, from, to),
-      actions: curActions,
-      absenceSources: _dd_absenceSourceSummary(curExceptions),
-      rotation: _dd_rotationSummary(curHistory, activeRows)
-    },
-    previous: {
-      rows: prevRows,
-      attendance: _dd_attendanceSummary(prevRows),
-      expectedActions: _dd_expectedActions(prevRows),
-      tickets: _dd_ticketSummary(prevTickets, prevFrom, prevTo),
-      actions: prevActions,
-      absenceSources: _dd_absenceSourceSummary(prevExceptions),
-      rotation: _dd_rotationSummary(prevHistory, activeRows)
-    }
+  rows: curRows,
+  attendance: _dd_attendanceSummary(curRows),
+  expectedActions: _dd_expectedActions(curRows),
+
+  // Resumen general de tickets
+  tickets: _dd_ticketSummary(curTickets, from, to),
+
+  // Registros completos para el detalle de correcciones
+  ticketRows: curTickets,
+
+  actions: curActions,
+  absenceSources: _dd_absenceSourceSummary(curExceptions),
+  rotation: _dd_rotationSummary(curHistory, activeRows)
+},
+previous: {
+  rows: prevRows,
+  attendance: _dd_attendanceSummary(prevRows),
+  expectedActions: _dd_expectedActions(prevRows),
+
+  // Resumen general de tickets
+  tickets: _dd_ticketSummary(prevTickets, prevFrom, prevTo),
+
+  // Registros completos del periodo anterior
+  ticketRows: prevTickets,
+
+  actions: prevActions,
+  absenceSources: _dd_absenceSourceSummary(prevExceptions),
+  rotation: _dd_rotationSummary(prevHistory, activeRows)
+}
   };
 
   data.payrollTickets = [];
@@ -11681,50 +11693,716 @@ function _dd_renderTicketCommandCenter(data){
   </div>`;
 }
 
-function _dd_render() {
-  const c=document.getElementById('content'); if(!c)return;
-  if(!_dd_canAccess()){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><div style="font-size:13px;color:#64748B">Este módulo es solo para People / Head People.</div></div>';return;}
-  if(_dd_LOADING){c.innerHTML='<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando Super Deep Dive...</div>';return;}
-  const data=_dd_DATA;
-  if(!data){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><button class="btn-primary" onclick="_dd_loadData()">Cargar análisis</button></div>';return;}
-  const a=data.current.attendance,p=data.previous.attendance,r=data.current.rotation||{},src=data.current.absenceSources||{},score=_dd_healthScore(data),status=_dd_scoreStatus(score);
-  const topSup=data.supervisors?.[0];
-  c.innerHTML=`<div class="dd-shell">
-    <div class="dd-toolbar">
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}"><span style="color:#94A3B8">→</span><input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}"><button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button>
-        <select class="df-input" onchange="_dd_setFilter('campaign',this.value)"><option value="all">Todas las campañas</option>${data.campaigns.map(x=>`<option value="${x}" ${_dd_FILTERS.campaign===x?'selected':''}>${x}</option>`).join('')}</select>
-        <select class="df-input" onchange="_dd_setFilter('supervisor',this.value)"><option value="all">Todos los supervisores</option>${data.supervisorsOptions.map(x=>`<option value="${x.id}" ${_dd_FILTERS.supervisor===x.id?'selected':''}>${x.name}</option>`).join('')}</select>
-      </div><div style="display:flex;gap:8px"><button class="btn-ghost" onclick="_dd_copyExecutiveSummary()">📋 Copiar resumen</button><button class="btn-ghost" onclick="_dd_loadData()">🔄</button></div>
-    </div>
+function _dd_clasificarCorreccionAsistencia(ticket) {
+  const type = String(ticket?.type || '').trim().toLowerCase();
+  const subtype = String(ticket?.subtype || '').trim().toLowerCase();
+  const punchType = String(
+    ticket?.correction_punch_type || ''
+  ).trim().toLowerCase();
 
-    <div class="dd-hero"><div class="dd-hero-grid"><div><div class="dd-eyebrow">People Intelligence · Executive Brief</div><div class="dd-title">Super Deep Dive</div><div class="dd-period">${fmtDateShort(data.from)} al ${fmtDateShort(data.to)} · Comparativo ${fmtDateShort(data.prevFrom)} al ${fmtDateShort(data.prevTo)}</div><div class="dd-story">${_dd_executiveStory(data)}</div></div><div class="dd-score"><div class="dd-score-value">${score}</div><div class="dd-score-label">People Health Score</div><div class="dd-score-status" style="color:${status[1]}">${status[0]}</div></div></div></div>
+  if (type !== 'correccion_asistencia') {
+    return null;
+  }
 
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 1 · Qué pasó</div><div class="dd-section-title">Salud operativa de la asistencia</div></div><div class="dd-section-copy">De la puntualidad al cierre de jornada. Haz clic en una incidencia para ver exactamente quién, cuándo y bajo qué supervisor.</div></div>
-      <div class="dd-metric-grid">
-        ${_dd_metric('Puntualidad operativa',a.operationalPunctuality+'%',`${_dd_delta(a.operationalPunctuality,p.operationalPunctuality).label} vs anterior`,'#16A34A')}
-        ${_dd_metric('Retardos para acción',a.retardo,`${_dd_uniqueCount(data.current.rows.filter(x=>x.audit_status==='retardo' && !['pending','approved'].includes(String(x.late_justification_status||'').toLowerCase())),'employee_id')} personas involucradas`,'#D97706',"_dd_openIncidentDrawer('retardo')")}
-        ${_dd_metric('Retardos justificados',a.retardoJustificado || 0,'Aprobados por Manager / People','#16A34A')}
-        ${_dd_metric('Justificaciones pendientes',a.retardoPendiente || 0,'Temporalmente excluidos de Acción People','#F59E0B')}
-        ${_dd_metric('Faltas injustificadas',a.falta,`${_dd_uniqueCount(data.current.rows.filter(x=>x.audit_status==='falta_injustificada'),'employee_id')} personas involucradas`,'#DC2626',"_dd_openIncidentDrawer('falta_injustificada')")}
-        ${_dd_metric('Sin salida',a.sinSalida,`${a.checkoutCompliance}% de cumplimiento de salida`,'#7C3AED',"_dd_openIncidentDrawer('sin_salida')")}
+  if (
+    punchType === 'entrada' ||
+    subtype === 'entrada mal marcada'
+  ) {
+    return 'entrada';
+  }
+
+  if (
+    punchType === 'salida' ||
+    subtype === 'salida mal marcada'
+  ) {
+    return 'salida';
+  }
+
+  if (subtype === 'convertir incidencia a descanso') {
+    return 'descanso';
+  }
+
+  if (subtype === 'corrección de falta / incidencia') {
+    return 'falta';
+  }
+
+  return 'otros';
+}
+
+function _dd_resumenCorreccionesAsistencia(tickets = []) {
+  const categorias = {
+    entrada: {
+      key: 'entrada',
+      label: 'Correcciones de entrada',
+      total: 0,
+      resolved: 0,
+      pending: 0,
+      in_progress: 0,
+      rejected: 0,
+      cancelled: 0
+    },
+    salida: {
+      key: 'salida',
+      label: 'Correcciones de salida',
+      total: 0,
+      resolved: 0,
+      pending: 0,
+      in_progress: 0,
+      rejected: 0,
+      cancelled: 0
+    },
+    descanso: {
+      key: 'descanso',
+      label: 'Incidencias convertidas a descanso',
+      total: 0,
+      resolved: 0,
+      pending: 0,
+      in_progress: 0,
+      rejected: 0,
+      cancelled: 0
+    },
+    falta: {
+      key: 'falta',
+      label: 'Correcciones de falta / incidencia',
+      total: 0,
+      resolved: 0,
+      pending: 0,
+      in_progress: 0,
+      rejected: 0,
+      cancelled: 0
+    },
+    otros: {
+      key: 'otros',
+      label: 'Otras correcciones',
+      total: 0,
+      resolved: 0,
+      pending: 0,
+      in_progress: 0,
+      rejected: 0,
+      cancelled: 0
+    }
+  };
+
+  tickets.forEach(ticket => {
+    const categoria = _dd_clasificarCorreccionAsistencia(ticket);
+
+    if (!categoria || !categorias[categoria]) {
+      return;
+    }
+
+    const item = categorias[categoria];
+    const status = String(ticket?.status || 'pending')
+      .trim()
+      .toLowerCase();
+
+    item.total += 1;
+
+    if (Object.prototype.hasOwnProperty.call(item, status)) {
+      item[status] += 1;
+    } else {
+      item.pending += 1;
+    }
+  });
+
+  const rows = Object.values(categorias);
+
+  return {
+    total: rows.reduce((sum, row) => sum + row.total, 0),
+    entrada: categorias.entrada.total,
+    salida: categorias.salida.total,
+    descanso: categorias.descanso.total,
+    falta: categorias.falta.total,
+    otros: categorias.otros.total,
+    rows
+  };
+}
+
+function _dd_renderDetalleCorreccionesAsistencia(tickets = []) {
+  const resumen = _dd_resumenCorreccionesAsistencia(tickets);
+
+  if (!resumen.total) {
+    return `
+      <div class="dd-empty">
+        No hay tickets de corrección de asistencia en el periodo seleccionado.
+      </div>
+    `;
+  }
+
+  const filas = resumen.rows
+    .filter(row => row.total > 0)
+    .map(row => {
+      const porcentajeResuelto = row.total
+        ? Math.round((row.resolved / row.total) * 100)
+        : 0;
+
+      const abiertos =
+        row.pending +
+        row.in_progress;
+
+      return `
+        <tr>
+          <td>
+            <strong>${_dd_esc(row.label)}</strong>
+          </td>
+
+          <td style="text-align:center">
+            ${row.total}
+          </td>
+
+          <td style="text-align:center">
+            ${row.resolved}
+          </td>
+
+          <td style="text-align:center">
+            ${abiertos}
+          </td>
+
+          <td style="text-align:center">
+            ${row.rejected}
+          </td>
+
+          <td style="text-align:center">
+            ${porcentajeResuelto}%
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  return `
+    <div class="dd-section">
+
+      <div class="dd-section-header">
+        <div>
+          <div class="dd-section-title">
+            Detalle de correcciones de asistencia
+          </div>
+
+          <div class="dd-section-subtitle">
+            Desglose de tickets creados en el periodo seleccionado
+          </div>
+        </div>
+      </div>
+
+      <div
+        style="
+          display:grid;
+          grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+          gap:12px;
+          margin-bottom:16px;
+        "
+      >
+        <div class="dd-kpi-card">
+          <div class="dd-kpi-label">Total correcciones</div>
+          <div class="dd-kpi-value">${resumen.total}</div>
+        </div>
+
+        <div class="dd-kpi-card">
+          <div class="dd-kpi-label">Entradas</div>
+          <div class="dd-kpi-value">${resumen.entrada}</div>
+        </div>
+
+        <div class="dd-kpi-card">
+          <div class="dd-kpi-label">Salidas</div>
+          <div class="dd-kpi-value">${resumen.salida}</div>
+        </div>
+
+        <div class="dd-kpi-card">
+          <div class="dd-kpi-label">Convertidas a descanso</div>
+          <div class="dd-kpi-value">${resumen.descanso}</div>
+        </div>
+
+        <div class="dd-kpi-card">
+          <div class="dd-kpi-label">Correcciones de falta</div>
+          <div class="dd-kpi-value">${resumen.falta}</div>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table class="dd-table">
+          <thead>
+            <tr>
+              <th>Tipo de corrección</th>
+              <th style="text-align:center">Total</th>
+              <th style="text-align:center">Resueltos</th>
+              <th style="text-align:center">Abiertos</th>
+              <th style="text-align:center">Rechazados</th>
+              <th style="text-align:center">% resuelto</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${filas}
+          </tbody>
+        </table>
       </div>
     </div>
-
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 2 · Quién respondió</div><div class="dd-section-title">Automatización y accountability del liderazgo</div></div><div class="dd-section-copy">Distingue lo detectado automáticamente de lo gestionado por supervisión, y aterriza el riesgo por equipo.</div></div>
-      <div class="dd-grid-2">${_dd_renderAbsenceSources(data)}<div class="dd-insight"><div class="dd-insight-title">Lectura de liderazgo</div><div class="dd-callout"><b>${src.supervisorPct||0}%</b> de las faltas fueron cargadas por supervisores y <b>${src.botPct||0}%</b> por el bot. ${src.other?`Hay ${src.other} registro${src.other!==1?'s':''} con origen no registrado.`:'Todos los registros tienen origen identificado.'}</div><div class="dd-action-list" style="margin-top:10px"><div class="dd-action"><span class="dd-action-num">1</span><span>Priorizar seguimiento del equipo con mayor concentración: <b>${topSup?.supervisor_name||'Sin foco crítico'}</b>.</span></div><div class="dd-action"><span class="dd-action-num">2</span><span>Comparar acciones esperadas (${data.current.expectedActions.totalExpected}) contra acciones cargadas (${data.current.actions.length}).</span></div><div class="dd-action"><span class="dd-action-num">3</span><span>Usar los números clicables del ranking para abrir el detalle por supervisor.</span></div></div></div></div>
-      <div style="margin-top:14px">${_dd_renderSupervisorTable(data.supervisors)}</div>
-    </div>
-
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 3 · Por qué se va la gente</div><div class="dd-section-title">Rotación y riesgo de permanencia</div></div><div class="dd-section-copy">Separa volumen, tipo de salida y early attrition para saber si el problema está en selección, onboarding, liderazgo o experiencia diaria.</div></div>${_dd_renderRotation(data)}</div>
-
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 4 · Cómo respondió People</div><div class="dd-section-title">Tickets, SLA y presión administrativa</div></div><div class="dd-section-copy">Convierte tickets en una lectura de demanda, velocidad y backlog, no solo en conteos.</div></div>${_dd_renderTicketCommandCenter(data)}</div>
-
-    <div class="dd-section"><div class="dd-section-head"><div><div class="dd-section-kicker">Capítulo 5 · Qué hacemos ahora</div><div class="dd-section-title">Plan de acción recomendado</div></div></div><div class="dd-grid-2"><div class="dd-insight"><div class="dd-insight-title">Prioridades People</div><div class="dd-action-list">${data.recommendations.map((x,i)=>`<div class="dd-action"><span class="dd-action-num">${i+1}</span><span>${x}</span></div>`).join('')}</div></div><div class="dd-insight"><div class="dd-insight-title">Resumen para WBR</div><div class="dd-callout">${data.narrative.replaceAll('\n\n','<br><br>')}</div></div></div></div>
-
-    <div class="dd-section">${_dd_renderPayrollDeepDive(data.payrollTickets||[])}</div>
-  </div>`;
+  `;
 }
+
+function _dd_render() {
+  const c = document.getElementById('content');
+  if (!c) return;
+
+  if (!_dd_canAccess()) {
+    c.innerHTML = `
+      <div class="card" style="max-width:760px;margin:0 auto">
+        <div class="card-title">📊 Deep Dive</div>
+        <div style="font-size:13px;color:#64748B">
+          Este módulo es solo para People / Head People.
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (_dd_LOADING) {
+    c.innerHTML = `
+      <div style="text-align:center;padding:60px;color:#94A3B8">
+        <div
+          style="
+            width:36px;
+            height:36px;
+            border:3px solid #E2E8F0;
+            border-top-color:#62D3F5;
+            border-radius:50%;
+            animation:spin .7s linear infinite;
+            margin:0 auto 12px;
+          "
+        ></div>
+        Cargando Super Deep Dive...
+      </div>
+    `;
+    return;
+  }
+
+  const data = _dd_DATA;
+
+  if (!data) {
+    c.innerHTML = `
+      <div class="card" style="max-width:760px;margin:0 auto">
+        <div class="card-title">📊 Deep Dive</div>
+        <button class="btn-primary" onclick="_dd_loadData()">
+          Cargar análisis
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  const a = data.current.attendance;
+  const p = data.previous.attendance;
+  const r = data.current.rotation || {};
+  const src = data.current.absenceSources || {};
+  const score = _dd_healthScore(data);
+  const status = _dd_scoreStatus(score);
+  const topSup = data.supervisors?.[0];
+
+  c.innerHTML = `
+    <div class="dd-shell">
+
+      <div class="dd-toolbar">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+
+          <input
+            class="df-input"
+            type="date"
+            id="ddFrom"
+            value="${_dd_FILTERS.from}"
+          >
+
+          <span style="color:#94A3B8">→</span>
+
+          <input
+            class="df-input"
+            type="date"
+            id="ddTo"
+            value="${_dd_FILTERS.to}"
+          >
+
+          <button
+            class="df-apply"
+            onclick="_dd_applyPeriod()"
+          >
+            Aplicar
+          </button>
+
+          <select
+            class="df-input"
+            onchange="_dd_setFilter('campaign',this.value)"
+          >
+            <option value="all">Todas las campañas</option>
+
+            ${data.campaigns.map(x => `
+              <option
+                value="${x}"
+                ${_dd_FILTERS.campaign === x ? 'selected' : ''}
+              >
+                ${x}
+              </option>
+            `).join('')}
+          </select>
+
+          <select
+            class="df-input"
+            onchange="_dd_setFilter('supervisor',this.value)"
+          >
+            <option value="all">Todos los supervisores</option>
+
+            ${data.supervisorsOptions.map(x => `
+              <option
+                value="${x.id}"
+                ${_dd_FILTERS.supervisor === x.id ? 'selected' : ''}
+              >
+                ${x.name}
+              </option>
+            `).join('')}
+          </select>
+
+        </div>
+
+        <div style="display:flex;gap:8px">
+          <button
+            class="btn-ghost"
+            onclick="_dd_copyExecutiveSummary()"
+          >
+            📋 Copiar resumen
+          </button>
+
+          <button
+            class="btn-ghost"
+            onclick="_dd_loadData()"
+          >
+            🔄
+          </button>
+        </div>
+      </div>
+
+      <div class="dd-hero">
+        <div class="dd-hero-grid">
+
+          <div>
+            <div class="dd-eyebrow">
+              People Intelligence · Executive Brief
+            </div>
+
+            <div class="dd-title">
+              Super Deep Dive
+            </div>
+
+            <div class="dd-period">
+              ${fmtDateShort(data.from)} al ${fmtDateShort(data.to)}
+              · Comparativo
+              ${fmtDateShort(data.prevFrom)} al ${fmtDateShort(data.prevTo)}
+            </div>
+
+            <div class="dd-story">
+              ${_dd_executiveStory(data)}
+            </div>
+          </div>
+
+          <div class="dd-score">
+            <div class="dd-score-value">
+              ${score}
+            </div>
+
+            <div class="dd-score-label">
+              People Health Score
+            </div>
+
+            <div
+              class="dd-score-status"
+              style="color:${status[1]}"
+            >
+              ${status[0]}
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="dd-section">
+
+        <div class="dd-section-head">
+          <div>
+            <div class="dd-section-kicker">
+              Capítulo 1 · Qué pasó
+            </div>
+
+            <div class="dd-section-title">
+              Salud operativa de la asistencia
+            </div>
+          </div>
+
+          <div class="dd-section-copy">
+            De la puntualidad al cierre de jornada. Haz clic en una
+            incidencia para ver exactamente quién, cuándo y bajo qué
+            supervisor.
+          </div>
+        </div>
+
+        <div class="dd-metric-grid">
+
+          ${_dd_metric(
+            'Puntualidad operativa',
+            a.operationalPunctuality + '%',
+            `${_dd_delta(
+              a.operationalPunctuality,
+              p.operationalPunctuality
+            ).label} vs anterior`,
+            '#16A34A'
+          )}
+
+          ${_dd_metric(
+            'Retardos para acción',
+            a.retardo,
+            `${_dd_uniqueCount(
+              data.current.rows.filter(
+                x =>
+                  x.audit_status === 'retardo' &&
+                  !['pending', 'approved'].includes(
+                    String(
+                      x.late_justification_status || ''
+                    ).toLowerCase()
+                  )
+              ),
+              'employee_id'
+            )} personas involucradas`,
+            '#D97706',
+            "_dd_openIncidentDrawer('retardo')"
+          )}
+
+          ${_dd_metric(
+            'Retardos justificados',
+            a.retardoJustificado || 0,
+            'Aprobados por Manager / People',
+            '#16A34A'
+          )}
+
+          ${_dd_metric(
+            'Justificaciones pendientes',
+            a.retardoPendiente || 0,
+            'Temporalmente excluidos de Acción People',
+            '#F59E0B'
+          )}
+
+          ${_dd_metric(
+            'Faltas injustificadas',
+            a.falta,
+            `${_dd_uniqueCount(
+              data.current.rows.filter(
+                x => x.audit_status === 'falta_injustificada'
+              ),
+              'employee_id'
+            )} personas involucradas`,
+            '#DC2626',
+            "_dd_openIncidentDrawer('falta_injustificada')"
+          )}
+
+          ${_dd_metric(
+            'Sin salida',
+            a.sinSalida,
+            `${a.checkoutCompliance}% de cumplimiento de salida`,
+            '#7C3AED',
+            "_dd_openIncidentDrawer('sin_salida')"
+          )}
+
+        </div>
+      </div>
+
+      <div class="dd-section">
+
+        <div class="dd-section-head">
+          <div>
+            <div class="dd-section-kicker">
+              Capítulo 2 · Quién respondió
+            </div>
+
+            <div class="dd-section-title">
+              Automatización y accountability del liderazgo
+            </div>
+          </div>
+
+          <div class="dd-section-copy">
+            Distingue lo detectado automáticamente de lo gestionado por
+            supervisión, y aterriza el riesgo por equipo.
+          </div>
+        </div>
+
+        <div class="dd-grid-2">
+
+          ${_dd_renderAbsenceSources(data)}
+
+          <div class="dd-insight">
+
+            <div class="dd-insight-title">
+              Lectura de liderazgo
+            </div>
+
+            <div class="dd-callout">
+              <b>${src.supervisorPct || 0}%</b> de las faltas fueron
+              cargadas por supervisores y
+              <b>${src.botPct || 0}%</b> por el bot.
+
+              ${
+                src.other
+                  ? `Hay ${src.other} registro${
+                      src.other !== 1 ? 's' : ''
+                    } con origen no registrado.`
+                  : 'Todos los registros tienen origen identificado.'
+              }
+            </div>
+
+            <div
+              class="dd-action-list"
+              style="margin-top:10px"
+            >
+
+              <div class="dd-action">
+                <span class="dd-action-num">1</span>
+                <span>
+                  Priorizar seguimiento del equipo con mayor concentración:
+                  <b>${topSup?.supervisor_name || 'Sin foco crítico'}</b>.
+                </span>
+              </div>
+
+              <div class="dd-action">
+                <span class="dd-action-num">2</span>
+                <span>
+                  Comparar acciones esperadas
+                  (${data.current.expectedActions.totalExpected})
+                  contra acciones cargadas
+                  (${data.current.actions.length}).
+                </span>
+              </div>
+
+              <div class="dd-action">
+                <span class="dd-action-num">3</span>
+                <span>
+                  Usar los números clicables del ranking para abrir el
+                  detalle por supervisor.
+                </span>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+        <div style="margin-top:14px">
+          ${_dd_renderSupervisorTable(data.supervisors)}
+        </div>
+
+      </div>
+
+      <div class="dd-section">
+
+        <div class="dd-section-head">
+          <div>
+            <div class="dd-section-kicker">
+              Capítulo 3 · Por qué se va la gente
+            </div>
+
+            <div class="dd-section-title">
+              Rotación y riesgo de permanencia
+            </div>
+          </div>
+
+          <div class="dd-section-copy">
+            Separa volumen, tipo de salida y early attrition para saber
+            si el problema está en selección, onboarding, liderazgo o
+            experiencia diaria.
+          </div>
+        </div>
+
+        ${_dd_renderRotation(data)}
+
+      </div>
+
+      <div class="dd-section">
+
+        <div class="dd-section-head">
+          <div>
+            <div class="dd-section-kicker">
+              Capítulo 4 · Cómo respondió People
+            </div>
+
+            <div class="dd-section-title">
+              Tickets, SLA y presión administrativa
+            </div>
+          </div>
+
+          <div class="dd-section-copy">
+            Convierte tickets en una lectura de demanda, velocidad y
+            backlog, no solo en conteos.
+          </div>
+        </div>
+
+        ${_dd_renderTicketCommandCenter(data)}
+
+        ${_dd_renderDetalleCorreccionesAsistencia(
+          data.current.ticketRows || []
+        )}
+
+      </div>
+
+      <div class="dd-section">
+
+        <div class="dd-section-head">
+          <div>
+            <div class="dd-section-kicker">
+              Capítulo 5 · Qué hacemos ahora
+            </div>
+
+            <div class="dd-section-title">
+              Plan de acción recomendado
+            </div>
+          </div>
+        </div>
+
+        <div class="dd-grid-2">
+
+          <div class="dd-insight">
+
+            <div class="dd-insight-title">
+              Prioridades People
+            </div>
+
+            <div class="dd-action-list">
+              ${data.recommendations.map((x, i) => `
+                <div class="dd-action">
+                  <span class="dd-action-num">${i + 1}</span>
+                  <span>${x}</span>
+                </div>
+              `).join('')}
+            </div>
+
+          </div>
+
+          <div class="dd-insight">
+
+            <div class="dd-insight-title">
+              Resumen para WBR
+            </div>
+
+            <div class="dd-callout">
+              ${data.narrative.replaceAll('\n\n', '<br><br>')}
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+
+      <div class="dd-section">
+        ${_dd_renderPayrollDeepDive(data.payrollTickets || [])}
+      </div>
+
+    </div>
+  `;
+}
+
+
 
 async function _init_deepdive() {
   updateSidebarUser();
