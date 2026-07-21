@@ -13188,8 +13188,41 @@ function _t_setVista(vista) {
 
 function _t_setFiltro(k, v) {
   _t_filtros[k] = v;
+
+  // Los selects pueden volver a renderizarse normalmente.
+  if (k !== 'search') {
+    _t_render();
+    return;
+  }
+
+  const inputActual = document.activeElement;
+  const cursorInicio = inputActual?.selectionStart ?? String(v || '').length;
+  const cursorFin = inputActual?.selectionEnd ?? cursorInicio;
+
   _t_render();
+
+  // Recupera el buscador después de reconstruir la pantalla.
+  requestAnimationFrame(() => {
+    const inputNuevo = document.querySelector(
+      'input[placeholder="Buscar ticket..."]'
+    );
+
+    if (!inputNuevo) return;
+
+    inputNuevo.focus();
+
+    const posicionMaxima = inputNuevo.value.length;
+    const inicio = Math.min(cursorInicio, posicionMaxima);
+    const fin = Math.min(cursorFin, posicionMaxima);
+
+    try {
+      inputNuevo.setSelectionRange(inicio, fin);
+    } catch (error) {
+      console.warn('No se pudo restaurar el cursor del buscador:', error);
+    }
+  });
 }
+
 function _t_setReportePreset(preset) {
   const hoy = new Date();
   let from = '';
@@ -17880,17 +17913,75 @@ function _d_casesFiltrados(base) {
   return lista;
 }
 
+function _d_setFiltroTexto(valor) {
+  _d_filtroTexto = valor;
+
+  const inputActual = document.activeElement;
+  const cursorInicio =
+    inputActual?.selectionStart ?? String(valor || '').length;
+  const cursorFin =
+    inputActual?.selectionEnd ?? cursorInicio;
+
+  _d_render();
+
+  requestAnimationFrame(() => {
+    const inputNuevo = document.querySelector(
+      'input[placeholder="Agente, ID, infracción..."]'
+    );
+
+    if (!inputNuevo) return;
+
+    inputNuevo.focus();
+
+    const posicionMaxima = inputNuevo.value.length;
+    const inicio = Math.min(cursorInicio, posicionMaxima);
+    const fin = Math.min(cursorFin, posicionMaxima);
+
+    try {
+      inputNuevo.setSelectionRange(inicio, fin);
+    } catch (error) {
+      console.warn(
+        'No se pudo restaurar el cursor del buscador de People Actions:',
+        error
+      );
+    }
+  });
+}
 
 function _d_filtrosHTML() {
   return `
     <div class="date-filter-bar">
       <span class="df-label">Buscar</span>
-      <input class="df-input" style="min-width:240px;font-family:var(--f)" placeholder="Agente, ID, infracción..." value="${_d_esc(_d_filtroTexto)}" oninput="_d_filtroTexto=this.value;_d_render()">
+
+      <input
+        class="df-input"
+        style="min-width:240px;font-family:var(--f)"
+        placeholder="Agente, ID, infracción..."
+        value="${_d_esc(_d_filtroTexto)}"
+        oninput="_d_setFiltroTexto(this.value)"
+      >
+
       <span class="df-label">Status</span>
-      <select class="df-input" onchange="_d_filtroStatus=this.value;_d_render()">
+
+      <select
+        class="df-input"
+        onchange="_d_filtroStatus=this.value;_d_render()"
+      >
         ${[
-          ['all','Todos'],['pending_review','Pendiente'],['approved','Aprobado'],['rejected','Rechazado'],['cancelled','Cancelado'],['voided','Anulado']
-        ].map(([v,l]) => `<option value="${v}" ${_d_filtroStatus===v?'selected':''}>${l}</option>`).join('')}
+          ['all', 'Todos'],
+          ['pending_review', 'Pendiente'],
+          ['approved', 'Aprobado'],
+          ['rejected', 'Rechazado'],
+          ['cancelled', 'Cancelado'],
+          ['voided', 'Anulado']
+        ].map(([v, l]) => `
+          <option
+            value="${v}"
+            ${_d_filtroStatus === v ? 'selected' : ''}
+          >
+            ${l}
+          </option>
+        `).join('')}
       </select>
     </div>
   `;
