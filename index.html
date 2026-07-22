@@ -1759,6 +1759,7 @@ async function _startApp(user) {
     console.error('[Impulse] No se pudo refrescar el rol desde employees, usando metadata:', e);
   }
 
+  role = String(role || 'agent').trim().toLowerCase();
   currentRole = role;
   ROLES[role] = { ...ROLES[role], name: nombre, id: empId, camp: camp || ROLES[role]?.camp,
     campSec, email: user.email, av: initials(nombre), label: ROLES[role]?.label || role };
@@ -1955,6 +1956,7 @@ async function _initImpulse() {
             }
           } catch(e) { console.error('[Impulse] No se pudo refrescar el rol al restaurar sesión:', e); }
 
+          role = String(role || 'agent').trim().toLowerCase();
           currentRole = role;
           ROLES[role] = { ...ROLES[role], name: nombre, id: u.empId, camp, campSec,
             email: session.user?.email || u.email, av: initials(nombre) };
@@ -5964,7 +5966,8 @@ function _a_requiereAprobacionSupervisor(tipo) {
 }
 
 function _a_canReviewAttendanceExceptions() {
-  return ['manager', 'people', 'head_people', 'ceo'].includes(currentRole);
+  const role = String(currentRole || '').trim().toLowerCase();
+  return ['manager', 'people', 'head_people', 'ceo'].includes(role);
 }
 
 function _a_exceptionTypeLabel(tipo) {
