@@ -1357,6 +1357,47 @@ body{font-family:var(--f);background:#F0F2F7;min-height:100vh;color:#0F172A;font
 @media(max-width:1000px){.dd-hero-grid,.dd-grid-2{grid-template-columns:1fr}.dd-metric-grid,.dd-flow{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:620px){.dd-metric-grid,.dd-flow{grid-template-columns:1fr}.dd-title{font-size:23px}}
 
+/* Deep Dive V3 · Executive tables */
+.dd-table-card{background:#fff;border:1px solid #DCE4EE;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(15,23,42,.055)}
+.dd-table-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid #E8EEF5;background:linear-gradient(180deg,#FFFFFF 0%,#FBFDFF 100%)}
+.dd-table-title{font-size:14px;font-weight:900;color:#0F172A;letter-spacing:-.15px}
+.dd-table-subtitle{font-size:11px;color:#64748B;margin-top:4px;line-height:1.45}
+.dd-table-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border:1px solid #DCE4EE;border-radius:999px;background:#F8FAFC;color:#475569;font-size:10px;font-weight:800;white-space:nowrap}
+.dd-table-scroll{overflow:auto;max-width:100%;scrollbar-width:thin;scrollbar-color:#CBD5E1 transparent}
+.dd-exec-table{width:100%;border-collapse:separate;border-spacing:0;min-width:980px}
+.dd-exec-table thead th{position:sticky;top:0;z-index:2;background:#F8FAFC;padding:11px 13px;border-bottom:1px solid #DCE4EE;color:#64748B;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.65px;text-align:left;white-space:nowrap}
+.dd-exec-table tbody td{padding:12px 13px;border-bottom:1px solid #EEF2F7;color:#334155;font-size:12px;vertical-align:middle;background:#fff}
+.dd-exec-table tbody tr:last-child td{border-bottom:none}
+.dd-exec-table tbody tr{transition:transform .12s ease,box-shadow .12s ease}
+.dd-exec-table tbody tr:hover td{background:#F8FBFF}
+.dd-exec-table tbody tr:hover{box-shadow:inset 3px 0 0 #62D3F5}
+.dd-name-cell{display:flex;align-items:center;gap:10px;min-width:210px}
+.dd-avatar{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#0F172A,#1E3A8A);color:#BAE6FD;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;flex:none;box-shadow:0 4px 10px rgba(15,23,42,.12)}
+.dd-primary{font-weight:850;color:#0F172A;line-height:1.25}
+.dd-secondary{font-size:10px;color:#94A3B8;margin-top:2px;font-family:var(--fm)}
+.dd-num{text-align:center;font-family:var(--fm);font-weight:800;font-variant-numeric:tabular-nums}
+.dd-num-link{text-align:center;font-family:var(--fm);font-weight:900;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;cursor:pointer}
+.dd-progress{height:6px;background:#E8EEF5;border-radius:999px;overflow:hidden;margin-top:5px;min-width:84px}
+.dd-progress>span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#22C55E,#86EFAC)}
+.dd-progress.warn>span{background:linear-gradient(90deg,#F59E0B,#FCD34D)}
+.dd-progress.danger>span{background:linear-gradient(90deg,#EF4444,#FDA4AF)}
+.dd-severity{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;font-size:10px;font-weight:900;border:1px solid}
+.dd-severity::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+.dd-severity.high{background:#FFF1F2;border-color:#FECDD3;color:#BE123C}
+.dd-severity.medium{background:#FFFBEB;border-color:#FDE68A;color:#B45309}
+.dd-severity.low{background:#F0FDF4;border-color:#BBF7D0;color:#15803D}
+.dd-mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.dd-mini-card{background:linear-gradient(180deg,#fff,#FBFDFF);border:1px solid #DCE4EE;border-radius:14px;padding:13px 14px;box-shadow:0 5px 16px rgba(15,23,42,.035)}
+.dd-mini-label{font-size:9px;text-transform:uppercase;letter-spacing:.65px;color:#64748B;font-weight:900}
+.dd-mini-value{font-size:22px;font-weight:900;color:#0F172A;margin-top:5px;font-variant-numeric:tabular-nums}
+.dd-mini-note{font-size:10px;color:#94A3B8;margin-top:3px}
+.dd-empty{padding:28px;text-align:center;color:#94A3B8;background:#FBFDFF;border:1px dashed #CBD5E1;border-radius:12px}
+.dd-filter-context{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
+.dd-context-chip{padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);font-size:10px;color:#E2E8F0;font-weight:800}
+@media(max-width:1000px){.dd-mini-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.dd-mini-grid{grid-template-columns:1fr}.dd-table-card-head{flex-direction:column}}
+
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -10096,6 +10137,97 @@ function _dd_actionLevel(a) {
   return a.issued_level || a.recommended_level || a.level || '—';
 }
 
+
+function _dd_norm(v) {
+  return String(v ?? '').trim().toLowerCase();
+}
+
+function _dd_buildScope(rows = []) {
+  return {
+    employeeIds: new Set(rows.map(r => String(r.employee_id || '').trim().toUpperCase()).filter(Boolean)),
+    supervisorIds: new Set(rows.map(r => String(r.supervisor_id || '').trim().toUpperCase()).filter(Boolean)),
+    campaigns: new Set(rows.map(r => _dd_norm(r.campaign_id)).filter(Boolean))
+  };
+}
+
+function _dd_firstValue(row, keys) {
+  for (const key of keys) {
+    const value = row?.[key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') return value;
+  }
+  return '';
+}
+
+function _dd_filterRowsByScope(rows = [], scope, kind = 'generic') {
+  if (!scope) return rows || [];
+  const employeeKeys = {
+    ticket: ['employee_id','requester_id','affected_employee_id','created_for_employee_id'],
+    action: ['employee_id','agent_id','subject_employee_id'],
+    exception: ['employee_id'],
+    history: ['employee_id','id'],
+    payroll: ['employee_id','requester_id','affected_employee_id'],
+    generic: ['employee_id']
+  }[kind] || ['employee_id'];
+  const campaignKeys = ['campaign_id','campaign','queue_campaign'];
+  const supervisorKeys = ['supervisor_id','manager_id'];
+
+  return (rows || []).filter(row => {
+    const emp = String(_dd_firstValue(row, employeeKeys) || '').trim().toUpperCase();
+    const campaign = _dd_norm(_dd_firstValue(row, campaignKeys));
+    const supervisor = String(_dd_firstValue(row, supervisorKeys) || '').trim().toUpperCase();
+
+    if (emp && scope.employeeIds.has(emp)) return true;
+    if (!emp && campaign && scope.campaigns.has(campaign)) {
+      if (_dd_FILTERS.supervisor === 'all') return true;
+      return supervisor && scope.supervisorIds.has(supervisor);
+    }
+    if (!emp && !campaign && supervisor && scope.supervisorIds.has(supervisor)) return true;
+    return false;
+  });
+}
+
+function _dd_campaignRows(rows = []) {
+  const map = {};
+  rows.forEach(r => {
+    const key = r.campaign_id || 'Sin campaña';
+    if (!map[key]) map[key] = { campaign:key, rows:[], hc:new Set(), retardo:0, falta:0, sinSalida:0, sinEntrada:0, complete:0 };
+    const x = map[key]; x.rows.push(r); if(r.employee_id) x.hc.add(r.employee_id);
+    if(r.audit_status==='retardo' && !r.late_justified && !r.late_justification_pending) x.retardo++;
+    if(r.audit_status==='falta_injustificada') x.falta++;
+    if(r.audit_status==='sin_salida') x.sinSalida++;
+    if(r.audit_status==='sin_entrada') x.sinEntrada++;
+    if(r.audit_status==='completo') x.complete++;
+  });
+  return Object.values(map).map(x=>{
+    const summary=_dd_attendanceSummary(x.rows);
+    const incidents=x.retardo+x.falta+x.sinSalida+x.sinEntrada;
+    return {...x,hc:x.hc.size,incidents,punctuality:summary.operationalPunctuality,checkout:summary.checkoutCompliance,completeRate:summary.completeRate};
+  }).sort((a,b)=>b.incidents-a.incidents || a.campaign.localeCompare(b.campaign));
+}
+
+function _dd_initials(name='') {
+  return String(name).split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase() || '—';
+}
+
+function _dd_renderCampaignTable(rows = []) {
+  const data=_dd_campaignRows(rows);
+  return `<div class="dd-table-card">
+    <div class="dd-table-card-head"><div><div class="dd-table-title">Performance por campaña</div><div class="dd-table-subtitle">Comparativo del universo filtrado con foco en puntualidad, cierre de jornada e incidencias.</div></div><span class="dd-table-badge">${data.length} campañas</span></div>
+    <div class="dd-table-scroll"><table class="dd-exec-table" style="min-width:900px"><thead><tr><th>Campaña</th><th class="dd-num">HC</th><th class="dd-num">Puntualidad</th><th class="dd-num">Salida completa</th><th class="dd-num">Retardos</th><th class="dd-num">Faltas</th><th class="dd-num">Sin salida</th><th class="dd-num">Incidencias</th></tr></thead><tbody>
+    ${data.length?data.map(x=>`<tr><td><div class="dd-name-cell"><div class="dd-avatar">${_dd_initials(x.campaign)}</div><div><div class="dd-primary">${_dd_escape(x.campaign)}</div><div class="dd-secondary">OPERACIÓN</div></div></div></td><td class="dd-num">${x.hc}</td><td><div class="dd-num">${x.punctuality}%</div><div class="dd-progress ${x.punctuality<80?'danger':x.punctuality<90?'warn':''}"><span style="width:${Math.min(100,x.punctuality)}%"></span></div></td><td><div class="dd-num">${x.checkout}%</div><div class="dd-progress ${x.checkout<80?'danger':x.checkout<90?'warn':''}"><span style="width:${Math.min(100,x.checkout)}%"></span></div></td><td class="dd-num" style="color:#D97706">${x.retardo}</td><td class="dd-num" style="color:#DC2626">${x.falta}</td><td class="dd-num" style="color:#7C3AED">${x.sinSalida}</td><td class="dd-num"><b>${x.incidents}</b></td></tr>`).join(''):`<tr><td colspan="8"><div class="dd-empty">Sin datos para este filtro.</div></td></tr>`}
+    </tbody></table></div></div>`;
+}
+
+function _dd_renderPeopleActionsExecutive(actions = [], expected = {}) {
+  const statusMap={}; const levelMap={};
+  actions.forEach(a=>{const st=_dd_norm(a.status)||'sin_status';statusMap[st]=(statusMap[st]||0)+1;const lv=_dd_actionLevel(a)||'sin_nivel';levelMap[lv]=(levelMap[lv]||0)+1;});
+  const totalExpected=Number(expected.totalExpected||0), total=actions.length, compliance=totalExpected?Math.min(100,_dd_pct(total,totalExpected)):100;
+  const rows=Object.entries(statusMap).sort((a,b)=>b[1]-a[1]);
+  return `<div class="dd-table-card"><div class="dd-table-card-head"><div><div class="dd-table-title">People Actions · Cobertura y ejecución</div><div class="dd-table-subtitle">Cuántas acciones se esperaban, cuántas se registraron y en qué estado se encuentran.</div></div><span class="dd-table-badge">${compliance}% cobertura</span></div>
+  <div style="padding:14px"><div class="dd-mini-grid"><div class="dd-mini-card"><div class="dd-mini-label">Esperadas</div><div class="dd-mini-value">${totalExpected}</div><div class="dd-mini-note">Retardos + faltas accionables</div></div><div class="dd-mini-card"><div class="dd-mini-label">Cargadas</div><div class="dd-mini-value">${total}</div><div class="dd-mini-note">Casos del periodo</div></div><div class="dd-mini-card"><div class="dd-mini-label">Cobertura</div><div class="dd-mini-value">${compliance}%</div><div class="dd-progress ${compliance<50?'danger':compliance<80?'warn':''}"><span style="width:${compliance}%"></span></div></div><div class="dd-mini-card"><div class="dd-mini-label">Niveles activos</div><div class="dd-mini-value">${Object.keys(levelMap).length}</div><div class="dd-mini-note">Diversidad disciplinaria</div></div></div>
+  <div class="dd-table-scroll"><table class="dd-exec-table" style="min-width:620px"><thead><tr><th>Estado</th><th class="dd-num">Casos</th><th>Participación</th></tr></thead><tbody>${rows.length?rows.map(([k,v])=>`<tr><td><div class="dd-primary">${_dd_escape(k.replaceAll('_',' '))}</div></td><td class="dd-num">${v}</td><td><div class="dd-progress"><span style="width:${total?_dd_pct(v,total):0}%"></span></div><div class="dd-secondary">${total?_dd_pct(v,total):0}% del total</div></td></tr>`).join(''):`<tr><td colspan="3"><div class="dd-empty">Sin People Actions en el periodo.</div></td></tr>`}</tbody></table></div></div></div>`;
+}
+
 function _dd_filterAttendanceRows(rows) {
   return (rows || []).filter(r => {
     if (_dd_FILTERS.campaign !== 'all' && r.campaign_id !== _dd_FILTERS.campaign) return false;
@@ -10610,7 +10742,7 @@ async function _dd_loadData() {
       .lte('termination_date', prevTo),
 
     _a_sb.from('employees')
-      .select('id,status')
+      .select('id,status,full_name,campaign_id,supervisor_id')
       .eq('status','active')
   ]);
 
@@ -10646,22 +10778,33 @@ async function _dd_loadData() {
   const prevRowsRaw = _dd_markLateJustifications(attPrev.data || [], lateJustPrev.data || []);
 
   const campaigns = [...new Set(curRowsRaw.map(r => r.campaign_id).filter(Boolean))].sort();
+
+  // Los supervisores disponibles dependen de la campaña elegida.
+  const supervisorSource = curRowsRaw.filter(r =>
+    _dd_FILTERS.campaign === 'all' || r.campaign_id === _dd_FILTERS.campaign
+  );
   const supervisorsMap = {};
-  curRowsRaw.forEach(r => {
+  supervisorSource.forEach(r => {
     if (r.supervisor_id) supervisorsMap[r.supervisor_id] = r.supervisor_name || r.supervisor_id;
   });
+  if (_dd_FILTERS.supervisor !== 'all' && !supervisorsMap[_dd_FILTERS.supervisor]) {
+    _dd_FILTERS.supervisor = 'all';
+  }
 
   const curRows = _dd_filterAttendanceRows(curRowsRaw);
   const prevRows = _dd_filterAttendanceRows(prevRowsRaw);
+  const curScope = _dd_buildScope(curRows);
+  const prevScope = _dd_buildScope(prevRows);
 
-  const curTickets = ticketsCur.data || [];
-  const prevTickets = ticketsPrev.data || [];
-  const curActions = actionsCur.data || [];
-  const prevActions = actionsPrev.data || [];
-  const curExceptions = excCur?.data || [];
-  const prevExceptions = excPrev?.data || [];
-  const curHistory = historyCur?.data || [];
-  const prevHistory = historyPrev?.data || [];
+  // Todas las fuentes complementarias obedecen al mismo universo seleccionado.
+  const curTickets = _dd_filterRowsByScope(ticketsCur.data || [], curScope, 'ticket');
+  const prevTickets = _dd_filterRowsByScope(ticketsPrev.data || [], prevScope, 'ticket');
+  const curActions = _dd_filterRowsByScope(actionsCur.data || [], curScope, 'action');
+  const prevActions = _dd_filterRowsByScope(actionsPrev.data || [], prevScope, 'action');
+  const curExceptions = _dd_filterRowsByScope(excCur?.data || [], curScope, 'exception');
+  const prevExceptions = _dd_filterRowsByScope(excPrev?.data || [], prevScope, 'exception');
+  const curHistory = _dd_filterRowsByScope(historyCur?.data || [], curScope, 'history');
+  const prevHistory = _dd_filterRowsByScope(historyPrev?.data || [], prevScope, 'history');
   const activeRows = activeEmployees?.data || [];
 
   const data = {
@@ -10715,7 +10858,7 @@ try {
   if (payrollError) {
     console.warn('No se pudo cargar Deep Dive Nómina:', payrollError);
   } else {
-    data.payrollTickets = payrollRows || [];
+    data.payrollTickets = _dd_filterRowsByScope(payrollRows || [], _dd_buildScope(curRows), 'payroll');
   }
 } catch(e) {
   console.warn('Error cargando Deep Dive Nómina:', e);
@@ -11287,59 +11430,34 @@ function _dd_renderIncidentDrawer() {
 
 function _dd_renderSupervisorTable(rows) {
   return `
-    <div class="card">
-      <div class="card-title" style="justify-content:space-between">
-        <span>Ranking por supervisor</span>
-        <span style="font-size:11px;color:#94A3B8;font-weight:600">Click en un supervisor para ver detalle</span>
+    <div class="dd-table-card">
+      <div class="dd-table-card-head">
+        <div><div class="dd-table-title">Ranking ejecutivo por supervisor</div><div class="dd-table-subtitle">Accountability, concentración de incidencias y cobertura de People Actions. Haz clic en una fila para abrir el expediente operativo.</div></div>
+        <span class="dd-table-badge">${rows.length} líderes</span>
       </div>
-
-      <div class="tbl-wrap">
-        <div style="overflow-x:auto">
-          <table style="min-width:1100px">
-            <thead>
-              <tr>
-                <th>Supervisor</th>
-                <th style="text-align:center">HC</th>
-                <th style="text-align:center">Asistencia completa</th>
-                <th style="text-align:center">Retardos</th>
-                <th style="text-align:center">Faltas</th>
-                <th style="text-align:center">Sin salida</th>
-                <th style="text-align:center">Acciones esperadas</th>
-                <th style="text-align:center">Acciones cargadas</th>
-                <th style="text-align:center">Cumplimiento</th>
-                <th>Riesgo</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows.map(s => `
-                <tr onclick="_dd_openSupervisorDetail('${s.supervisor_id}')" style="cursor:pointer">
-                  <td>
-                    <div class="agent-row-name">${s.supervisor_name}</div>
-                    <div class="agent-row-id">${s.supervisor_id}</div>
-                  </td>
-                  <td style="text-align:center;font-family:'DM Mono',monospace">${s.hc}</td>
-                  <td style="text-align:center;font-family:'DM Mono',monospace">${s.completeRate}%</td>
-                  <td onclick="event.stopPropagation();_dd_openIncidentDrawer('retardo','${s.supervisor_id}')" style="text-align:center;font-family:'DM Mono',monospace;color:#D97706;font-weight:900;text-decoration:underline;text-decoration-style:dotted;cursor:pointer">${s.retardo}</td>
-                  <td onclick="event.stopPropagation();_dd_openIncidentDrawer('falta_injustificada','${s.supervisor_id}')" style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626;font-weight:900;text-decoration:underline;text-decoration-style:dotted;cursor:pointer">${s.falta}</td>
-                  <td onclick="event.stopPropagation();_dd_openIncidentDrawer('sin_salida','${s.supervisor_id}')" style="text-align:center;font-family:'DM Mono',monospace;color:#DC2626;font-weight:900;text-decoration:underline;text-decoration-style:dotted;cursor:pointer">${s.sinSalida}</td>
-                  <td style="text-align:center;font-family:'DM Mono',monospace">${s.expectedActions}</td>
-                  <td style="text-align:center;font-family:'DM Mono',monospace">${s.actions}</td>
-                  <td style="text-align:center;font-family:'DM Mono',monospace;font-weight:900">${s.compliance}%</td>
-                  <td>${_dd_riskPill(s.risk)}</td>
-                </tr>
-              `).join('') || `
-                <tr>
-                  <td colspan="10" style="text-align:center;color:#94A3B8;padding:24px">
-                    Sin datos para el periodo.
-                  </td>
-                </tr>
-              `}
-            </tbody>
-          </table>
-        </div>
+      <div class="dd-table-scroll">
+        <table class="dd-exec-table" style="min-width:1180px">
+          <thead><tr><th>Supervisor</th><th class="dd-num">HC</th><th>Asistencia completa</th><th class="dd-num">Retardos</th><th class="dd-num">Faltas</th><th class="dd-num">Sin salida</th><th class="dd-num">Acciones esperadas</th><th class="dd-num">Acciones cargadas</th><th>Cobertura</th><th>Riesgo</th></tr></thead>
+          <tbody>
+            ${rows.map(s => {
+              const progressClass=s.compliance<50?'danger':s.compliance<80?'warn':'';
+              const riskClass=s.risk==='Alto'?'high':s.risk==='Medio'?'medium':'low';
+              return `<tr onclick="_dd_openSupervisorDetail('${s.supervisor_id}')" style="cursor:pointer">
+                <td><div class="dd-name-cell"><div class="dd-avatar">${_dd_initials(s.supervisor_name)}</div><div><div class="dd-primary">${_dd_escape(s.supervisor_name)}</div><div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div></div></div></td>
+                <td class="dd-num">${s.hc}</td>
+                <td><div class="dd-num">${s.completeRate}%</div><div class="dd-progress ${s.completeRate<80?'danger':s.completeRate<90?'warn':''}"><span style="width:${Math.min(100,s.completeRate)}%"></span></div></td>
+                <td class="dd-num-link" onclick="event.stopPropagation();_dd_openIncidentDrawer('retardo','${s.supervisor_id}')" style="color:#D97706">${s.retardo}</td>
+                <td class="dd-num-link" onclick="event.stopPropagation();_dd_openIncidentDrawer('falta_injustificada','${s.supervisor_id}')" style="color:#DC2626">${s.falta}</td>
+                <td class="dd-num-link" onclick="event.stopPropagation();_dd_openIncidentDrawer('sin_salida','${s.supervisor_id}')" style="color:#7C3AED">${s.sinSalida}</td>
+                <td class="dd-num">${s.expectedActions}</td><td class="dd-num">${s.actions}</td>
+                <td><div class="dd-num">${s.compliance}%</div><div class="dd-progress ${progressClass}"><span style="width:${Math.min(100,s.compliance)}%"></span></div></td>
+                <td><span class="dd-severity ${riskClass}">${s.risk}</span></td>
+              </tr>`;
+            }).join('') || `<tr><td colspan="10"><div class="dd-empty">Sin datos para el periodo seleccionado.</div></td></tr>`}
+          </tbody>
+        </table>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function _dd_renderTicketCategories(byCategory) {
@@ -12045,6 +12163,11 @@ function _dd_render() {
               · Comparativo
               ${fmtDateShort(data.prevFrom)} al ${fmtDateShort(data.prevTo)}
             </div>
+            <div class="dd-filter-context">
+              <span class="dd-context-chip">${_dd_FILTERS.campaign === 'all' ? 'Todas las campañas' : _dd_escape(_dd_FILTERS.campaign)}</span>
+              <span class="dd-context-chip">${_dd_FILTERS.supervisor === 'all' ? 'Todos los supervisores' : _dd_escape(data.supervisorsOptions.find(x=>x.id===_dd_FILTERS.supervisor)?.name || _dd_FILTERS.supervisor)}</span>
+              <span class="dd-context-chip">HC ${a.hc}</span>
+            </div>
 
             <div class="dd-story">
               ${_dd_executiveStory(data)}
@@ -12158,6 +12281,10 @@ function _dd_render() {
           )}
 
         </div>
+
+        <div style="margin-top:14px">
+          ${_dd_renderCampaignTable(data.current.rows)}
+        </div>
       </div>
 
       <div class="dd-section">
@@ -12241,6 +12368,10 @@ function _dd_render() {
 
         <div style="margin-top:14px">
           ${_dd_renderSupervisorTable(data.supervisors)}
+        </div>
+
+        <div style="margin-top:14px">
+          ${_dd_renderPeopleActionsExecutive(data.current.actions, data.current.expectedActions)}
         </div>
 
       </div>
