@@ -20940,49 +20940,9 @@ async function _e_confirmarBulkAlta() {
 
 function _e_abrirReingreso(empId) {
   const emp = _e_EMPLEADOS.find(e => e.id === empId);
-  _e_abrirAlta();
-  setTimeout(function(){
-    if (!emp) return;
-
-    const setVal = function(id, val) {
-      const el = document.getElementById(id);
-      if (el && val != null && val !== '') el.value = val;
-    };
-
-    setVal('alta-id', emp.id);
-    setVal('alta-nombre', emp.full_name);
-    setVal('alta-birth', emp.birth_date);
-    setVal('alta-genero', emp.gender);
-    setVal('alta-email', emp.email);
-    setVal('alta-email-personal', emp.personal_email);
-    setVal('alta-phone', emp.phone);
-    setVal('alta-address', emp.address);
-    setVal('alta-rol', emp.system_role);
-    setVal('alta-campana', emp.campaign_id);
-    setVal('alta-lob', emp.lob);
-    setVal('alta-queue', emp.queue);
-    setVal('alta-puesto', emp.position_title);
-    setVal('alta-shift-start', emp.shift_start ? emp.shift_start.slice(0,5) : null);
-    setVal('alta-shift-end', emp.shift_end ? emp.shift_end.slice(0,5) : null);
-    setVal('alta-banco', emp.bank_name);
-    setVal('alta-cuenta', emp.bank_account);
-
-    // Supervisor — buscar la opción que coincida con supervisor_id
-    const supSelect = document.getElementById('alta-supervisor');
-    if (supSelect && emp.supervisor_id) {
-      supSelect.value = emp.supervisor_id;
-    }
-
-    // Días de descanso — marcar checkboxes según days_off guardado
-    const diasOff = emp.days_off || [];
-    document.querySelectorAll('.alta-descanso-cb').forEach(function(cb) {
-      cb.checked = diasOff.includes(cb.value);
-    });
-
-    // Fecha de ingreso queda en blanco/hoy — no se precarga (es nuevo ingreso real)
-
-    _e_checkReingreso();
-  }, 70);
+  if (!emp) return alert('No se encontró el empleado para reingreso.');
+  if (emp.status === 'active') return alert('El empleado ya está activo.');
+  _e_abrirAlta(empId);
 }
 
 // ── CAMBIAR CONTRASEÑA PROPIA ────────────────────────────────
@@ -21357,150 +21317,114 @@ async function _e_confirmarEditar(empId) {
   }
 }
 
-function _e_abrirAlta() {
-  document.getElementById('modalTitle').textContent = 'Dar de alta empleado';
-  document.getElementById('modalSub').textContent = 'Crea el registro y el acceso a Impulse';
+function _e_abrirAlta(reingresoId) {
+  const reingreso = reingresoId ? _e_EMPLEADOS.find(e => e.id === reingresoId) : null;
+  document.getElementById('modalTitle').textContent = reingreso ? 'Reingresar empleado' : 'Altas V3 · Nuevo empleado';
+  document.getElementById('modalSub').textContent = reingreso
+    ? 'Conserva historial y reactiva el acceso'
+    : 'Impulse asignará el ID, correo y acceso automáticamente';
+
+  const supervisorOptions = _e_EMPLEADOS
+    .filter(e => e.status === 'active' && (['supervisor','manager'].includes(e.system_role) || e.campaign_id === 'admin'))
+    .map(e => `<option value="${escapeHtml(e.id)}" data-name="${escapeHtml(e.full_name)}" data-email="${escapeHtml(e.email || '')}">${escapeHtml(e.full_name)} · ${escapeHtml(e.id)}</option>`)
+    .join('');
+
   document.getElementById('modalBody').innerHTML = `
-    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:4px 0 10px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Datos básicos</div>
-    <div class="modal-section">
-      <label class="modal-label">ID DE EMPLEADO</label>
-      <input type="text" id="alta-id" value="${_e_siguienteId()}" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f);text-transform:uppercase"/>
-      <div style="font-size:11px;color:#94A3B8;margin-top:4px">Sugerido automáticamente — puedes editarlo.</div>
-    </div>
-    <div class="modal-section">
-      <label class="modal-label">NOMBRE COMPLETO</label>
-      <input type="text" id="alta-nombre" placeholder="Nombre Apellido Apellido" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="modal-section">
-        <label class="modal-label">FECHA DE NACIMIENTO</label>
-        <input type="date" id="alta-birth" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      </div>
-      <div class="modal-section">
-        <label class="modal-label">GÉNERO</label>
-        <select id="alta-genero" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-          <option value="Masculino">Masculino</option>
-          <option value="Femenino">Femenino</option>
-          <option value="Otro">Otro</option>
-        </select>
-      </div>
+    <div id="alta-v3-status" style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:11px 13px;font-size:12px;color:#1D4ED8;margin-bottom:4px">
+      ${reingreso
+        ? `🔄 Se reactivará <strong>${escapeHtml(reingreso.id)}</strong> y se conservará su historial.`
+        : '🔐 El ID y el correo empresarial se generan en el servidor. Ya no se pueden duplicar por tener dos altas abiertas al mismo tiempo.'}
     </div>
 
-    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Contacto</div>
-    <div class="modal-section">
-      <label class="modal-label">CORREO EMPRESARIAL (login Impulse)</label>
-      <input type="email" id="alta-email" placeholder="nombre.apellido@evolvecx.io" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      <div style="font-size:11px;color:#94A3B8;margin-top:4px">Se creará con contraseña temporal <strong>0000</strong>.</div>
+    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:10px 0 8px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Identidad</div>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px">
+      <div class="modal-section">
+        <label class="modal-label">ID DE EMPLEADO</label>
+        <input type="text" id="alta-id" value="${reingreso ? escapeHtml(reingreso.id) : 'Consultando…'}" readonly style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--fm);background:#F8FAFC;color:#475569"/>
+        <div style="font-size:10px;color:#94A3B8;margin-top:4px">${reingreso ? 'ID histórico conservado' : 'Vista previa; se reserva al confirmar'}</div>
+      </div>
+      <div class="modal-section">
+        <label class="modal-label">NOMBRE COMPLETO *</label>
+        <input type="text" id="alta-nombre" placeholder="Nombre Apellido Apellido" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+      </div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="modal-section">
-        <label class="modal-label">CORREO PERSONAL</label>
-        <input type="email" id="alta-email-personal" placeholder="correo@gmail.com" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      </div>
-      <div class="modal-section">
-        <label class="modal-label">TELÉFONO</label>
-        <input type="tel" id="alta-phone" placeholder="5512345678" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      </div>
-    </div>
-    <div class="modal-section">
-      <label class="modal-label">DIRECCIÓN (calle, número, colonia, CP)</label>
-      <input type="text" id="alta-address" placeholder="Calle 123, Colonia, CP 00000" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+      <div class="modal-section"><label class="modal-label">FECHA DE NACIMIENTO</label><input type="date" id="alta-birth" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div>
+      <div class="modal-section"><label class="modal-label">GÉNERO</label><select id="alta-genero" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"><option value="Masculino">Masculino</option><option value="Femenino">Femenino</option><option value="Otro">Otro</option></select></div>
     </div>
 
-    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Puesto y operación</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="modal-section">
-        <label class="modal-label">ROL EN IMPULSE</label>
-        <select id="alta-rol" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-          <option value="agent">Agente</option>
-          <option value="supervisor">Supervisor</option>
-          <option value="manager">Manager</option>
-          <option value="workforce">Workforce</option>
-          <option value="people">People</option>
-          <option value="head_people">Head of People</option>
-        </select>
-      </div>
-      <div class="modal-section">
-        <label class="modal-label">CAMPAÑA</label>
-        <select id="alta-campana" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-          <option value="aplazo">Aplazo</option>
-          <option value="stori">Stori</option>
-          <option value="iforex">iForex</option>
-          <option value="casap">Casap</option>
-          <option value="cashmind">Cashmind</option>
-          <option value="clivi">Clivi</option>
-          <option value="admin">Admin</option>
-        </select>
-      </div>
+    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Contacto</div>
+    <div class="modal-section">
+      <label class="modal-label">CORREO EMPRESARIAL</label>
+      <div id="alta-email-preview" style="padding:9px 11px;border:1px dashed #93C5FD;border-radius:8px;background:#EFF6FF;color:#1D4ED8;font-size:13px;font-weight:700">${reingreso && reingreso.email ? escapeHtml(reingreso.email) : 'Se generará automáticamente con @evolvecx.io'}</div>
+      <div style="font-size:11px;color:#64748B;margin-top:5px">Contraseña temporal: <strong>0000</strong>. El usuario deberá cambiarla.</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="modal-section">
-        <label class="modal-label">LOB</label>
-        <input type="text" id="alta-lob" placeholder="Ej: Soporte, Cobranza" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      </div>
-      <div class="modal-section">
-        <label class="modal-label">QUEUE</label>
-        <input type="text" id="alta-queue" placeholder="Ej: WA Pagos" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      </div>
+      <div class="modal-section"><label class="modal-label">CORREO PERSONAL</label><input type="email" id="alta-email-personal" placeholder="correo@gmail.com" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div>
+      <div class="modal-section"><label class="modal-label">TELÉFONO</label><input type="tel" id="alta-phone" placeholder="5512345678" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div>
     </div>
-    <div class="modal-section">
-      <label class="modal-label">PUESTO</label>
-      <input type="text" id="alta-puesto" placeholder="Ej: Representante de Atención a Clientes" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-    </div>
-    <div class="modal-section">
-      <label class="modal-label">SUPERVISOR</label>
-      <select id="alta-supervisor" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-        <option value="">Sin supervisor asignado</option>
-        ${_e_EMPLEADOS.filter(e=>e.status==='active'&&(['supervisor','manager'].includes(e.system_role)||e.campaign_id==='admin')).map(e=>`<option value="${e.id}" data-name="${e.full_name}" data-email="${e.email||''}">${e.full_name}</option>`).join('')}
-      </select>
-    </div>
+    <div class="modal-section"><label class="modal-label">DIRECCIÓN</label><input type="text" id="alta-address" placeholder="Calle, número, colonia y CP" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div>
 
-    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Horario</div>
+    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Puesto y operación</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="modal-section">
-        <label class="modal-label">TURNO ENTRADA</label>
-        <input type="time" id="alta-shift-start" value="09:00" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      </div>
-      <div class="modal-section">
-        <label class="modal-label">TURNO SALIDA</label>
-        <input type="time" id="alta-shift-end" value="18:00" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      </div>
+      <div class="modal-section"><label class="modal-label">ROL EN IMPULSE *</label><select id="alta-rol" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"><option value="agent">Agente</option><option value="supervisor">Supervisor</option><option value="manager">Manager</option><option value="workforce">Workforce</option><option value="people">People</option><option value="head_people">Head of People</option><option value="ceo">CEO</option></select></div>
+      <div class="modal-section"><label class="modal-label">CAMPAÑA *</label><select id="alta-campana" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"><option value="aplazo">Aplazo</option><option value="stori">Stori</option><option value="iforex">iForex</option><option value="casap">Casap</option><option value="cashmind">Cashmind</option><option value="clivi">Clivi</option><option value="admin">Admin</option><option value="liderazgo">Liderazgo</option><option value="naya">Naya</option><option value="sanarai">Sanarai</option><option value="expx">ExpX</option><option value="nido">Nido</option><option value="sueno_americano">Sueño Americano</option></select></div>
     </div>
-    <div class="modal-section">
-      <label class="modal-label">DÍAS DE DESCANSO</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${[['monday','Lun'],['tuesday','Mar'],['wednesday','Mié'],['thursday','Jue'],['friday','Vie'],['saturday','Sáb'],['sunday','Dom']].map(([val,label])=>`
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;padding:5px 9px;border:1px solid #E2E8F0;border-radius:6px;cursor:pointer">
-            <input type="checkbox" class="alta-descanso-cb" value="${val}" ${val==='saturday'||val==='sunday'?'checked':''} style="margin:0"/> ${label}
-          </label>`).join('')}
-      </div>
-    </div>
-    <div class="modal-section">
-      <label class="modal-label">FECHA DE INGRESO</label>
-      <input type="date" id="alta-hire-date" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="modal-section"><label class="modal-label">LOB</label><input type="text" id="alta-lob" placeholder="Ej. Soporte" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div><div class="modal-section"><label class="modal-label">QUEUE</label><input type="text" id="alta-queue" placeholder="Ej. WA Pagos" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div></div>
+    <div class="modal-section"><label class="modal-label">PUESTO *</label><input type="text" id="alta-puesto" placeholder="Representante de Atención a Clientes" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div>
+    <div class="modal-section"><label class="modal-label">SUPERVISOR</label><select id="alta-supervisor" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"><option value="">Sin supervisor asignado</option>${supervisorOptions}</select></div>
 
-    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Datos bancarios (opcional)</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="modal-section">
-        <label class="modal-label">BANCO</label>
-        <input type="text" id="alta-banco" placeholder="Ej: BBVA BANCOMER" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      </div>
-      <div class="modal-section">
-        <label class="modal-label">CUENTA / CLABE</label>
-        <input type="text" id="alta-cuenta" placeholder="0000000000" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
-      </div>
-    </div>`;
+    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Horario</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="modal-section"><label class="modal-label">ENTRADA</label><input type="time" id="alta-shift-start" value="09:00" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div><div class="modal-section"><label class="modal-label">SALIDA</label><input type="time" id="alta-shift-end" value="18:00" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div></div>
+    <div class="modal-section"><label class="modal-label">DÍAS DE DESCANSO</label><div style="display:flex;gap:6px;flex-wrap:wrap">${[['monday','Lun'],['tuesday','Mar'],['wednesday','Mié'],['thursday','Jue'],['friday','Vie'],['saturday','Sáb'],['sunday','Dom']].map(([val,label])=>`<label style="display:flex;align-items:center;gap:4px;font-size:12px;padding:5px 9px;border:1px solid #E2E8F0;border-radius:6px;cursor:pointer"><input type="checkbox" class="alta-descanso-cb" value="${val}" ${val==='saturday'||val==='sunday'?'checked':''} style="margin:0"/> ${label}</label>`).join('')}</div></div>
+    <div class="modal-section"><label class="modal-label">FECHA DE INGRESO *</label><input type="date" id="alta-hire-date" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div>
+
+    <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Datos bancarios opcionales</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="modal-section"><label class="modal-label">BANCO</label><input type="text" id="alta-banco" placeholder="Ej. BBVA" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div><div class="modal-section"><label class="modal-label">CUENTA / CLABE</label><input type="text" id="alta-cuenta" placeholder="0000000000" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div></div>`;
+
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button onclick="_e_confirmarAlta()" style="background:#0F172A;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">Dar de alta</button>`;
+    <button id="alta-v3-confirm-btn" onclick="_e_confirmarAlta()" class="btn-primary">${reingreso ? 'Confirmar reingreso' : 'Crear empleado'}</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
-  setTimeout(function(){ const el=document.getElementById('alta-hire-date'); if(el) el.value=ymd(NOW); }, 50);
 
-  // Detectar reingreso al cambiar el ID
-  setTimeout(function(){
-    const idInput = document.getElementById('alta-id');
-    if (idInput) idInput.addEventListener('input', _e_checkReingreso);
+  setTimeout(async function() {
+    const hire = document.getElementById('alta-hire-date');
+    if (hire) hire.value = ymd(NOW);
+
+    if (!reingreso) {
+      const idInput = document.getElementById('alta-id');
+      try {
+        const { data, error } = await _e_sb.rpc('preview_next_employee_id');
+        if (error) throw error;
+        if (idInput) idInput.value = data || 'Se asignará al confirmar';
+      } catch (error) {
+        console.warn('[Altas V3] No se pudo obtener vista previa del ID:', error);
+        if (idInput) idInput.value = 'Se asignará al confirmar';
+      }
+      return;
+    }
+
+    const setVal = function(id, val) {
+      const el = document.getElementById(id);
+      if (el && val != null && val !== '') el.value = val;
+    };
+    setVal('alta-nombre', reingreso.full_name);
+    setVal('alta-birth', reingreso.birth_date);
+    setVal('alta-genero', reingreso.gender);
+    setVal('alta-email-personal', reingreso.personal_email);
+    setVal('alta-phone', reingreso.phone);
+    setVal('alta-address', reingreso.address);
+    setVal('alta-rol', reingreso.system_role);
+    setVal('alta-campana', reingreso.campaign_id);
+    setVal('alta-lob', reingreso.lob);
+    setVal('alta-queue', reingreso.queue);
+    setVal('alta-puesto', reingreso.position_title);
+    setVal('alta-supervisor', reingreso.supervisor_id);
+    setVal('alta-shift-start', reingreso.shift_start ? reingreso.shift_start.slice(0,5) : null);
+    setVal('alta-shift-end', reingreso.shift_end ? reingreso.shift_end.slice(0,5) : null);
+    setVal('alta-banco', reingreso.bank_name);
+    setVal('alta-cuenta', reingreso.bank_account);
+    document.querySelectorAll('.alta-descanso-cb').forEach(cb => cb.checked = (reingreso.days_off || []).includes(cb.value));
     _e_checkReingreso();
   }, 60);
 }
@@ -21510,12 +21434,12 @@ function _e_checkReingreso() {
   const existing = _e_EMPLEADOS.find(e => e.id === id);
   let banner = document.getElementById('alta-reingreso-banner');
   if (existing && existing.status === 'inactive') {
-    const msg = '🔄 Este ID corresponde a <strong>' + existing.full_name + '</strong>, dado de baja el ' + (existing.termination_date||'—') + '. Se hará un reingreso y se conservará su historial.';
+    const msg = '🔄 Reingreso de <strong>' + escapeHtml(existing.full_name) + '</strong>. Se conservará el ID, el historial y el correo empresarial; el acceso se reactivará con contraseña temporal 0000.';
     if (!banner) {
       banner = document.createElement('div');
       banner.id = 'alta-reingreso-banner';
-      banner.style = 'background:#EFF6FF;border-radius:8px;padding:10px 12px;font-size:13px;color:#1D4ED8;margin-bottom:14px';
-      document.getElementById('modalBody').prepend(banner);
+      banner.style = 'background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:10px 12px;font-size:13px;color:#1D4ED8;margin-bottom:10px';
+      document.getElementById('modalBody')?.prepend(banner);
     }
     banner.innerHTML = msg;
   } else if (banner) {
@@ -21524,11 +21448,10 @@ function _e_checkReingreso() {
 }
 
 async function _e_confirmarAlta() {
-  const id          = document.getElementById('alta-id')?.value?.trim().toUpperCase();
+  const idPreview   = document.getElementById('alta-id')?.value?.trim().toUpperCase() || '';
   const nombre      = document.getElementById('alta-nombre')?.value?.trim();
   const birth       = document.getElementById('alta-birth')?.value || null;
-  const genero      = document.getElementById('alta-genero')?.value;
-  const email       = document.getElementById('alta-email')?.value?.trim().toLowerCase();
+  const genero      = document.getElementById('alta-genero')?.value || null;
   const emailPers   = document.getElementById('alta-email-personal')?.value?.trim().toLowerCase() || null;
   const phone       = document.getElementById('alta-phone')?.value?.trim() || null;
   const address     = document.getElementById('alta-address')?.value?.trim() || null;
@@ -21539,91 +21462,102 @@ async function _e_confirmarAlta() {
   const puesto      = document.getElementById('alta-puesto')?.value?.trim();
   const supSelect   = document.getElementById('alta-supervisor');
   const supId       = supSelect?.value || null;
-  const supName     = supId ? supSelect.options[supSelect.selectedIndex].dataset.name : null;
-  const supEmail    = supId ? supSelect.options[supSelect.selectedIndex].dataset.email : null;
-  const shiftStart  = document.getElementById('alta-shift-start')?.value;
-  const shiftEnd    = document.getElementById('alta-shift-end')?.value;
+  const supName     = supId ? supSelect.options[supSelect.selectedIndex]?.dataset?.name || null : null;
+  const supEmail    = supId ? supSelect.options[supSelect.selectedIndex]?.dataset?.email || null : null;
+  const shiftStart  = document.getElementById('alta-shift-start')?.value || null;
+  const shiftEnd    = document.getElementById('alta-shift-end')?.value || null;
   const hireDate    = document.getElementById('alta-hire-date')?.value;
   const banco       = document.getElementById('alta-banco')?.value?.trim() || null;
   const cuenta      = document.getElementById('alta-cuenta')?.value?.trim() || null;
   const diasDescanso = Array.from(document.querySelectorAll('.alta-descanso-cb:checked')).map(cb => cb.value);
-  const diasTrabajo  = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].filter(d => !diasDescanso.includes(d));
+  const diasTrabajo = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].filter(d => !diasDescanso.includes(d));
 
-  if (!id || !id.match(/^[A-Z0-9]{4,12}$/)) { alert('El ID debe tener formato como CX00999'); return; }
-  if (!nombre) { alert('Escribe el nombre completo'); return; }
-  if (!email || !email.includes('@')) { alert('Escribe un correo empresarial válido'); return; }
-  if (!puesto) { alert('Escribe el puesto'); return; }
-  if (!hireDate) { alert('Selecciona la fecha de ingreso'); return; }
+  if (!nombre) return alert('Escribe el nombre completo.');
+  if (!puesto) return alert('Escribe el puesto.');
+  if (!rol) return alert('Selecciona el rol.');
+  if (!campana) return alert('Selecciona la campaña.');
+  if (!hireDate) return alert('Selecciona la fecha de ingreso.');
+  if (emailPers && !/^\S+@\S+\.\S+$/.test(emailPers)) return alert('El correo personal no tiene un formato válido.');
+  if (shiftStart && shiftEnd && shiftStart === shiftEnd) return alert('La hora de entrada y salida no pueden ser iguales.');
 
-  const existing = _e_EMPLEADOS.find(e => e.id === id);
-  if (existing && existing.status === 'active') {
-    alert('Ya existe un empleado ACTIVO con el ID ' + id + '. Si quieres editarlo, hazlo desde su perfil.');
-    return;
-  }
-  const isReingreso = existing && existing.status === 'inactive';
+  const existing = _e_EMPLEADOS.find(e => e.id === idPreview);
+  const isReingreso = !!(existing && existing.status === 'inactive');
+  if (existing && existing.status === 'active') return alert('Este empleado ya está activo. Edítalo desde su perfil.');
 
-  const nameParts = nombre.split(' ');
-  const firstName = nameParts[0];
-  const lastName  = nameParts.slice(1).join(' ');
+  const parts = nombre.split(/\s+/).filter(Boolean);
+  const payload = {
+    ...(isReingreso ? { id: existing.id } : {}),
+    full_name: nombre,
+    first_name: parts[0] || nombre,
+    last_name: parts.slice(1).join(' '),
+    birth_date: birth,
+    gender: genero,
+    personal_email: emailPers,
+    phone,
+    address,
+    system_role: rol,
+    campaign_id: campana,
+    lob,
+    queue,
+    position_title: puesto,
+    supervisor_id: supId,
+    supervisor_name: supName,
+    supervisor_email: supEmail,
+    shift_start: shiftStart,
+    shift_end: shiftEnd,
+    work_days: diasTrabajo,
+    days_off: diasDescanso,
+    hire_date: hireDate,
+    bank_name: banco,
+    bank_account: cuenta
+  };
 
-  const btn = document.querySelector('#modalFooter button:last-child');
-  if (btn) { btn.disabled = true; btn.textContent = 'Creando...'; }
+  const btn = document.getElementById('alta-v3-confirm-btn');
+  if (btn) { btn.disabled = true; btn.textContent = isReingreso ? 'Reactivando…' : 'Creando acceso y empleado…'; }
 
   try {
-    const payload = {
-      full_name: nombre, first_name: firstName, last_name: lastName,
-      email, personal_email: emailPers, phone,
-      campaign_id: campana, lob, queue,
-      system_role: rol, supervisor_id: supId,
-      shift_start: shiftStart, shift_end: shiftEnd,
-      work_days: diasTrabajo,
-      days_off: diasDescanso,
-      status: 'active', hire_date: hireDate,
-      birth_date: birth, gender: genero,
-      address, supervisor_name: supName, supervisor_email: supEmail,
-      position_title: puesto, bank_name: banco, bank_account: cuenta,
-      // Limpiar campos de baja si es reingreso
-      termination_date: null, termination_type: null,
-      termination_reason: null, termination_details: null,
-      eligible_for_rehire: null,
-      updated_at: new Date().toISOString(),
-    };
-
-    let empError;
-    if (isReingreso) {
-      const res = await _e_sb.from('employees').update(payload).eq('id', id).select().single();
-      empError = res.error;
-    } else {
-      const res = await _e_sb.from('employees').insert({ id, ...payload }).select().single();
-      empError = res.error;
-    }
-
-    if (empError) throw new Error((isReingreso ? 'Error reingresando empleado: ' : 'Error creando empleado: ') + empError.message);
-
-    if (!isReingreso) {
-      const { data: authData, error: authError } = await _e_sb.auth.signUp({
-        email: email,
-        password: '0000',
-        options: {
-          data: {
-            employee_id: id, nombre: nombre,
-            system_role: rol, must_change_password: true,
-          }
-        }
-      });
-      if (authError) {
-        alert('El empleado se creó correctamente, pero el acceso a Impulse falló: ' + authError.message + '\n\nPuedes crear el acceso manualmente después desde Supabase.');
+    const { data, error } = await _e_sb.functions.invoke('bulk-create-employees', {
+      body: {
+        employees: [payload],
+        auto_assign_ids: !isReingreso
       }
+    });
+
+    if (error) {
+      let detail = error.message || 'No fue posible ejecutar el alta.';
+      try {
+        if (error.context && typeof error.context.json === 'function') {
+          const errorBody = await error.context.json();
+          detail = errorBody?.error || errorBody?.message || detail;
+        }
+      } catch (_) {}
+      throw new Error(detail);
     }
 
-    closeModal();
-    _e_cargando = true; _e_render();
-    await _e_cargarEmpleados();
-    _e_cargando = false; _e_render();
+    const result = data?.results?.[0];
+    if (!result) throw new Error('La Edge Function no regresó un resultado válido.');
+    if (!result.ok) throw new Error(result.error || 'No se pudo completar el alta.');
 
-  } catch(e) {
-    alert(e.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Dar de alta'; }
+    document.getElementById('modalTitle').textContent = isReingreso ? 'Reingreso completado' : 'Empleado creado';
+    document.getElementById('modalSub').textContent = result.id + ' · acceso listo para Impulse';
+    document.getElementById('modalBody').innerHTML = `
+      <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:16px;color:#166534;text-align:center;margin-bottom:12px">
+        <div style="font-size:30px;margin-bottom:6px">✅</div>
+        <div style="font-size:16px;font-weight:800">${escapeHtml(nombre)}</div>
+        <div style="font-size:12px;margin-top:4px">${escapeHtml(result.message || 'Alta completada correctamente.')}</div>
+      </div>
+      <div class="modal-section">
+        <div class="kv"><span class="k">ID de empleado</span><span class="v" style="font-family:var(--fm)">${escapeHtml(result.id)}</span></div>
+        <div class="kv"><span class="k">Correo empresarial</span><span class="v">${escapeHtml(result.email || '—')}</span></div>
+        <div class="kv"><span class="k">Contraseña temporal</span><span class="v" style="font-family:var(--fm)">${escapeHtml(data.temporary_password || '0000')}</span></div>
+        <div class="kv"><span class="k">Acceso Auth</span><span class="v">${result.auth_action === 'created' ? 'Creado' : result.auth_action === 'linked' ? 'Vinculado' : 'Validado'}</span></div>
+      </div>
+      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400E;margin-top:10px">Entrega el correo y la contraseña temporal al empleado. En su primer acceso deberá cambiarla.</div>`;
+    document.getElementById('modalFooter').innerHTML = `<button class="btn-primary" onclick="closeModal();_e_cargando=true;_e_render();_e_cargarEmpleados().then(function(){_e_cargando=false;_e_render();})">Cerrar y actualizar</button>`;
+  } catch (e) {
+    console.error('[Altas V3] Error:', e);
+    alert(e.message || String(e));
+    if (btn) { btn.disabled = false; btn.textContent = isReingreso ? 'Confirmar reingreso' : 'Crear empleado'; }
   }
 }
 
