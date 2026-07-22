@@ -8972,8 +8972,9 @@ async function _a_enviarSolicitudCorreccion(empId, fecha){
 
 
 
-// Corrección de falta/incidencia: el supervisor solicita y People la convierte
-// en descanso desde el ticket. La aplicación real se hace de forma atómica vía RPC.
+// Corrección de falta/incidencia: el supervisor solicita la revisión y People
+// define el tipo final (descanso, incapacidad, permiso, falta justificada, etc.).
+// La aplicación real se hace de forma atómica vía RPC.
 function _a_parseIncidentCorrectionData(t) {
   const text = String(t?.description || '');
   const match = text.match(/<!--ATTENDANCE_EXCEPTION_CORRECTION:(.*?)-->/s);
@@ -9012,7 +9013,7 @@ function _a_abrirSolicitudCorreccionIncidencia(fecha) {
       <div class="kv"><span class="k">Motivo actual</span><span class="v">${d.motivo_falta || '—'}</span></div>
     </div>
     <div class="alert alert-blue" style="margin:0">
-      ℹ️ Al aprobarse, la incidencia se convertirá en <strong>Descanso</strong> y se eliminarán la entrada y salida de ese día.
+      ℹ️ People revisará el caso y definirá el tipo correcto de incidencia: descanso, incapacidad, permiso, falta justificada u otra opción disponible.
     </div>
     <div class="modal-section">
       <div class="ms-title">Motivo de la solicitud <span style="color:#EF4444">*</span></div>
@@ -9032,7 +9033,7 @@ async function _a_enviarSolicitudCorreccionIncidencia(empId, fecha) {
   if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
 
   const metadata = {
-    kind: 'attendance_exception_to_rest',
+    kind: 'attendance_exception_correction',
     original_date: fecha,
     original_type: d?.tipo_falta || null,
     original_notes: d?.motivo_falta || null,
@@ -9041,12 +9042,12 @@ async function _a_enviarSolicitudCorreccionIncidencia(empId, fecha) {
 
   const ro = ROLES[currentRole];
   const id = 'TKT-' + Date.now();
-  const description = `Convertir incidencia a descanso. Motivo: ${reason}.\n<!--ATTENDANCE_EXCEPTION_CORRECTION:${JSON.stringify(metadata)}-->`;
+  const description = `Revisar y reclasificar incidencia. Motivo: ${reason}.\n<!--ATTENDANCE_EXCEPTION_CORRECTION:${JSON.stringify(metadata)}-->`;
   const { error } = await _a_sb.from('hr_tickets').insert({
     id,
     employee_id: ro.id,
     type: 'correccion_asistencia',
-    subtype: 'Convertir incidencia a descanso',
+    subtype: 'Reclasificar incidencia de asistencia',
     description,
     priority: 'normal',
     status: 'pending',
@@ -13802,18 +13803,27 @@ async function _t_resolverTicket(id) {
   const incidentData = _t_parseIncidentCorrectionData(t);
   const esJerarquia = _t_esCambioJerarquiaValor(_t_categoriaLabel(t?.type), t?.subtype);
   const esBaja = _t_esSolicitudBajaValor(_t_categoriaLabel(t?.type), t?.subtype);
-  document.getElementById('modalTitle').textContent = esCorreccionIncidencia ? 'Convertir incidencia en descanso' : esCorreccion ? 'Aplicar corrección de asistencia' : esJerarquia ? 'Aprobar cambio de jerarquía' : esBaja ? 'Aprobar solicitud de baja' : 'Completar ticket';
+  document.getElementById('modalTitle').textContent = esCorreccionIncidencia ? 'Definir incidencia correcta' : esCorreccion ? 'Aplicar corrección de asistencia' : esJerarquia ? 'Aprobar cambio de jerarquía' : esBaja ? 'Aprobar solicitud de baja' : 'Completar ticket';
   document.getElementById('modalSub').textContent = '';
   document.getElementById('modalBody').innerHTML = `
     ${esJerarquia ? _t_renderDetalleJerarquia(t) : ''}
     ${esBaja ? _t_renderDetalleBaja(t) : ''}
     ${esCorreccionIncidencia ? `<div class="modal-section" style="background:#EFF6FF;border-color:#BFDBFE">
-      <div class="ms-title" style="color:#1D4ED8">🛏️ Acción que realizará People</div>
+      <div class="ms-title" style="color:#1D4ED8">🧭 Clasificación final por People</div>
       <div class="kv"><span class="k">Empleado</span><span class="v">${_t_nombreEmpleado(t.target_employee_id)}</span></div>
       <div class="kv"><span class="k">Fecha</span><span class="v">${incidentData?.original_date || t.target_date || '—'}</span></div>
       <div class="kv"><span class="k">Incidencia actual</span><span class="v">${_a_incidentTypeLabel(incidentData?.original_type)}</span></div>
-      <div class="kv"><span class="k">Resultado</span><span class="v" style="color:#166534">Descanso</span></div>
-      <div style="font-size:11px;color:#1E40AF;margin-top:9px">También se eliminarán automáticamente todos los punches de entrada y salida de ese día.</div>
+      <div class="kv" style="align-items:center"><span class="k">Tipo correcto</span><span class="v">
+        <select id="tr-incident-final-type" style="border:1px solid #93C5FD;border-radius:7px;padding:7px 10px;font-size:12px;font-family:var(--f);background:#fff;color:#0F172A">
+          <option value="">Selecciona...</option>
+          <option value="permuta_descanso">🛏️ Descanso</option>
+          <option value="incapacidad">🏥 Incapacidad</option>
+          <option value="falta_justificada">📋 Falta justificada</option>
+          <option value="permiso">🤝 Permiso</option>
+          <option value="falta_injustificada">🚫 Falta injustificada</option>
+        </select>
+      </span></div>
+      <div style="font-size:11px;color:#1E40AF;margin-top:9px">Al confirmar, se actualizará la excepción con el tipo elegido y se limpiarán los punches del día para evitar registros contradictorios.</div>
       <div style="font-size:11px;color:#1E40AF;margin-top:6px"><strong>Motivo del supervisor:</strong> ${incidentData?.request_reason || '—'}</div>
     </div>` : esCorreccion ? `<div class="modal-section" style="background:#FFFBEB;border-color:#FDE68A">
       <div class="ms-title" style="color:#92400E">🚩 Revisá antes de aplicar — podés ajustar la hora</div>
@@ -13837,24 +13847,26 @@ async function _t_resolverTicket(id) {
     </div>`;
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-primary" onclick="_t_confirmarResolver('${id}')">${esCorreccionIncidencia ? '✅ Convertir en descanso y limpiar punches' : esCorreccion ? '✅ Aplicar y completar' : esJerarquia ? '✅ Aprobar y actualizar supervisor' : esBaja ? '✅ Aprobar y continuar con la baja' : 'Marcar como completado'}</button>`;
+    <button class="btn-primary" onclick="_t_confirmarResolver('${id}')">${esCorreccionIncidencia ? '✅ Aplicar clasificación y completar' : esCorreccion ? '✅ Aplicar y completar' : esJerarquia ? '✅ Aprobar y actualizar supervisor' : esBaja ? '✅ Aprobar y continuar con la baja' : 'Marcar como completado'}</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
 }
 
 
-// Convierte la incidencia a descanso, elimina entrada/salida y resuelve el ticket
+// Reclasifica la incidencia, limpia entrada/salida y resuelve el ticket
 // dentro de una sola transacción de PostgreSQL.
-async function _t_aplicarCorreccionIncidenciaComoDescanso(t) {
+async function _t_aplicarCorreccionIncidencia(t, finalType) {
   const d = _t_parseIncidentCorrectionData(t);
   if (!d) return { error: new Error('El ticket no contiene el detalle de la incidencia.') };
 
+  const finalLabel = _a_incidentTypeLabel(finalType);
   const resolutionNotes = document.getElementById('tr-notas')?.value?.trim()
-    || `Incidencia convertida en descanso. Motivo: ${d.request_reason || 'Corrección autorizada por People'}.`;
+    || `Incidencia reclasificada como ${finalLabel}. Motivo: ${d.request_reason || 'Corrección autorizada por People'}.`;
 
-  const { data, error } = await _t_sb.rpc('resolve_attendance_exception_as_rest', {
+  const { data, error } = await _t_sb.rpc('resolve_attendance_exception_correction', {
     p_ticket_id: t.id,
     p_employee_id: t.target_employee_id,
     p_exception_date: d.original_date || t.target_date,
+    p_final_type: finalType,
     p_actor_id: ROLES[currentRole]?.id || null,
     p_resolution_notes: resolutionNotes
   });
@@ -13887,10 +13899,17 @@ async function _t_confirmarResolver(id) {
   const t = _t_TICKETS.find(x => x.id === id);
 
   if (_t_esCorreccionIncidencia(t)) {
-    const ok = confirm('Esta acción convertirá la incidencia en DESCANSO y eliminará cualquier entrada o salida registrada para ese día. ¿Continuar?');
+    const finalType = document.getElementById('tr-incident-final-type')?.value;
+    if (!finalType) {
+      alert('Selecciona el tipo correcto de incidencia antes de completar el ticket.');
+      return;
+    }
+
+    const finalLabel = _a_incidentTypeLabel(finalType);
+    const ok = confirm(`Esta acción clasificará el día como ${finalLabel.toUpperCase()} y eliminará cualquier entrada o salida registrada para ese día. ¿Continuar?`);
     if (!ok) return;
 
-    const { error: errInc } = await _t_aplicarCorreccionIncidenciaComoDescanso(t);
+    const { error: errInc } = await _t_aplicarCorreccionIncidencia(t, finalType);
     if (errInc) {
       alert('No se pudo aplicar la corrección. No se realizó ningún cambio.\n\n' + errInc.message);
       return;
@@ -13905,7 +13924,7 @@ async function _t_confirmarResolver(id) {
       if (typeof _a_cargarDatos === 'function') await _a_cargarDatos();
       if (activeModule === 'asistencia' && typeof _a_render === 'function') _a_render();
     } catch (e) { console.warn('Corrección aplicada, pero no se pudo refrescar asistencia en memoria:', e); }
-    alert('✅ La incidencia se convirtió en descanso y se eliminaron los punches del día.');
+    alert(`✅ La incidencia se clasificó como ${finalLabel} y el ticket quedó completado.`);
     return;
   }
 
