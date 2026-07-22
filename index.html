@@ -13057,6 +13057,7 @@ function _t_prioColor(p) {
 }
 
 function _t_render() {
+  _t_initFiltrosGuardados();
   updateSidebarUser();
   const c = document.getElementById('content');
   if (_t_cargando) {
@@ -13761,8 +13762,59 @@ let _t_filtros = {
   categoria: 'all',
   prioridad: 'all',
   sla: 'all',
+  fecha: 'all',
   search: ''
 };
+
+let _t_filtrosInicializados = false;
+
+function _t_filtrosStorageKey() {
+  const ro = ROLES[currentRole] || {};
+  return `impulse_ticket_filters_${ro.id || currentRole || 'user'}`;
+}
+
+function _t_initFiltrosGuardados() {
+  if (_t_filtrosInicializados) return;
+  _t_filtrosInicializados = true;
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(_t_filtrosStorageKey()) || '{}');
+    _t_filtros = {
+      ..._t_filtros,
+      ...saved,
+      // Evitar valores antiguos o inválidos.
+      estado: ['open','unread','all','pending','in_progress','resolved','cancelled'].includes(saved.estado)
+        ? saved.estado
+        : _t_filtros.estado,
+      fecha: ['all','today','7d','30d','90d'].includes(saved.fecha)
+        ? saved.fecha
+        : _t_filtros.fecha
+    };
+  } catch (error) {
+    console.warn('No se pudieron recuperar los filtros de tickets:', error);
+  }
+}
+
+function _t_guardarFiltros() {
+  try {
+    localStorage.setItem(_t_filtrosStorageKey(), JSON.stringify(_t_filtros));
+  } catch (error) {
+    console.warn('No se pudieron guardar los filtros de tickets:', error);
+  }
+}
+
+function _t_limpiarFiltros() {
+  _t_filtros = {
+    estado: 'open',
+    categoria: 'all',
+    prioridad: 'all',
+    sla: 'all',
+    fecha: 'all',
+    search: ''
+  };
+  _t_guardarFiltros();
+  _t_render();
+}
 
 let _t_reporteFechas = {
   preset: 'mes',
@@ -13864,6 +13916,7 @@ function _t_setVista(vista) {
 
 function _t_setFiltro(k, v) {
   _t_filtros[k] = v;
+  _t_guardarFiltros();
 
   // Los selects pueden volver a renderizarse normalmente.
   if (k !== 'search') {
@@ -14044,6 +14097,30 @@ function _t_filtrarTickets(lista) {
     if (_t_filtros.sla === 'today' && sla.state !== 'today') return false;
     if (_t_filtros.sla === 'unassigned' && t.assigned_to) return false;
 
+    if (_t_filtros.fecha !== 'all') {
+      const created = new Date(t.created_at || 0);
+      if (Number.isNaN(created.getTime())) return false;
+
+      const now = new Date();
+      const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      let start = startToday;
+
+      if (_t_filtros.fecha === '7d') {
+        start = new Date(startToday);
+        start.setDate(start.getDate() - 6);
+      }
+      if (_t_filtros.fecha === '30d') {
+        start = new Date(startToday);
+        start.setDate(start.getDate() - 29);
+      }
+      if (_t_filtros.fecha === '90d') {
+        start = new Date(startToday);
+        start.setDate(start.getDate() - 89);
+      }
+
+      if (created < start) return false;
+    }
+
     if (q) {
       const haystack = [
         t.id,
@@ -14160,11 +14237,57 @@ function _t_renderTabs() {
   `;
 }
 
-function _t_renderFiltros() {
-  const cats = [...new Set(_t_TICKETS.map(t => t.type).filter(Boolean))];
+function _t_renderStatusQuickFilters(baseLista = _t_TICKETS) {
+  const counts = {
+    all: baseLista.length,
+    open: baseLista.filter(_t_esAbierto).length,
+    pending: baseLista.filter(t => (t.status || 'pending') === 'pending').length,
+    in_progress: baseLista.filter(t => t.status === 'in_progress').length,
+    resolved: baseLista.filter(t => t.status === 'resolved').length,
+    cancelled: baseLista.filter(t => t.status === 'cancelled').length
+  };
+
+  const options = [
+    ['open', 'Abiertos', counts.open],
+    ['pending', 'Pendientes', counts.pending],
+    ['in_progress', 'En proceso', counts.in_progress],
+    ['resolved', 'Completados', counts.resolved],
+    ['cancelled', 'Cancelados', counts.cancelled],
+    ['all', 'Todos', counts.all]
+  ];
 
   return `
-    <div class="filter-bar" style="margin-bottom:16px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      ${options.map(([value, label, count]) => `
+        <button
+          type="button"
+          onclick="_t_setFiltro('estado','${value}')"
+          style="
+            border:1px solid ${_t_filtros.estado === value ? '#62D3F5' : '#E2E8F0'};
+            background:${_t_filtros.estado === value ? '#ECFEFF' : '#FFFFFF'};
+            color:${_t_filtros.estado === value ? '#0E7490' : '#475569'};
+            border-radius:999px;
+            padding:7px 11px;
+            font-size:12px;
+            font-weight:700;
+            cursor:pointer;
+          "
+        >
+          ${label} <span style="opacity:.75">${count}</span>
+        </button>
+      `).join('')}
+    </div>
+  `;
+}
+
+function _t_renderFiltros(baseLista = _t_TICKETS, options = {}) {
+  const cats = [...new Set((baseLista || []).map(t => t.type).filter(Boolean))];
+  const mostrarSla = options.mostrarSla !== false;
+
+  return `
+    ${_t_renderStatusQuickFilters(baseLista)}
+
+    <div class="filter-bar" style="margin-bottom:16px;gap:8px;align-items:center;flex-wrap:wrap">
       <label>Estado</label>
       <select onchange="_t_setFiltro('estado', this.value)" style="border:1px solid #E2E8F0;border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--f)">
         <option value="open" ${_t_filtros.estado === 'open' ? 'selected' : ''}>Abiertos</option>
@@ -14178,33 +14301,49 @@ function _t_renderFiltros() {
 
       <label>Categoría</label>
       <select onchange="_t_setFiltro('categoria', this.value)" style="border:1px solid #E2E8F0;border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--f)">
-        <option value="all">Todas</option>
+        <option value="all" ${_t_filtros.categoria === 'all' ? 'selected' : ''}>Todas</option>
         ${cats.map(c => `<option value="${c}" ${_t_filtros.categoria === c ? 'selected' : ''}>${_t_categoriaLabel(c)}</option>`).join('')}
       </select>
 
       <label>Prioridad</label>
       <select onchange="_t_setFiltro('prioridad', this.value)" style="border:1px solid #E2E8F0;border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--f)">
-        <option value="all">Todas</option>
+        <option value="all" ${_t_filtros.prioridad === 'all' ? 'selected' : ''}>Todas</option>
         <option value="high" ${_t_filtros.prioridad === 'high' ? 'selected' : ''}>Alta</option>
         <option value="medium" ${_t_filtros.prioridad === 'medium' ? 'selected' : ''}>Media</option>
         <option value="normal" ${_t_filtros.prioridad === 'normal' ? 'selected' : ''}>Normal</option>
+        <option value="low" ${_t_filtros.prioridad === 'low' ? 'selected' : ''}>Baja</option>
       </select>
 
-      <label>SLA</label>
-      <select onchange="_t_setFiltro('sla', this.value)" style="border:1px solid #E2E8F0;border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--f)">
-        <option value="all">Todos</option>
-        <option value="overdue" ${_t_filtros.sla === 'overdue' ? 'selected' : ''}>Vencidos</option>
-        <option value="today" ${_t_filtros.sla === 'today' ? 'selected' : ''}>Por vencer</option>
-        <option value="unassigned" ${_t_filtros.sla === 'unassigned' ? 'selected' : ''}>Sin responsable</option>
+      ${mostrarSla ? `
+        <label>SLA</label>
+        <select onchange="_t_setFiltro('sla', this.value)" style="border:1px solid #E2E8F0;border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--f)">
+          <option value="all" ${_t_filtros.sla === 'all' ? 'selected' : ''}>Todos</option>
+          <option value="overdue" ${_t_filtros.sla === 'overdue' ? 'selected' : ''}>Vencidos</option>
+          <option value="today" ${_t_filtros.sla === 'today' ? 'selected' : ''}>Por vencer</option>
+          <option value="unassigned" ${_t_filtros.sla === 'unassigned' ? 'selected' : ''}>Sin responsable</option>
+        </select>
+      ` : ''}
+
+      <label>Fecha</label>
+      <select onchange="_t_setFiltro('fecha', this.value)" style="border:1px solid #E2E8F0;border-radius:7px;padding:6px 9px;font-size:12px;font-family:var(--f)">
+        <option value="all" ${_t_filtros.fecha === 'all' ? 'selected' : ''}>Todo</option>
+        <option value="today" ${_t_filtros.fecha === 'today' ? 'selected' : ''}>Hoy</option>
+        <option value="7d" ${_t_filtros.fecha === '7d' ? 'selected' : ''}>Últimos 7 días</option>
+        <option value="30d" ${_t_filtros.fecha === '30d' ? 'selected' : ''}>Últimos 30 días</option>
+        <option value="90d" ${_t_filtros.fecha === '90d' ? 'selected' : ''}>Últimos 90 días</option>
       </select>
 
-      <input 
-        class="search-box" 
+      <input
+        class="search-box"
         placeholder="Buscar ticket..."
-        value="${_t_filtros.search || ''}"
+        value="${String(_t_filtros.search || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}"
         oninput="_t_setFiltro('search', this.value)"
         style="width:220px"
       />
+
+      <button type="button" class="btn-ghost" onclick="_t_limpiarFiltros()" title="Restablecer filtros">
+        Limpiar
+      </button>
     </div>
   `;
 }
@@ -14347,7 +14486,7 @@ function _t_renderBandeja() {
         <div style="font-size:13px;color:#64748B">${lista.length} ticket${lista.length !== 1 ? 's' : ''} en bandeja</div>
         <button onclick="_t_abrirNuevo()" class="btn-primary">+ Nuevo ticket</button>
       </div>
-      ${_t_renderFiltros()}
+      ${_t_renderFiltros(_t_TICKETS)}
       ${_t_renderTablaTickets(lista)}
     </div>
   `;
@@ -14356,60 +14495,47 @@ function _t_renderBandeja() {
 function _t_renderMisTickets() {
   const ro = ROLES[currentRole] || {};
 
-  const lista = (_t_TICKETS || [])
+  const baseLista = (_t_TICKETS || [])
     .filter(ticket => ticket.employee_id === ro.id)
-    .sort((a, b) => {
-      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-    });
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  const lista = _t_filtrarTickets(baseLista);
 
   return `
-    <div style="max-width:900px;margin:0 auto">
-
+    <div style="max-width:1000px;margin:0 auto">
       ${_t_renderTabs()}
 
-      <div
-        style="
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
-          margin-bottom:14px;
-          gap:10px;
-          flex-wrap:wrap;
-        "
-      >
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">
         <div style="font-size:13px;color:#64748B">
-          ${lista.length}
-          ticket${lista.length !== 1 ? 's' : ''}
+          Mostrando <b>${lista.length}</b> de ${baseLista.length} ticket${baseLista.length !== 1 ? 's' : ''}
         </div>
 
-        <button
-          onclick="_t_abrirNuevo()"
-          class="btn-primary"
-        >
-          + Nuevo ticket
-        </button>
+        <button onclick="_t_abrirNuevo()" class="btn-primary">+ Nuevo ticket</button>
       </div>
+
+      ${_t_renderFiltros(baseLista)}
 
       ${_t_renderTablaTickets(
         lista,
-        'Aún no tienes tickets registrados'
+        baseLista.length ? 'No hay tickets que coincidan con los filtros' : 'Aún no tienes tickets registrados'
       )}
-
     </div>
   `;
 }
 
 function _t_renderTicketsEquipo() {
-  const lista = [...(_t_TEAM_TICKETS || [])].sort((a, b) => {
+  const baseLista = [...(_t_TEAM_TICKETS || [])].sort((a, b) => {
     return new Date(b.created_at || 0) - new Date(a.created_at || 0);
   });
 
-  const abiertos = lista.filter(_t_esAbierto).length;
-  const resueltos = lista.filter(
+  const lista = _t_filtrarTickets(baseLista);
+
+  const abiertos = baseLista.filter(_t_esAbierto).length;
+  const resueltos = baseLista.filter(
     ticket => ticket.status === 'resolved'
   ).length;
 
-  const vencidos = lista.filter(
+  const vencidos = baseLista.filter(
     ticket => _t_slaInfo(ticket).state === 'overdue'
   ).length;
 
@@ -14450,7 +14576,7 @@ function _t_renderTicketsEquipo() {
       >
 
         <div class="kpi-box">
-          <div class="kpi-val">${lista.length}</div>
+          <div class="kpi-val">${baseLista.length}</div>
           <div class="kpi-lbl">Total visibles</div>
         </div>
 
@@ -14488,9 +14614,8 @@ function _t_renderTicketsEquipo() {
         "
       >
         <div style="font-size:13px;color:#64748B">
-          ${lista.length}
-          ticket${lista.length !== 1 ? 's' : ''}
-          visible${lista.length !== 1 ? 's' : ''} de tu equipo
+          Mostrando <b>${lista.length}</b> de ${baseLista.length}
+          ticket${baseLista.length !== 1 ? 's' : ''} visibles de tu equipo
         </div>
 
         <button
@@ -14501,9 +14626,13 @@ function _t_renderTicketsEquipo() {
         </button>
       </div>
 
+      ${_t_renderFiltros(baseLista)}
+
       ${_t_renderTablaTickets(
         lista,
-        'Tu equipo todavía no tiene tickets visibles'
+        baseLista.length
+          ? 'No hay tickets que coincidan con los filtros'
+          : 'Tu equipo todavía no tiene tickets visibles'
       )}
 
     </div>
@@ -14588,7 +14717,7 @@ function _t_renderReportes() {
   `;
 }
 
-async function _t_cargarTickets(options = {}) {
+async function _t_cargarTicketsLegacyNoUsar(options = {}) {
   try {
     const ro = ROLES[currentRole];
 
