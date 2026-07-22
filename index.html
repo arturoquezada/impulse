@@ -4563,6 +4563,31 @@ function _a_abrirModalRetardo(agentId){
   document.getElementById('modalBackdrop').style.display='flex';
 }
 
+async function _a_actualizarMotivoEnEntrada(employeeId, punchDate, motivo){
+  // Primero localiza la entrada real. Nunca inserta un punch nuevo,
+  // así evitamos volver a crear entradas a las 00:00.
+  const { data: punch, error: findError } = await _a_sb
+    .from('attendance_punches')
+    .select('id,punch_time,punched_at,notes')
+    .eq('employee_id', employeeId)
+    .eq('punch_date', punchDate)
+    .eq('punch_type', 'entrada')
+    .order('punch_time', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (findError) throw findError;
+  if (!punch?.id) return null;
+
+  const { error: updateError } = await _a_sb
+    .from('attendance_punches')
+    .update({ notes: motivo })
+    .eq('id', punch.id);
+
+  if (updateError) throw updateError;
+  return punch;
+}
+
 async function _a_guardarMotivosRetardo(){
   const motivo = document.getElementById('retardo-motivo')?.value;
   if(!motivo){ alert('Selecciona un motivo'); return; }
@@ -4573,34 +4598,30 @@ async function _a_guardarMotivosRetardo(){
   const btn = document.getElementById('btnGuardarMotivoRetardo');
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
 
-  const { data: updatedPunch, error } = await _a_sb
-    .from('attendance_punches')
-    .update({ notes: motivo })
-    .eq('employee_id', rec.agentId)
-    .eq('punch_date', rec.fecha)
-    .eq('punch_type', 'entrada')
-    .select('id, punch_time, punched_at')
-    .maybeSingle();
+  try {
+    const punch = await _a_actualizarMotivoEnEntrada(rec.agentId, rec.fecha, motivo);
 
-  if (error || !updatedPunch) {
+    if (!punch) {
+      alert('No se encontró la entrada original de ese día. No se creó ningún registro nuevo.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar motivo'; }
+      return;
+    }
+
+    rec.motivo = motivo;
+    rec.marcadoPor = currentRole;
+    rec.pendiente = false;
+
+    const agent = _a_TEAM.find(x=>x.id===rec.agentId);
+    if (agent) agent.motivoRetardo = motivo;
+
+    closeModal();
+    await _a_cargarDatos();
+    _a_render();
+  } catch (error) {
     console.error('Error guardando motivo de retardo:', error);
-    alert(!updatedPunch && !error
-      ? 'No se encontró la entrada de ese día. No se creó ningún registro nuevo.'
-      : 'No se pudo guardar el motivo.\n\n' + (error?.message || 'Error desconocido'));
+    alert('No se pudo guardar el motivo.\n\n' + (error?.message || 'Error desconocido'));
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar motivo'; }
-    return;
   }
-
-  rec.motivo = motivo;
-  rec.marcadoPor = currentRole;
-  rec.pendiente = false;
-
-  const agent = _a_TEAM.find(x=>x.id===rec.agentId);
-  if (agent) agent.motivoRetardo = motivo;
-
-  closeModal();
-  await _a_cargarDatos();
-  _a_render();
 }
 // categoria: 'falta_injustificada' | 'falta_justificada' | 'permiso' | 'incapacidad'
 // descuenta_nomina: siempre true (todas descuentan)
@@ -4859,20 +4880,22 @@ async function _a_solicitarJustificacionRetardo(){
     btn.textContent = 'Enviando...';
   }
 
-  const { data: punch, error: punchError } = await _a_sb
-    .from('attendance_punches')
-    .update({ notes: motivo })
-    .eq('employee_id', rec.agentId)
-    .eq('punch_date', rec.fecha)
-    .eq('punch_type', 'entrada')
-    .select('id,punch_time,punched_at')
-    .maybeSingle();
+  let punch = null;
 
-  if (punchError || !punch) {
+  try {
+    punch = await _a_actualizarMotivoEnEntrada(rec.agentId, rec.fecha, motivo);
+  } catch (punchError) {
     console.error('No se encontró/actualizó punch para justificación:', punchError);
-    alert(!punch && !punchError
-      ? 'No se encontró la entrada original. La solicitud no fue creada.'
-      : 'No se pudo guardar el motivo.\n\n' + (punchError?.message || 'Error desconocido'));
+    alert('No se pudo guardar el motivo.\n\n' + (punchError?.message || 'Error desconocido'));
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Guardar y solicitar justificación';
+    }
+    return;
+  }
+
+  if (!punch) {
+    alert('No se encontró la entrada original. La solicitud no fue creada y no se insertó ningún punch nuevo.');
     if (btn) {
       btn.disabled = false;
       btn.textContent = 'Guardar y solicitar justificación';
