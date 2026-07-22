@@ -3020,14 +3020,20 @@ async function _a_cargarQDAYS(empId, from, to) {
       segundos_tarde: esDescanso || esVacacion
         ? 0
         : s
-          ? (s.minutes_late || 0) * 60
+          ? Number(s.late_seconds ?? ((s.minutes_late || 0) * 60))
           : 0,
 
-      es_retardo: esDescanso || esVacacion
-        ? false
-        : s
-          ? (s.minutes_late || 0) > 0
-          : false,
+      minutes_late: esDescanso || esVacacion ? 0 : Number(s?.minutes_late || 0),
+      tolerance_minutes: Number(s?.tolerance_minutes ?? 10),
+      no_show_minutes: Number(s?.no_show_minutes ?? 60),
+      attendance_status: s?.attendance_status || null,
+      is_late: esDescanso || esVacacion ? false : Boolean(s?.is_late),
+      is_within_tolerance: esDescanso || esVacacion ? false : Boolean(s?.is_within_tolerance),
+      counts_for_discipline: esDescanso || esVacacion ? false : Boolean(s?.counts_for_discipline),
+      policy_id: s?.policy_id || null,
+      policy_name: s?.policy_name || 'General',
+
+      es_retardo: esDescanso || esVacacion ? false : Boolean(s?.is_late),
 
       estatus,
 
@@ -3245,7 +3251,7 @@ async function _a_cargarDatos() {
         esVacacionPorExcepcion ||
         esVacacionPorSummary;
 
-      const lateMin = s ? (s.minutes_late || 0) : 0;
+      const lateMin = s ? Number(s.minutes_late || 0) : 0;
 
       let status = descansaHoy ? 'descanso' : 'sin_punch';
 
@@ -3289,7 +3295,11 @@ async function _a_cargarDatos() {
       };
 
       const statusBase = status;
-      status = _a_statusPorPuntualidad(statusBase, lateMin, agenteParaTolerancia);
+      status = _a_statusPorPuntualidad(
+        s?.attendance_status || statusBase,
+        lateMin,
+        { ...agenteParaTolerancia, ...(s || {}) }
+      );
 
       const bloqueaMarcas = status === 'descanso' || status === 'vacaciones';
 
@@ -3322,7 +3332,11 @@ async function _a_cargarDatos() {
         lateMin,
         status,
         statusBase,
-        toleranciaMin: _a_toleranciaRetardoMin(agenteParaTolerancia),
+        toleranciaMin: Number(s?.tolerance_minutes ?? _a_toleranciaRetardoMin(agenteParaTolerancia)),
+        isLate: Boolean(s?.is_late),
+        isWithinTolerance: Boolean(s?.is_within_tolerance),
+        countsForDiscipline: Boolean(s?.counts_for_discipline),
+        policyName: s?.policy_name || 'General',
         bloqueaMarcas,
         falta
       };
@@ -6543,63 +6557,28 @@ function _a_normText(v) {
 }
 
 function _a_toleranciaRetardoMin(a = {}) {
-  const camp = _a_normText(
-    a.camp ||
-    a.campaign_id ||
-    a.campaign ||
-    ''
-  );
+  // Source of truth: attendance_daily_summary.
+  const fromDb = Number(a.tolerance_minutes ?? a.toleranciaMin);
+  if (Number.isFinite(fromDb) && fromDb >= 0) return fromDb;
 
-  const lob = _a_normText(
-    a.lob ||
-    a.lob_key ||
-    a.lob_name ||
-    a.queue ||
-    a.queue_name ||
-    a.position_title ||
-    a.puesto ||
-    ''
-  );
-
+  // Fallback temporal para filas antiguas mientras se despliega la migración SQL.
+  const camp = _a_normText(a.camp || a.campaign_id || a.campaign || '');
+  const lob = _a_normText(a.lob || a.lob_key || a.lob_name || a.queue || a.queue_name || a.position_title || a.puesto || '');
   const combined = `${camp} ${lob}`;
-
-  // KAM gana sobre Aplazo
-  if (
-    combined.includes('key account manager') ||
-    combined.includes('key-account-manager') ||
-    combined.includes('key_account_manager') ||
-    combined.includes('kam')
-  ) {
-    return 10;
-  }
-
-  if (camp.includes('aplazo') || combined.includes('aplazo')) {
-    return 5;
-  }
-
+  if (combined.includes('key account manager') || combined.includes('key-account-manager') || combined.includes('key_account_manager') || combined.includes('kam')) return 10;
+  if (camp.includes('aplazo') || combined.includes('aplazo')) return 5;
   return 10;
 }
 
 function _a_statusPorPuntualidad(status, lateMin = 0, a = {}) {
-  const st = String(status || '').trim().toLowerCase();
-  const min = Number(lateMin || 0);
-  const tolerancia = _a_toleranciaRetardoMin(a);
-
-  // Estos estados no se deben convertir por minutos tarde
-  if (['descanso', 'vacaciones', 'falta', 'sin_punch'].includes(st)) {
-    return st;
-  }
-
-  // 0 min = A tiempo
-  // 1 a tolerancia = En tolerancia
-  // tolerancia + 1 = Retardo
-  if (min > tolerancia) return 'late';
-  if (min > 0) return 'tolerance';
-
-  // Si viene late sin minutos, respetarlo para no ocultar un caso real
-  if (st === 'late') return 'late';
+  // El frontend ya no reclasifica retardos. Solo normaliza nombres visuales.
+  const st = String(a.attendance_status || a.status_source || status || '').trim().toLowerCase();
+  if (st === 'on_time' || st === 'early_arrival') return 'on_time';
   if (st === 'tolerance') return 'tolerance';
-
+  if (st === 'late' || st === 'no_show') return 'late';
+  if (st === 'absent' || st === 'excused_absence') return 'falta';
+  if (st === 'missing_checkout') return 'on_time';
+  if (['descanso','vacaciones','falta','sin_punch','early_unapproved'].includes(st)) return st === 'early_unapproved' ? 'late' : st;
   return st || 'on_time';
 }
 
@@ -6634,7 +6613,8 @@ function _a_agenteContextoQDAYS() {
 }
 
 function _a_lateMinDia(d) {
-  return Math.round(Number(d?.segundos_tarde || 0) / 60);
+  if (d?.minutes_late != null) return Number(d.minutes_late || 0);
+  return Math.floor(Number(d?.segundos_tarde || 0) / 60);
 }
 
 function _a_statusDiaConTolerancia(d, agenteCtx = _a_agenteContextoQDAYS()) {
@@ -6660,9 +6640,9 @@ function _a_statusDiaConTolerancia(d, agenteCtx = _a_agenteContextoQDAYS()) {
   }
 
   return _a_statusPorPuntualidad(
-    d.estatus || (d.es_retardo ? 'late' : 'on_time'),
+    d.attendance_status || d.estatus || (d.es_retardo ? 'late' : 'on_time'),
     _a_lateMinDia(d),
-    agenteCtx
+    { ...agenteCtx, ...d }
   );
 }
 
@@ -8749,10 +8729,11 @@ function _a_openDayModal(idx){
   if (!d) return;
 
   const agenteCtx = _a_agenteContextoQDAYS();
-  const toleranciaMin = _a_toleranciaRetardoMin(agenteCtx);
+  const toleranciaMin = Number(d.tolerance_minutes ?? _a_toleranciaRetardoMin(agenteCtx));
   const statusDia = _a_statusDiaConTolerancia(d, agenteCtx);
-  const esRetardoReal = statusDia === 'late';
-  const estaEnTolerancia = statusDia === 'tolerance';
+  const esRetardoReal = Boolean(d.is_late ?? (statusDia === 'late'));
+  const estaEnTolerancia = Boolean(d.is_within_tolerance ?? (statusDia === 'tolerance'));
+  const cuentaDisciplina = Boolean(d.counts_for_discipline ?? esRetardoReal);
 
   document.getElementById('modalTitle').textContent = `Detalle — ${fmtDate(d.fecha)}`;
   document.getElementById('modalSub').textContent = d.tipo_falta || d.estatus || 'Normal';
@@ -8774,12 +8755,14 @@ function _a_openDayModal(idx){
       <div class="kv"><span class="k">Es retardo</span><span class="v">${esRetardoReal ? '<span style="color:#DC2626;font-weight:700">Sí</span>' : 'No'}</span></div>
       <div class="kv"><span class="k">En tolerancia</span><span class="v">${estaEnTolerancia ? '<span style="color:#854D0E;font-weight:700">Sí</span>' : 'No'}</span></div>
       <div class="kv"><span class="k">Tolerancia aplicada</span><span class="v">${toleranciaMin} minutos</span></div>
+      <div class="kv"><span class="k">Política aplicada</span><span class="v">${d.policy_name || 'General'}</span></div>
+      <div class="kv"><span class="k">Cuenta para disciplina</span><span class="v">${cuentaDisciplina ? '<span style="color:#DC2626;font-weight:700">Sí</span>' : 'No'}</span></div>
       <div class="kv"><span class="k">Tipo excepción</span><span class="v">${d.tipo_falta||'—'}</span></div>
       ${d.motivo_falta?`<div class="kv"><span class="k">Motivo de falta</span><span class="v" style="color:#991B1B;font-weight:600">${d.motivo_falta}</span></div>`:''}
       ${d.motivo_retardo?`<div class="kv"><span class="k">Motivo del retardo</span><span class="v" style="color:#92400E;font-weight:600">${d.motivo_retardo}</span></div>`:''}
     </div>
 
-    ${esRetardoReal?`<div class="modal-section" style="border-color:#FDE68A;background:#FFFBEB">
+    ${cuentaDisciplina?`<div class="modal-section" style="border-color:#FDE68A;background:#FFFBEB">
       <div class="ms-title" style="color:#92400E">⚠️ Impacto disciplinario</div>
       <div class="kv"><span class="k">Ventana activa</span><span class="v">30 días</span></div>
       <div class="kv"><span class="k">Retardos en ventana</span><span class="v" style="color:#DC2626">1 → Verbal</span></div>
