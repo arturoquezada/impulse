@@ -3744,40 +3744,99 @@ async function _a_cargarDatos() {
 
 // ── PUNCH REAL ───────────────────────────────────────────────
 async function _a_punchSB(tipo) {
-  const ro = ROLES[currentRole];
-
-  // Primero obtenemos la hora real del servidor (no del dispositivo del agente,
-  // que puede estar manipulado). Usamos una función RPC o un select de now().
-  let serverTime;
   try {
-    const { data } = await _a_sb.rpc('get_server_time');
-    serverTime = data ? new Date(data) : new Date();
-  } catch {
-    serverTime = new Date(); // fallback si falla el RPC
-  }
+    const ro = ROLES[currentRole] || {};
 
-  const hoy = ymd(serverTime);
-  const punch_time = serverTime.toTimeString().slice(0,8);
+    // 1. Obtener el employee_id real desde la sesión autenticada
+    // No dependemos de ro.id porque para Guillermo viene null.
+    const {
+      data: authenticatedEmployeeId,
+      error: employeeIdError
+    } = await _a_sb.rpc('current_emp_id');
 
-  const { error } = await _a_sb.from('attendance_punches').insert({
-    employee_id: ro.id,
-    punch_date:  hoy,
-    punch_time,
-    punched_at:  serverTime.toISOString(),
-    punch_type:  tipo,
-    campaign_id: ro.camp,
-    created_by:  ro.id,
-  });
+    if (employeeIdError) {
+      console.error('Error obteniendo current_emp_id:', employeeIdError);
+      return false;
+    }
 
-  if (error) {
-    console.error('Error registrando punch:', error);
+    if (!authenticatedEmployeeId) {
+      console.error('No se pudo identificar al empleado autenticado.');
+      return false;
+    }
+
+    // 2. Obtener la hora real del servidor
+    let serverTime;
+
+    try {
+      const {
+        data: serverTimeData,
+        error: serverTimeError
+      } = await _a_sb.rpc('get_server_time');
+
+      if (serverTimeError) {
+        console.warn(
+          'No se pudo obtener la hora del servidor. Se usará la hora local:',
+          serverTimeError
+        );
+        serverTime = new Date();
+      } else {
+        serverTime = serverTimeData
+          ? new Date(serverTimeData)
+          : new Date();
+      }
+    } catch (serverError) {
+      console.warn(
+        'Error consultando la hora del servidor. Se usará la hora local:',
+        serverError
+      );
+      serverTime = new Date();
+    }
+
+    const hoy = ymd(serverTime);
+    const punch_time = serverTime.toTimeString().slice(0, 8);
+
+    // 3. Registrar la marca usando el empleado autenticado
+    const {
+      error: insertError
+    } = await _a_sb
+      .from('attendance_punches')
+      .insert({
+        employee_id: authenticatedEmployeeId,
+        punch_date: hoy,
+        punch_time: punch_time,
+        punched_at: serverTime.toISOString(),
+        punch_type: tipo,
+        campaign_id: ro.camp || null,
+        created_by: authenticatedEmployeeId
+      });
+
+    if (insertError) {
+      console.error('Error registrando punch:', insertError);
+      return false;
+    }
+
+    // 4. Actualizar el estado visual de la pantalla
+    const ps = _a_getPunch();
+
+    if (tipo === 'entrada') {
+      ps.entrada = punch_time.slice(0, 5);
+    } else {
+      ps.salida = punch_time.slice(0, 5);
+    }
+
+    console.log('Punch registrado correctamente:', {
+      employee_id: authenticatedEmployeeId,
+      punch_type: tipo,
+      punch_date: hoy,
+      punch_time: punch_time
+    });
+
+    return true;
+
+  } catch (error) {
+    console.error('Error inesperado registrando punch:', error);
     return false;
   }
-
-  const ps = _a_getPunch();
-  if (tipo === 'entrada') ps.entrada = punch_time.slice(0,5);
-  else ps.salida = punch_time.slice(0,5);
-  return true;
 }
 
 // ── OT RECORDS — conectado a Supabase ────────────────────────────────────────
