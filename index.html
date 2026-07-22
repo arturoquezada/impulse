@@ -13047,6 +13047,23 @@ function _t_nombreEmpleado(id) {
   return e ? e.full_name : id;
 }
 
+// Persona que levantó el ticket.
+function _t_solicitanteId(t) {
+  return t?.employee_id || null;
+}
+
+// Persona sobre la que trata el ticket. Para tickets históricos sin
+// target_employee_id se conserva el comportamiento anterior y se muestra
+// al solicitante como respaldo.
+function _t_relacionadoId(t) {
+  return t?.target_employee_id || t?.employee_id || null;
+}
+
+function _t_nombreRelacionado(t) {
+  const id = _t_relacionadoId(t);
+  return id ? _t_nombreEmpleado(id) : 'Sin colaborador relacionado';
+}
+
 function _t_statusBadge(s) {
   const map = {pending:'🟡 Pendiente', in_progress:'🔵 En proceso', resolved:'🟢 Completado', cancelled:'⚫ Cancelado'};
   return `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:#F1F5F9;color:#475569">${map[s]||s}</span>`;
@@ -13184,6 +13201,57 @@ function _t_empleadosCorregibles() {
     return _t_EMPLEADOS_FULL.filter(e => e.supervisor_id === ro.id);
   }
   return _t_EMPLEADOS_FULL;
+}
+
+function _t_puedeSeleccionarRelacionado() {
+  return ['supervisor', 'manager', 'senior_manager', 'people', 'head_people', 'ceo']
+    .includes(String(currentRole || '').toLowerCase());
+}
+
+function _t_requiereRelacionadoGeneral(categoria, subtipo) {
+  if (!_t_puedeSeleccionarRelacionado()) return false;
+  if (_t_esCambioJerarquiaValor(categoria, subtipo)) return false;
+  if (_t_esSolicitudBajaValor(categoria, subtipo)) return false;
+
+  // Quejas, denuncias y otros pueden no referirse a una persona concreta.
+  return !['Queja o Sugerencia', 'Denuncia', 'Otros'].includes(categoria);
+}
+
+function _t_renderEmpleadoRelacionadoGeneral() {
+  const wrap = document.getElementById('nt-related-wrap');
+  if (!wrap) return;
+
+  const categoria = document.getElementById('nt-categoria')?.value || '';
+  const subtipo = document.getElementById('nt-subtipo')?.value || '';
+  const esEspecial = _t_esCambioJerarquiaValor(categoria, subtipo) ||
+    _t_esSolicitudBajaValor(categoria, subtipo);
+
+  if (!_t_puedeSeleccionarRelacionado() || esEspecial) {
+    wrap.style.display = 'none';
+    wrap.innerHTML = '';
+    return;
+  }
+
+  const empleados = _t_empleadosCorregibles()
+    .filter(e => e.status === 'active')
+    .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || ''), 'es'));
+
+  const requerido = _t_requiereRelacionadoGeneral(categoria, subtipo);
+  const previo = document.getElementById('nt-related-employee')?.value || '';
+
+  wrap.style.display = 'block';
+  wrap.innerHTML = `
+    <div class="modal-section" style="border-color:#C7D2FE;background:#EEF2FF">
+      <label class="modal-label">RELACIONADO CON ${requerido ? '<span style="color:#DC2626">*</span>' : '<span style="font-weight:500;color:#64748B">(opcional)</span>'}</label>
+      <select id="nt-related-employee" style="width:100%;padding:8px;border:1px solid #C7D2FE;border-radius:8px;font-size:13px;font-family:var(--f)">
+        <option value="">${requerido ? 'Selecciona al colaborador...' : 'Sin colaborador específico'}</option>
+        ${empleados.map(e => `<option value="${e.id}">${e.full_name}${e.campaign_id ? ' · ' + e.campaign_id : ''}</option>`).join('')}
+      </select>
+      <div style="font-size:11px;color:#475569;margin-top:7px">Esta persona aparecerá en la tabla para identificar rápidamente de quién es el ticket.</div>
+    </div>`;
+
+  const select = document.getElementById('nt-related-employee');
+  if (select && previo && empleados.some(e => e.id === previo)) select.value = previo;
 }
 
 function _t_esCambioJerarquiaValor(categoria, subtipo) {
@@ -13398,6 +13466,7 @@ function _t_actualizarSubtipos() {
   const sel = document.getElementById('nt-subtipo');
   if (sel) sel.innerHTML = opts.map(o => `<option value="${o}">${o}</option>`).join('');
   _t_renderCamposJerarquia();
+  _t_renderEmpleadoRelacionadoGeneral();
 }
 
 function _t_abrirNuevo() {
@@ -13414,10 +13483,11 @@ function _t_abrirNuevo() {
     </div>
     <div class="modal-section">
       <label class="modal-label">SUBTIPO</label>
-      <select id="nt-subtipo" onchange="_t_renderCamposJerarquia()" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
+      <select id="nt-subtipo" onchange="_t_renderCamposJerarquia();_t_renderEmpleadoRelacionadoGeneral()" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
         ${(_T_CATEGORIAS[primeraCategoria]||[]).map(o=>`<option value="${o}">${o}</option>`).join('')}
       </select>
     </div>
+    <div id="nt-related-wrap"></div>
     <div id="nt-dynamic-fields"></div>
     <div class="modal-section">
       <label class="modal-label">DESCRIPCIÓN / COMENTARIOS ADICIONALES</label>
@@ -13427,6 +13497,8 @@ function _t_abrirNuevo() {
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
     <button class="btn-primary" onclick="_t_crearTicket()">Enviar</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
+  _t_renderEmpleadoRelacionadoGeneral();
+  _t_renderCamposJerarquia();
 }
 
 async function _t_crearTicket() {
@@ -13437,6 +13509,11 @@ async function _t_crearTicket() {
   const esBaja = _t_esSolicitudBajaValor(categoria, subtipo);
   let hierarchyData = null;
   let terminationData = null;
+  const relatedEmployeeId = document.getElementById('nt-related-employee')?.value || null;
+
+  if (_t_requiereRelacionadoGeneral(categoria, subtipo) && !relatedEmployeeId) {
+    return alert('Selecciona al colaborador relacionado con el ticket');
+  }
 
   if (esJerarquia) {
     const targetEmployeeId = document.getElementById('nt-h-employee')?.value;
@@ -13495,7 +13572,7 @@ async function _t_crearTicket() {
     type: _T_CATEGORIA_SLUG[categoria] || 'otros',
     subtype: subtipo,
     description: desc,
-    target_employee_id: hierarchyData?.target_employee_id || terminationData?.target_employee_id || null,
+    target_employee_id: hierarchyData?.target_employee_id || terminationData?.target_employee_id || relatedEmployeeId || null,
     target_date: hierarchyData?.effective_date || terminationData?.termination_date || null,
     priority: 'normal',
     status: 'pending',
@@ -13933,7 +14010,7 @@ function _t_setFiltro(k, v) {
   // Recupera el buscador después de reconstruir la pantalla.
   requestAnimationFrame(() => {
     const inputNuevo = document.querySelector(
-      'input[placeholder="Buscar ticket..."]'
+      'input[placeholder="Buscar ticket o nombre del agente..."]'
     );
 
     if (!inputNuevo) return;
@@ -14124,9 +14201,10 @@ function _t_filtrarTickets(lista) {
     if (q) {
       const haystack = [
         t.id,
-        _t_nombreEmpleado(t.employee_id),
-        _t_campaignEmpleado(t.employee_id),
-        _t_supervisorNombre(t.employee_id),
+        _t_nombreEmpleado(_t_solicitanteId(t)),
+        _t_nombreRelacionado(t),
+        _t_campaignEmpleado(_t_relacionadoId(t)),
+        _t_supervisorNombre(_t_relacionadoId(t)),
         _t_categoriaLabel(t.type),
         t.subtype,
         t.description,
@@ -14418,8 +14496,13 @@ function _t_ticketRow(t) {
       </td>
 
       <td>
-        <div class="agent-row-name">${_t_nombreEmpleado(t.employee_id)}</div>
-        <div class="agent-row-id">${_t_campaignEmpleado(t.employee_id)} · Sup: ${_t_nombreCorto(_t_emp(t.employee_id)?.supervisor_id)}</div>
+        <div class="agent-row-name">${_t_nombreEmpleado(_t_solicitanteId(t))}</div>
+        <div class="agent-row-id">${_t_nombreCorto(_t_solicitanteId(t))}</div>
+      </td>
+
+      <td>
+        <div class="agent-row-name">${_t_nombreRelacionado(t)}</div>
+        <div class="agent-row-id">${_t_campaignEmpleado(_t_relacionadoId(t))} · Sup: ${_t_nombreCorto(_t_emp(_t_relacionadoId(t))?.supervisor_id)}</div>
       </td>
 
       <td>${_t_statusBadge(t.status)}</td>
@@ -14454,11 +14537,12 @@ function _t_renderTablaTickets(lista, emptyMsg = 'Sin tickets registrados') {
   return `
     <div class="tbl-wrap">
       <div style="overflow-x:auto">
-        <table style="min-width:900px">
+        <table style="min-width:1040px">
           <thead>
             <tr>
               <th>Ticket</th>
-              <th>Empleado</th>
+              <th>Solicitante</th>
+              <th>Relacionado con</th>
               <th>Status</th>
               <th>Prioridad</th>
               <th>SLA</th>
@@ -14892,9 +14976,10 @@ function _t_renderDetalle(id) {
       <div class="card">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
           ${[
-            ['Empleado', _t_nombreEmpleado(t.employee_id)],
-            ['Campaña', _t_campaignEmpleado(t.employee_id)],
-            ['Supervisor', _t_supervisorNombre(t.employee_id)],
+            ['Solicitante', _t_nombreEmpleado(_t_solicitanteId(t))],
+            ['Relacionado con', _t_nombreRelacionado(t)],
+            ['Campaña relacionada', _t_campaignEmpleado(_t_relacionadoId(t))],
+            ['Supervisor relacionado', _t_supervisorNombre(_t_relacionadoId(t))],
             ['Prioridad', `<span style="color:${_t_prioColor(t.priority)};font-weight:700">${_t_prioLabel(t.priority)}</span>`],
             ['Creado', (t.created_at || '—').slice(0, 10)],
             ['SLA', `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:${sla.bg};color:${sla.color};font-weight:700">${sla.label}</span>`],
