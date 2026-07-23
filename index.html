@@ -1601,7 +1601,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.0';
+const APP_VERSION   = '1.0.2';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2045,7 +2045,7 @@ function _buildAppShell() {
         <div id="updateBanner" style="display:none;background:#FEF3C7;border:1px solid #FDE68A;
           color:#92400E;padding:5px 12px;border-radius:8px;font-size:11px;font-weight:700;
           cursor:pointer;margin-right:8px;animation:pulse 2s infinite"
-          onclick="location.reload()">
+          onclick="_impulseReloadLatestVersion()">
           🔄 Nueva versión disponible — Clic para actualizar
         </div>
         <div class="tb-date" id="tbDate"></div>
@@ -2099,14 +2099,45 @@ async function _doLogout(msg) {
 }
 
 // ── CHEQUEO DE VERSIÓN ────────────────────────────────────────
+function _impulseCompareVersions(a, b) {
+  const parse = (value) => String(value || '')
+    .trim()
+    .replace(/^v/i, '')
+    .split(/[.-]/)
+    .slice(0, 3)
+    .map(part => Number.parseInt(part, 10) || 0);
+
+  const left = parse(a);
+  const right = parse(b);
+  const length = Math.max(left.length, right.length, 3);
+
+  for (let i = 0; i < length; i++) {
+    const l = left[i] || 0;
+    const r = right[i] || 0;
+    if (l > r) return 1;
+    if (l < r) return -1;
+  }
+  return 0;
+}
+
+function _impulseHideLegacyUpdateBanner() {
+  const banner = document.getElementById('updateBanner');
+  if (banner) banner.style.display = 'none';
+}
+
 async function _checkVersion() {
   try {
-    const { data } = await _auth_sb.from('app_config')
+    const { data, error } = await _auth_sb.from('app_config')
       .select('value').eq('key','version').single();
-    if(data && data.value !== APP_VERSION) {
-      const b = document.getElementById('updateBanner');
-      if(b) b.style.display = 'block';
-    }
+    if (error) throw error;
+
+    const remoteVersion = String(data?.value || '').trim();
+    const comparison = _impulseCompareVersions(remoteVersion, APP_VERSION);
+    const banner = document.getElementById('updateBanner');
+
+    // Solo mostrar cuando la versión remota es realmente mayor.
+    // Si son iguales —o el archivo local es más nuevo— se oculta.
+    if (banner) banner.style.display = comparison > 0 ? 'block' : 'none';
   } catch(e) { /* silencioso */ }
 }
 
@@ -13128,7 +13159,7 @@ async function _dd_loadData(){
   _dd_LOADING=true;_dd_render();
   const {from,to,prevFrom,prevTo}=_dd_FILTERS;
   const toAction=_dd4_dateAdd(to,7),prevToAction=_dd4_dateAdd(prevTo,7),historyFrom=_dd4_dateAdd(to,-89);
-  const [attCur,attPrev,att90,ticketsCur,ticketsPrev,actionsCur,actionsPrev,excCur,excPrev,exc90,historyCur,historyPrev,activeEmployees]=await Promise.all([
+  const [attCur,attPrev,att90,ticketsCur,ticketsPrev,actionsCur,actionsPrev,excCur,excPrev,exc90,historyCur,historyPrev,employeeDirectory]=await Promise.all([
     _a_sb.rpc('attendance_audit_range',{p_from:from,p_to:to}),
     _a_sb.rpc('attendance_audit_range',{p_from:prevFrom,p_to:prevTo}),
     _a_sb.rpc('attendance_audit_range',{p_from:historyFrom,p_to:to}),
@@ -13141,10 +13172,10 @@ async function _dd_loadData(){
     _a_sb.from('attendance_exceptions').select('*').gte('exception_date',historyFrom).lte('exception_date',to),
     _a_sb.from('employment_history').select('*').gte('termination_date',from).lte('termination_date',to),
     _a_sb.from('employment_history').select('*').gte('termination_date',prevFrom).lte('termination_date',prevTo),
-    _a_sb.from('employees').select('id,status,full_name,campaign_id,supervisor_id,position_title,hire_date,system_role').eq('status','active')
+    _a_sb.from('employees').select('id,status,full_name,campaign_id,supervisor_id,supervisor_name,position_title,hire_date,system_role')
   ]);
   const required=[attCur,attPrev,ticketsCur,ticketsPrev,actionsCur,actionsPrev];const errors=required.map(x=>x.error).filter(Boolean);
-  [att90,excCur,excPrev,exc90,historyCur,historyPrev,activeEmployees].forEach(x=>{if(x?.error)console.warn('Deep Dive V4 fuente complementaria:',x.error);});
+  [att90,excCur,excPrev,exc90,historyCur,historyPrev,employeeDirectory].forEach(x=>{if(x?.error)console.warn('Deep Dive V4 fuente complementaria:',x.error);});
   if(errors.length){console.error('Deep Dive V4 errors:',errors);alert('No se pudo cargar Deep Dive:\n\n'+errors.map(e=>e.message).join('\n'));_dd_LOADING=false;_dd_render();return;}
 
   const curRawMarked=_dd_markLateJustifications(attCur.data||[],excCur?.data||[]);
@@ -13156,13 +13187,52 @@ async function _dd_loadData(){
   const supervisorSource=curD.rows.filter(r=>_dd_FILTERS.campaign==='all'||r.campaign_id===_dd_FILTERS.campaign);const supervisorsMap={};supervisorSource.forEach(r=>{if(r.supervisor_id)supervisorsMap[r.supervisor_id]=r.supervisor_name||r.supervisor_id;});
   if(_dd_FILTERS.supervisor!=='all'&&!supervisorsMap[_dd_FILTERS.supervisor])_dd_FILTERS.supervisor='all';
   const curRows=_dd_filterAttendanceRows(curAttached),prevRows=_dd_filterAttendanceRows(prevAttached),historyRows=_dd_filterAttendanceRows(histAttached);
-  const employees=_dd4_filterEmployees(activeEmployees?.data||[]);const employeeIds=new Set(employees.map(e=>String(e.id||'').trim().toUpperCase()));
+
+  // Directorio completo: las personas dadas de baja siguen existiendo en employees,
+  // aunque ya no estén activas. Esto permite mostrar su nombre y último supervisor.
+  const directoryRows=employeeDirectory?.data||[];
+  const activeDirectoryRows=directoryRows.filter(e=>_dd_norm(e.status)==='active');
+  const employeeById=new Map();
+  const supervisorNameById=new Map();
+  directoryRows.forEach(e=>{
+    const id=String(e.id||'').trim().toUpperCase();
+    if(id) employeeById.set(id,e);
+    if(id&&e.full_name) supervisorNameById.set(id,e.full_name);
+    const sid=String(e.supervisor_id||'').trim().toUpperCase();
+    if(sid&&e.supervisor_name) supervisorNameById.set(sid,e.supervisor_name);
+  });
+
+  // Última asignación visible en asistencia, priorizando la fecha más cercana a la baja.
+  const rosterByEmployee={};
+  historyRows.slice().sort((a,b)=>String(a.work_date||'').localeCompare(String(b.work_date||''))).forEach(r=>{
+    const id=String(r.employee_id||'').trim().toUpperCase();
+    if(id) rosterByEmployee[id]=r;
+  });
+
+  const enrichHistoryRows=(rows=[])=>(rows||[]).map(r=>{
+    const id=String(_dd_firstValue(r,['employee_id','id'])||'').trim().toUpperCase();
+    const emp=employeeById.get(id)||{};
+    const roster=rosterByEmployee[id]||{};
+    const supervisorId=_dd_firstValue(r,['supervisor_id','manager_id'])||roster.supervisor_id||emp.supervisor_id||'';
+    const supervisorName=_dd_firstValue(r,['supervisor_name','manager_name'])||roster.supervisor_name||emp.supervisor_name||supervisorNameById.get(String(supervisorId||'').trim().toUpperCase())||supervisorId||'';
+    return {
+      ...r,
+      employee_name:_dd_firstValue(r,['employee_name','full_name','name'])||emp.full_name||roster.employee_name||'',
+      campaign_id:_dd_firstValue(r,['campaign_id','campaign'])||roster.campaign_id||emp.campaign_id||'',
+      supervisor_id:supervisorId,
+      supervisor_name:supervisorName
+    };
+  });
+
+  const historyCurRows=enrichHistoryRows(historyCur?.data||[]);
+  const historyPrevRows=enrichHistoryRows(historyPrev?.data||[]);
+  const employees=_dd4_filterEmployees(activeDirectoryRows);const employeeIds=new Set(employees.map(e=>String(e.id||'').trim().toUpperCase()));
   const curScope=_dd_buildScope([...curRows,...employees.map(e=>({...e,employee_id:e.id}))]),prevScope=_dd_buildScope(prevRows);
   const curTickets=_dd_filterRowsByScope(ticketsCur.data||[],curScope,'ticket');const prevTickets=_dd_filterRowsByScope(ticketsPrev.data||[],prevScope,'ticket');
   const curActionsAll=_dd_filterRowsByScope(actionsCur.data||[],curScope,'action');const prevActionsAll=_dd_filterRowsByScope(actionsPrev.data||[],prevScope,'action');
   const curActions=curActionsAll.filter(a=>_dd_inRangeTs(_dd_actionDate(a),from,to));const prevActions=prevActionsAll.filter(a=>_dd_inRangeTs(_dd_actionDate(a),prevFrom,prevTo));
   const curExceptions=_dd_filterRowsByScope(excCur?.data||[],curScope,'exception');const prevExceptions=_dd_filterRowsByScope(excPrev?.data||[],prevScope,'exception');
-  const curHistory=_dd4_filterHistory(historyCur?.data||[],employeeIds);const prevHistory=_dd4_filterHistory(historyPrev?.data||[],employeeIds);
+  const curHistory=_dd4_filterHistory(historyCurRows,employeeIds);const prevHistory=_dd4_filterHistory(historyPrevRows,employeeIds);
   _dd4_matchActions(curRows,curActionsAll);_dd4_matchActions(prevRows,prevActionsAll);
   const data={from,to,prevFrom,prevTo,historyFrom,campaigns,supervisors:[],supervisorsOptions:Object.entries(supervisorsMap).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)),employees,
     current:{rawRows:_dd_filterAttendanceRows(curRawMarked),rows:curRows,duplicates:curD.duplicateGroups.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),conflicts:curD.conflicts.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),attendance:_dd_attendanceSummary(curRows),expectedActions:_dd_expectedActions(curRows),tickets:_dd_ticketSummary(curTickets,from,to),ticketRows:curTickets,actions:curActions,actionRowsAll:curActionsAll,exceptions:curExceptions,absenceSources:_dd_absenceSourceSummary(curExceptions.filter(_dd4_isFinalException)),rotation:_dd4_rotationSummary(curHistory,employees)},
@@ -13222,7 +13292,7 @@ function _dd4_renderAgents(d,recOnly=false){
   const rows=_dd4_filteredAgents(d,recOnly);return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, campaña o supervisor..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('recurrence',this.value)"><option value="all">Todos los niveles</option>${['Sin incidencias','Primera incidencia','Reincidente','Crónico'].map(x=>`<option value="${x}" ${_dd4_UI.recurrence===x?'selected':''}>${x}</option>`).join('')}</select><span class="dd4-chip purple">${rows.length} personas</span></div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1320px"><thead><tr><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Ingreso</th><th class="dd4-center">Inc. 30d</th><th class="dd4-center">Inc. 60d</th><th class="dd4-center">Inc. 90d</th><th class="dd4-center">Faltas 90d</th><th class="dd4-center">Retardos 90d</th><th class="dd4-center">Sin salida</th><th class="dd4-center">Acciones</th><th>Reincidencia</th></tr></thead><tbody>${rows.length?rows.map(a=>`<tr class="clickable" onclick="_dd4_openAgent('${String(a.id).replaceAll("'","\\'")}')"><td><div class="dd-name-cell"><div class="dd-avatar">${_dd_initials(a.name)}</div><div><div class="dd-primary">${_dd_escape(a.name)}</div><div class="dd-secondary">${_dd_escape(a.id)}</div></div></div></td><td>${_dd_escape(a.campaign)}</td><td>${_dd_escape(a.supervisor)}</td><td class="dd4-mono">${a.hireDate?fmtDateShort(a.hireDate):'—'}</td><td class="dd4-center dd4-mono">${a.incidents30}</td><td class="dd4-center dd4-mono">${a.incidents60}</td><td class="dd4-center dd4-mono"><b>${a.incidents90}</b></td><td class="dd4-center dd4-mono" style="color:#DC2626">${a.faltas90}</td><td class="dd4-center dd4-mono" style="color:#D97706">${a.retardos90}</td><td class="dd4-center dd4-mono" style="color:#7C3AED">${a.sinSalida90}</td><td class="dd4-center dd4-mono">${a.actions}</td><td>${_dd4_recurrencePill(a.recurrence)}</td></tr>`).join(''):`<tr><td colspan="12"><div class="dd4-empty">No hay personas con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
 }
 
-function _dd4_renderRotation(d){const r=d.current.rotation||{};const rows=r.rows||[];return `<div class="dd4-grid">${_dd4_kpi('Bajas',r.bajas,`${_dd_delta(r.bajas,d.previous.rotation?.bajas||0).label} vs anterior`,'#DC2626')}${_dd4_kpi('Tasa estimada',r.rate+'%',`Bajas / HC promedio estimado (${r.avgHC})`,'#D97706')}${_dd4_kpi('Voluntarias',r.voluntary,`${r.involuntary} involuntarias`,'#2563EB')}${_dd4_kpi('Early attrition <30d',r.early,`${r.earlyBands?.d60||0} entre 31–60d · ${r.earlyBands?.d90||0} entre 61–90d`,'#7C3AED')}</div><div class="dd4-alert amber"><b>Nota metodológica:</b> la base actual no guarda el headcount histórico diario. La tasa usa un HC promedio estimado entre apertura y cierre; el detalle de bajas sí es exacto para las filas disponibles en employment_history.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1100px"><thead><tr><th>Persona</th><th>Ingreso</th><th>Baja</th><th>Antigüedad</th><th>Campaña</th><th>Supervisor</th><th>Tipo</th><th>Motivo</th></tr></thead><tbody>${rows.length?rows.map(x=>{const hd=x.hire_date&&x.termination_date?Math.max(0,Math.round((new Date(x.termination_date+'T12:00:00')-new Date(x.hire_date+'T12:00:00'))/86400000)):null;return`<tr><td><div class="dd4-strong">${_dd_escape(_dd_firstValue(x,['employee_name','full_name','name'])||_dd_firstValue(x,['employee_id','id'])||'—')}</div><div class="dd-secondary">${_dd_escape(_dd_firstValue(x,['employee_id','id'])||'—')}</div></td><td class="dd4-mono">${x.hire_date?fmtDateShort(x.hire_date):'—'}</td><td class="dd4-mono">${x.termination_date?fmtDateShort(x.termination_date):'—'}</td><td class="dd4-mono">${hd===null?'—':hd+' días'}</td><td>${_dd_escape(_dd_firstValue(x,['campaign_id','campaign'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['supervisor_name','manager_name','supervisor_id'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_type','type'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_reason','reason','notes'])||'—')}</td></tr>`;}).join(''):`<tr><td colspan="8"><div class="dd4-empty">No hubo bajas en el periodo.</div></td></tr>`}</tbody></table></div></div>`;}
+function _dd4_renderRotation(d){const r=d.current.rotation||{};const rows=r.rows||[];return `<div class="dd4-grid">${_dd4_kpi('Bajas',r.bajas,`${_dd_delta(r.bajas,d.previous.rotation?.bajas||0).label} vs anterior`,'#DC2626')}${_dd4_kpi('Tasa estimada',r.rate+'%',`Bajas / HC promedio estimado (${r.avgHC})`,'#D97706')}${_dd4_kpi('Voluntarias',r.voluntary,`${r.involuntary} involuntarias`,'#2563EB')}${_dd4_kpi('Early attrition <30d',r.early,`${r.earlyBands?.d60||0} entre 31–60d · ${r.earlyBands?.d90||0} entre 61–90d`,'#7C3AED')}</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1100px"><thead><tr><th>Persona</th><th>Ingreso</th><th>Baja</th><th>Antigüedad</th><th>Campaña</th><th>Supervisor</th><th>Tipo</th><th>Motivo</th></tr></thead><tbody>${rows.length?rows.map(x=>{const hd=x.hire_date&&x.termination_date?Math.max(0,Math.round((new Date(x.termination_date+'T12:00:00')-new Date(x.hire_date+'T12:00:00'))/86400000)):null;return`<tr><td><div class="dd4-strong">${_dd_escape(_dd_firstValue(x,['employee_name','full_name','name'])||_dd_firstValue(x,['employee_id','id'])||'—')}</div><div class="dd-secondary">${_dd_escape(_dd_firstValue(x,['employee_id','id'])||'—')}</div></td><td class="dd4-mono">${x.hire_date?fmtDateShort(x.hire_date):'—'}</td><td class="dd4-mono">${x.termination_date?fmtDateShort(x.termination_date):'—'}</td><td class="dd4-mono">${hd===null?'—':hd+' días'}</td><td>${_dd_escape(_dd_firstValue(x,['campaign_id','campaign'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['supervisor_name','manager_name','supervisor_id'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_type','type'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_reason','reason','notes'])||'—')}</td></tr>`;}).join(''):`<tr><td colspan="8"><div class="dd4-empty">No hubo bajas en el periodo.</div></td></tr>`}</tbody></table></div></div>`;}
 
 function _dd4_qualityRows(d){const q=d.quality;const map={duplicates:q.auditFaltas.filter(r=>r.dd_duplicate_count>1),conflicts:q.auditFaltas.filter(r=>(r.dd_duplicate_statuses||[]).length>1),audit_without_exception:q.auditWithoutException,exception_without_audit:q.exceptionWithoutAudit,pending:q.pending,unknown_status:q.unknown,missing_supervisor:q.missingSupervisor,missing_campaign:q.missingCampaign,active_without_rows:q.activeWithoutRows,unknown_employee:q.unknownEmployees};return map[_dd4_UI.quality]||[];}
 function _dd4_renderQuality(d){const q=d.quality,detail=_dd4_qualityRows(d);return `<div class="dd4-grid">${q.issues.slice(0,8).map(x=>_dd4_kpi(x.label,x.count,x.detail,x.severity==='bad'?'#DC2626':x.severity==='warn'?'#D97706':'#16A34A',`_dd4_setUI('quality','${x.type}')`)).join('')}</div><div class="dd4-two"><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Control de duplicados</div><div class="dd4-panel-copy">El cálculo usa ${q.cleanCount} filas únicas a partir de ${q.rawCount} filas recibidas.</div></div><span class="dd4-chip ${d.current.duplicates.length?'red':'green'}">${d.current.duplicates.length} grupos</span></div><div class="dd4-panel-body">${d.current.duplicates.length?d.current.duplicates.slice(0,8).map(x=>`<div class="dd4-alert red"><b>${_dd_escape(x.employee_name||x.employee_id||'—')} · ${fmtDateShort(x.work_date)}</b><br>${x.count} filas: ${x.statuses.map(s=>_dd_escape(s)).join(', ')}</div>`).join(''):'<div class="dd4-alert green">No se detectaron duplicados agente-fecha en el universo filtrado.</div>'}</div></div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Reglas activas de confianza</div><div class="dd4-panel-copy">Lo que Deep Dive incluye y excluye automáticamente.</div></div></div><div class="dd4-panel-body"><div class="dd4-alert blue">1. Una fila por agente-fecha.<br>2. Pendientes y rechazadas no cuentan como faltas finales.<br>3. Evidencia de asistencia prevalece sobre una fila duplicada de ausencia.<br>4. Una People Action solo cubre una incidencia.<br>5. Todas las diferencias quedan visibles en esta pestaña.</div></div></div></div>${_dd4_UI.quality!=='all'?`<div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Detalle · ${_dd_escape(q.issues.find(x=>x.type===_dd4_UI.quality)?.label||_dd4_UI.quality)}</div><div class="dd4-panel-copy">Registros encontrados para la alerta seleccionada.</div></div><button class="btn-ghost" onclick="_dd4_setUI('quality','all')">Cerrar detalle</button></div><div class="dd4-panel-body"><pre style="white-space:pre-wrap;font:11px var(--fm);color:#334155;max-height:420px;overflow:auto;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">${_dd_escape(JSON.stringify(detail.slice(0,100),null,2))}</pre></div></div>`:''}`;}
@@ -22787,11 +22857,11 @@ _initImpulse();
 
 /*****************************************************************
  IMPULSE
- Version: 1.0.1
+ Version: 1.0.2
  Build: 2026-07-23
 *****************************************************************/
 
-   const IMPULSE_VERSION = '1.0.1';
+   const IMPULSE_VERSION = APP_VERSION;
 const IMPULSE_VERSION_CHECK_INTERVAL = 60 * 1000;
 
 let _impulseUpdateDetected = false;
@@ -22834,7 +22904,9 @@ async function _impulseCheckForUpdates(options = {}) {
       `[Impulse Update] Local: ${localVersion} | Remota: ${remoteVersion}`
     );
 
-    if (remoteVersion !== localVersion) {
+    const comparison = _impulseCompareVersions(remoteVersion, localVersion);
+
+    if (comparison > 0) {
       _impulseUpdateDetected = true;
 
       _impulseShowUpdateBanner({
@@ -22845,7 +22917,13 @@ async function _impulseCheckForUpdates(options = {}) {
       return;
     }
 
-    if (!silent) {
+    // Mismo número o archivo local más nuevo: limpiar cualquier aviso previo.
+    _impulseUpdateDetected = false;
+    _impulseHideLegacyUpdateBanner();
+    const modernBanner = document.getElementById('impulse-update-banner');
+    if (modernBanner) modernBanner.remove();
+
+    if (!silent && comparison === 0) {
       _impulseShowVersionCurrentMessage(localVersion);
     }
   } catch (error) {
