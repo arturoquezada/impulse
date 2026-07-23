@@ -2005,6 +2005,42 @@ function ymd(d){
   });
   return fmt.format(d); // devuelve 'YYYY-MM-DD' directo en locale en-CA
 }
+
+const IMPULSE_TIME_ZONE = 'America/Mexico_City';
+
+function fmtDateTimeCDMX(value, options = {}) {
+  if (!value) return '—';
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-MX', {
+    timeZone: IMPULSE_TIME_ZONE,
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true,
+    ...options
+  });
+}
+
+function fmtDateCDMX(value, options = {}) {
+  if (!value) return '—';
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('es-MX', {
+    timeZone: IMPULSE_TIME_ZONE,
+    day: '2-digit', month: 'short', year: 'numeric',
+    ...options
+  });
+}
+
+function fmtTimeCDMX(value, options = {}) {
+  if (!value) return '—';
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('es-MX', {
+    timeZone: IMPULSE_TIME_ZONE,
+    hour: '2-digit', minute: '2-digit', hour12: true,
+    ...options
+  });
+}
 function fmtDate(s){if(!s)return'—';return new Date(s+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'})}
 function fmtDateShort(s){if(!s)return'—';return new Date(s+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric'})}
 function fmtShort(s){if(!s)return'—';return new Date(s+'T12:00:00').toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric'})}
@@ -2714,14 +2750,7 @@ function _a_renderCambiosDescansoPendientes() {
     const nombre = r.employee_name || emp?.full_name || emp?.name || r.employee_id;
 
     const solicitadoFecha = r.requested_at
-      ? new Date(r.requested_at).toLocaleString('es-MX', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        })
+      ? fmtDateTimeCDMX(r.requested_at, { month: '2-digit' })
       : '—';
 
     const solicitadoPor = r.requested_by_name || r.requested_by || 'No registrado';
@@ -4790,7 +4819,7 @@ function _a_abrirModalFalta(agentId){
     </optgroup>`).join('');
 
   document.getElementById('modalTitle').textContent = `Registrar ausencia — ${a.name}`;
-  document.getElementById('modalSub').textContent   = `${a.id} · Turno ${a.shift} · ${NOW.toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'long'})}`;
+  document.getElementById('modalSub').textContent   = `${a.id} · Turno ${a.shift} · ${fmtDateCDMX(NOW, { weekday:'short', day:'numeric', month:'long', year:undefined })}`;
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-section">
       <div class="ms-title">Tipo de ausencia</div>
@@ -4851,7 +4880,7 @@ function _a_abrirModalFalta(agentId){
       <div class="ms-title" style="color:#166534">📋 Se registrará como</div>
       <div class="kv"><span class="k">Marcada por</span><span class="v" style="color:#16A34A">Supervisor · ${ROLES[currentRole]?.name||'Supervisor'}</span></div>
       <div class="kv"><span class="k">Descuenta nómina</span><span class="v" style="color:#DC2626">Sí — todas las ausencias descuentan</span></div>
-      <div class="kv"><span class="k">Hora de registro</span><span class="v" style="font-family:'DM Mono',monospace">${NOW.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:true})}</span></div>
+      <div class="kv"><span class="k">Hora de registro</span><span class="v" style="font-family:'DM Mono',monospace">${fmtTimeCDMX(NOW)}</span></div>
     </div>`;
 
   document.querySelector('.modal-footer').innerHTML = `
@@ -5177,7 +5206,7 @@ async function _a_guardarFalta(){
     estado: estadoDisplay,
     motivo,
     marcadaPor: 'supervisor',
-    hora: NOW.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit', hour12:false }),
+    hora: fmtTimeCDMX(NOW, { hour12:false }),
     nota,
     descuenta_nomina: true,
   };
@@ -5222,7 +5251,7 @@ function _a_abrirModalFaltaSup(supId){
     </optgroup>`).join('');
 
   document.getElementById('modalTitle').textContent = `Registrar ausencia — ${s.name}`;
-  document.getElementById('modalSub').textContent   = `${s.id} · Supervisor · Turno ${s.shift}–${s.shiftEnd} · ${NOW.toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'long'})}`;
+  document.getElementById('modalSub').textContent   = `${s.id} · Supervisor · Turno ${s.shift}–${s.shiftEnd} · ${fmtDateCDMX(NOW, { weekday:'short', day:'numeric', month:'long', year:undefined })}`;
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-section">
       <div class="ms-title">Tipo de ausencia</div>
@@ -5270,7 +5299,7 @@ function _a_abrirModalFaltaSup(supId){
       <div class="ms-title" style="color:#166534">📋 Se registrará como</div>
       <div class="kv"><span class="k">Marcada por</span><span class="v" style="color:#16A34A">Manager · ${ROLES[currentRole]?.name||'Manager'}</span></div>
       <div class="kv"><span class="k">Descuenta nómina</span><span class="v" style="color:#DC2626">Sí — todas las ausencias descuentan</span></div>
-      <div class="kv"><span class="k">Hora de registro</span><span class="v" style="font-family:'DM Mono',monospace">${NOW.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:true})}</span></div>
+      <div class="kv"><span class="k">Hora de registro</span><span class="v" style="font-family:'DM Mono',monospace">${fmtTimeCDMX(NOW)}</span></div>
     </div>`;
 
   document.querySelector('.modal-footer').innerHTML = `
@@ -5339,7 +5368,7 @@ async function _a_guardarFaltaSup(){
     estado: estadoDisplay,
     motivo,
     marcadaPor: currentRole,
-    hora: NOW.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit', hour12:false }),
+    hora: fmtTimeCDMX(NOW, { hour12:false }),
     nota,
     descuenta_nomina: true
   };
@@ -6997,7 +7026,7 @@ function _a_renderAgent(){
   const {entrada:en, salida:sa} = _a_getPunch();
   return`${_a_roleSwitcherHTML()}
   <div class="card">
-    <div class="card-title">Hoy — ${NOW.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'})}
+    <div class="card-title">Hoy — ${fmtDateCDMX(NOW, { weekday:'long', day:'numeric', month:'long', year:undefined })}
       <span class="pill pill-blue">08:00–17:00</span>
     </div>
     <div class="hoy-grid">
@@ -7133,7 +7162,7 @@ function _a_renderSupervisor(){
 
   <!-- Punch propio del supervisor -->
   <div class="card">
-    <div class="card-title">Mi asistencia hoy — ${NOW.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'})}
+    <div class="card-title">Mi asistencia hoy — ${fmtDateCDMX(NOW, { weekday:'long', day:'numeric', month:'long', year:undefined })}
       <span class="pill pill-blue">${r.shift}</span>
     </div>
     <div class="hoy-grid">
@@ -8707,7 +8736,7 @@ async function _a_marcarEntrada(){
   if (!ok) { _a_punchBusy = false; alert('No se pudo registrar tu entrada. Intenta de nuevo o avisa a tu supervisor si sigue fallando.'); return; }
   // Hora local solo para mostrar en pantalla (la real ya quedó en Supabase)
   _a_punchBusy = false;
-  p.entrada = new Date().toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:false});
+  p.entrada = fmtTimeCDMX(new Date(), { hour12:false });
   _a_render();
 }
 async function _a_marcarSalida(){
@@ -8736,7 +8765,7 @@ async function _a_marcarSalida(){
   const ok = await _a_punchSB('salida');
   _a_punchBusy = false;
   if (!ok) { alert('No se pudo registrar tu salida. Intenta de nuevo o avisa a tu supervisor si sigue fallando.'); return; }
-  p.salida = serverNow.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:false});
+  p.salida = fmtTimeCDMX(serverNow, { hour12:false });
   _a_render();
 }
 async function _a_drillToAgent(id){
@@ -11053,13 +11082,7 @@ function _dd_openSupervisorDetail(supervisorId) {
       </div>
       <div style="font-size:11px;color:#94A3B8;margin-top:2px">
         ${_dd_actionDate(latest)
-          ? new Date(_dd_actionDate(latest)).toLocaleString('es-MX', {
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            })
+          ? fmtDateTimeCDMX(_dd_actionDate(latest), { month: '2-digit' })
           : 'Sin fecha'}
       </div>
     ` : `
@@ -11227,7 +11250,7 @@ function _dd_timeValue(row, keys) {
     if (/^\d{2}:\d{2}/.test(raw)) return raw.slice(0,5);
     const d = new Date(v);
     if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleTimeString('es-MX', { hour:'2-digit', minute:'2-digit' });
+      return fmtTimeCDMX(d);
     }
   }
   return '—';
@@ -11648,7 +11671,7 @@ function _dd_renderPayrollDeepDive(rows = []) {
                   <tr>
                     <td>
                       <div class="agent-row-name">${r.ticket_id}</div>
-                      <div class="agent-row-id">${new Date(r.created_at).toLocaleDateString('es-MX')}</div>
+                      <div class="agent-row-id">${fmtDateCDMX(r.created_at, { day:'2-digit', month:'2-digit', year:'numeric' })}</div>
                     </td>
 
                     <td>
@@ -11672,7 +11695,7 @@ function _dd_renderPayrollDeepDive(rows = []) {
                     <td>
                       <div style="font-size:12px;font-weight:800;color:#334155">${r.reviewed_by_name || '—'}</div>
                       <div style="font-size:11px;color:#94A3B8">
-                        ${r.reviewed_at ? new Date(r.reviewed_at).toLocaleDateString('es-MX') : ''}
+                        ${r.reviewed_at ? fmtDateCDMX(r.reviewed_at, { day:'2-digit', month:'2-digit', year:'numeric' }) : ''}
                       </div>
                     </td>
                   </tr>
@@ -12606,13 +12629,7 @@ function _t_renderPayrollReviewBox(t) {
         ${r.reviewed_at ? `
           <div style="font-size:11px;color:#64748B;text-align:right">
             Última revisión:<br>
-            <b>${new Date(r.reviewed_at).toLocaleString('es-MX', {
-              day:'2-digit',
-              month:'2-digit',
-              year:'numeric',
-              hour:'2-digit',
-              minute:'2-digit'
-            })}</b>
+            <b>${fmtDateTimeCDMX(r.reviewed_at, { month:'2-digit' })}</b>
           </div>
         ` : ''}
       </div>
@@ -13293,8 +13310,8 @@ function _t_render() {
       <div style="font-size:12px;color:#64748B;margin-bottom:8px">${(t.description||'').slice(0,120)}</div>
       <div style="display:flex;gap:12px;align-items:center;font-size:11px;color:#94A3B8">
         ${_t_statusBadge(t.status)}
-        <span>📅 ${(t.created_at||'').slice(0,10)}</span>
-        ${t.due_at?`<span>⏰ ${t.due_at.slice(0,10)}</span>`:''}
+        <span>📅 ${fmtDateCDMX(t.created_at, {day:'2-digit',month:'2-digit',year:'numeric'})}</span>
+        ${t.due_at ? `<span>⏰ ${fmtDateTimeCDMX(t.due_at)}</span>` : ''}
       </div>
     </div>`;
   });
@@ -13326,7 +13343,7 @@ function _t_renderDetalle(id) {
     <div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:20px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         ${[['Empleado',_t_nombreEmpleado(t.employee_id)],['Prioridad',`<span style="color:${_t_prioColor(t.priority)};font-weight:700">${t.priority||'—'}</span>`],
-           ['Creado',(t.created_at||'—').slice(0,10)],['Fecha límite',t.due_at?t.due_at.slice(0,10):'—']].map(([l,v])=>
+           ['Creado', t.created_at ? fmtDateTimeCDMX(t.created_at) : '—'],['Fecha límite',t.due_at ? fmtDateTimeCDMX(t.due_at) : '—']].map(([l,v])=>
           `<div><div style="font-size:10px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${l}</div><div style="font-size:13px">${v}</div></div>`).join('')}
       </div>
       <div style="margin-bottom:16px"><div style="font-size:10px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Descripción</div>
@@ -14288,7 +14305,7 @@ function _t_setReporteFecha(campo, valor) {
 function _t_ticketEnRangoReporte(t) {
   if (_t_reporteFechas.preset === 'all') return true;
 
-  const fecha = (t.created_at || '').slice(0, 10);
+  const fecha = fmtDateCDMX(t.created_at, {day:'2-digit',month:'2-digit',year:'numeric'});
   if (!fecha) return false;
 
   if (_t_reporteFechas.from && fecha < _t_reporteFechas.from) return false;
@@ -14734,8 +14751,8 @@ function _t_ticketRow(t) {
       <td>${asignado}</td>
 
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:#64748B">
-        ${(t.created_at || '').slice(0, 10)}
-        ${t.updated_at ? `<div style="font-size:10px;color:#94A3B8;margin-top:2px">Act. ${t.updated_at.slice(0, 10)}</div>` : ''}
+        ${fmtDateCDMX(t.created_at, {day:'2-digit',month:'2-digit',year:'numeric'})}
+        ${t.updated_at ? `<div style="font-size:10px;color:#94A3B8;margin-top:2px">Act. ${fmtDateCDMX(t.updated_at, {day:'2-digit',month:'2-digit',year:'numeric'})}</div>` : ''}
       </td>
     </tr>
   `;
@@ -15193,10 +15210,10 @@ function _t_renderDetalle(id) {
             ['Campaña relacionada', _t_campaignEmpleado(_t_relacionadoId(t))],
             ['Supervisor relacionado', _t_supervisorNombre(_t_relacionadoId(t))],
             ['Prioridad', `<span style="color:${_t_prioColor(t.priority)};font-weight:700">${_t_prioLabel(t.priority)}</span>`],
-            ['Creado', (t.created_at || '—').slice(0, 10)],
+            ['Creado', t.created_at ? fmtDateTimeCDMX(t.created_at) : '—'],
             ['SLA', `<span style="font-size:11px;padding:3px 8px;border-radius:99px;background:${sla.bg};color:${sla.color};font-weight:700">${sla.label}</span>`],
             ['Responsable', t.assigned_to ? _t_nombreEmpleado(t.assigned_to) : 'Sin asignar'],
-            ['Última actualización', t.updated_at ? t.updated_at.slice(0, 16).replace('T', ' ') : '—']
+            ['Última actualización', t.updated_at ? fmtDateTimeCDMX(t.updated_at) : '—']
           ].map(([l, v]) => `
             <div>
               <div style="font-size:10px;color:#94A3B8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${l}</div>
@@ -15757,7 +15774,7 @@ function _p_card(s) {
           </div>
 
           <div style="font-size:11px;color:#64748B;margin-top:2px">
-            ${_p_esc(req?.campaign_id || '—')} · ${_p_tipoLabel(s)} · Creada ${s.created_at ? _p_fmtDate(s.created_at.slice(0,10)) : '—'}
+            ${_p_esc(req?.campaign_id || '—')} · ${_p_tipoLabel(s)} · Creada ${s.created_at ? fmtDateCDMX(s.created_at) : '—'}
           </div>
         </div>
 
@@ -15932,13 +15949,7 @@ function _p_reportTable(title, rows, label) {
 function _p_fmtDateTime(v) {
   if (!v) return '—';
 
-  return new Date(v).toLocaleString('es-MX', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  return fmtDateTimeCDMX(v);
 }
 
 function _p_tipoHistorialLabel(s) {
@@ -17334,13 +17345,7 @@ function _v_abrirDiaCalendario(fecha) {
       id: emp.id,
       aprobadoPor: aprobador?.full_name || sol.approved_by || '—',
       aprobadoAt: sol.approved_at
-        ? new Date(sol.approved_at).toLocaleString('es-MX', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          })
+        ? fmtDateTimeCDMX(sol.approved_at, { day:'numeric' })
         : '—'
     };
   }).filter(Boolean);
