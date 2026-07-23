@@ -1397,6 +1397,60 @@ body{font-family:var(--f);background:#F0F2F7;min-height:100vh;color:#0F172A;font
 @media(max-width:1000px){.dd-mini-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:620px){.dd-mini-grid{grid-template-columns:1fr}.dd-table-card-head{flex-direction:column}}
 
+
+/* ── DEEP DIVE V4 · INVESTIGATION WORKSPACE ───────────── */
+.dd4-shell{max-width:1500px;margin:0 auto;padding-bottom:40px}
+.dd4-header{background:linear-gradient(135deg,#0F172A 0%,#172554 52%,#155E75 100%);border-radius:20px;padding:22px 24px;color:#fff;margin-bottom:14px;box-shadow:0 16px 34px rgba(15,23,42,.14);position:relative;overflow:hidden}
+.dd4-header:after{content:'';position:absolute;width:280px;height:280px;border-radius:50%;right:-100px;top:-150px;background:rgba(98,211,245,.13)}
+.dd4-header-main{position:relative;z-index:1;display:flex;justify-content:space-between;gap:22px;align-items:flex-start;flex-wrap:wrap}
+.dd4-title{font-size:26px;font-weight:900;letter-spacing:-.55px;margin-top:4px}
+.dd4-subtitle{font-size:12px;color:#CBD5E1;line-height:1.55;margin-top:6px;max-width:900px}
+.dd4-trust{min-width:205px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.14);border-radius:15px;padding:14px 16px}
+.dd4-trust-label{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#BAE6FD;font-weight:900}
+.dd4-trust-value{font-size:27px;font-weight:900;margin-top:4px}
+.dd4-trust-note{font-size:10px;color:#CBD5E1;margin-top:3px;line-height:1.4}
+.dd4-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid #DCE4EE;border-radius:14px;padding:10px 12px;margin-bottom:12px;box-shadow:0 4px 14px rgba(15,23,42,.035)}
+.dd4-tabs{display:flex;gap:4px;overflow-x:auto;background:#E9EEF5;border-radius:12px;padding:4px;margin-bottom:14px;scrollbar-width:thin}
+.dd4-tab{border:none;background:transparent;color:#64748B;padding:8px 13px;border-radius:9px;font:700 11px var(--f);cursor:pointer;white-space:nowrap;transition:.15s}
+.dd4-tab:hover{color:#0F172A;background:rgba(255,255,255,.65)}
+.dd4-tab.on{background:#fff;color:#0F172A;box-shadow:0 2px 8px rgba(15,23,42,.08)}
+.dd4-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.dd4-kpi{background:#fff;border:1px solid #DCE4EE;border-radius:15px;padding:15px 16px;min-height:112px;position:relative;overflow:hidden;box-shadow:0 5px 16px rgba(15,23,42,.035)}
+.dd4-kpi.clickable{cursor:pointer;transition:.15s}
+.dd4-kpi.clickable:hover{transform:translateY(-2px);border-color:#7DD3FC;box-shadow:0 10px 22px rgba(15,23,42,.08)}
+.dd4-kpi-stripe{position:absolute;left:0;top:0;bottom:0;width:4px}
+.dd4-kpi-label{font-size:9px;color:#64748B;text-transform:uppercase;letter-spacing:.65px;font-weight:900}
+.dd4-kpi-value{font-size:27px;font-weight:900;color:#0F172A;margin-top:7px;font-variant-numeric:tabular-nums}
+.dd4-kpi-note{font-size:10px;color:#64748B;margin-top:5px;line-height:1.4}
+.dd4-kpi-link{font-size:10px;color:#0E7490;font-weight:900;margin-top:6px}
+.dd4-two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+.dd4-panel{background:#fff;border:1px solid #DCE4EE;border-radius:16px;overflow:hidden;box-shadow:0 6px 20px rgba(15,23,42,.04)}
+.dd4-panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:15px 17px;border-bottom:1px solid #E8EEF5;background:linear-gradient(180deg,#fff,#FBFDFF)}
+.dd4-panel-title{font-size:14px;font-weight:900;color:#0F172A}
+.dd4-panel-copy{font-size:10px;color:#64748B;line-height:1.45;margin-top:3px}
+.dd4-panel-body{padding:15px 17px}
+.dd4-chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 8px;font-size:9px;font-weight:900;border:1px solid #DCE4EE;background:#F8FAFC;color:#475569;white-space:nowrap}
+.dd4-chip.red{background:#FFF1F2;border-color:#FECDD3;color:#BE123C}.dd4-chip.amber{background:#FFFBEB;border-color:#FDE68A;color:#B45309}.dd4-chip.green{background:#F0FDF4;border-color:#BBF7D0;color:#15803D}.dd4-chip.blue{background:#EFF6FF;border-color:#BFDBFE;color:#1D4ED8}.dd4-chip.purple{background:#F5F3FF;border-color:#DDD6FE;color:#6D28D9}
+.dd4-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.dd4-search{min-width:250px;flex:1;border:1px solid #CBD5E1;border-radius:9px;padding:8px 11px;font:12px var(--f);outline:none;background:#fff;color:#0F172A}
+.dd4-search:focus{border-color:#38BDF8;box-shadow:0 0 0 3px rgba(56,189,248,.1)}
+.dd4-select{border:1px solid #CBD5E1;border-radius:9px;padding:8px 10px;font:12px var(--f);background:#fff;color:#334155;outline:none}
+.dd4-table-wrap{background:#fff;border:1px solid #DCE4EE;border-radius:15px;overflow:hidden;box-shadow:0 5px 18px rgba(15,23,42,.035)}
+.dd4-table-scroll{overflow:auto;max-height:600px;scrollbar-width:thin}
+.dd4-table{width:100%;border-collapse:separate;border-spacing:0;min-width:1050px}
+.dd4-table th{position:sticky;top:0;z-index:2;background:#F8FAFC;border-bottom:1px solid #DCE4EE;padding:10px 12px;text-align:left;font-size:9px;text-transform:uppercase;letter-spacing:.6px;color:#64748B;font-weight:900;white-space:nowrap}
+.dd4-table td{padding:11px 12px;border-bottom:1px solid #EEF2F7;font-size:11px;color:#334155;vertical-align:middle;background:#fff}
+.dd4-table tbody tr:last-child td{border-bottom:none}.dd4-table tbody tr:hover td{background:#F8FBFF}.dd4-table tbody tr.clickable{cursor:pointer}.dd4-table tbody tr.clickable:hover{box-shadow:inset 3px 0 0 #38BDF8}
+.dd4-mono{font-family:var(--fm);font-variant-numeric:tabular-nums}.dd4-center{text-align:center}.dd4-strong{font-weight:900;color:#0F172A}
+.dd4-bar{height:6px;background:#E8EEF5;border-radius:999px;overflow:hidden;min-width:90px;margin-top:4px}.dd4-bar span{display:block;height:100%;border-radius:999px;background:#22C55E}.dd4-bar.warn span{background:#F59E0B}.dd4-bar.danger span{background:#EF4444}
+.dd4-status{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border-radius:999px;font-size:9px;font-weight:900;border:1px solid}.dd4-status:before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}.dd4-status.ok{background:#F0FDF4;border-color:#BBF7D0;color:#15803D}.dd4-status.warn{background:#FFFBEB;border-color:#FDE68A;color:#B45309}.dd4-status.bad{background:#FFF1F2;border-color:#FECDD3;color:#BE123C}.dd4-status.neutral{background:#F8FAFC;border-color:#DCE4EE;color:#64748B}
+.dd4-empty{padding:34px;text-align:center;color:#94A3B8;font-size:12px}
+.dd4-reconcile{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.dd4-reconcile-item{border:1px solid #DCE4EE;border-radius:12px;padding:12px;background:#F8FAFC}.dd4-reconcile-label{font-size:9px;text-transform:uppercase;color:#64748B;font-weight:900;letter-spacing:.5px}.dd4-reconcile-value{font-size:22px;font-weight:900;color:#0F172A;margin-top:4px}.dd4-reconcile-note{font-size:9px;color:#94A3B8;margin-top:3px;line-height:1.35}
+.dd4-alert{border-radius:12px;padding:11px 13px;font-size:11px;line-height:1.5;border:1px solid;margin-bottom:12px}.dd4-alert.red{background:#FFF1F2;border-color:#FECDD3;color:#9F1239}.dd4-alert.amber{background:#FFFBEB;border-color:#FDE68A;color:#92400E}.dd4-alert.blue{background:#EFF6FF;border-color:#BFDBFE;color:#1D4ED8}.dd4-alert.green{background:#F0FDF4;border-color:#BBF7D0;color:#166534}
+.dd4-timeline{display:grid;gap:8px}.dd4-timeline-item{display:grid;grid-template-columns:90px 1fr;gap:10px;padding:10px;border:1px solid #E2E8F0;border-radius:10px;background:#fff}.dd4-timeline-date{font-family:var(--fm);font-size:10px;color:#64748B;font-weight:800}.dd4-timeline-title{font-size:11px;font-weight:900;color:#0F172A}.dd4-timeline-note{font-size:10px;color:#64748B;margin-top:3px}
+@media(max-width:1100px){.dd4-grid{grid-template-columns:repeat(2,1fr)}.dd4-two{grid-template-columns:1fr}.dd4-reconcile{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:650px){.dd4-grid,.dd4-reconcile{grid-template-columns:1fr}.dd4-header{padding:18px}.dd4-title{font-size:22px}.dd4-search{min-width:100%}}
+
 /* =========================================================
    IMPULSE - AVISO DE NUEVA VERSIÓN
    ========================================================= */
@@ -12857,6 +12911,345 @@ function _dd_render() {
 
 
 
+
+// ════════════════════════════════════════════════════════════
+// DEEP DIVE V4 · INVESTIGATION WORKSPACE
+// Una fila por agente-fecha + navegación por capas
+// ════════════════════════════════════════════════════════════
+let _dd4_UI = { tab:'overview', search:'', attendanceStatus:'all', recurrence:'all', quality:'all' };
+
+function _dd4_dateAdd(dateStr, days){
+  const d=_dd_parseDate(dateStr); d.setDate(d.getDate()+Number(days||0)); return ymd(d);
+}
+
+function _dd4_rowKey(r){
+  return `${String(r?.employee_id||'').trim().toUpperCase()}|${String(r?.work_date||'').slice(0,10)}`;
+}
+
+function _dd4_statusPriority(status){
+  const s=_dd_norm(status);
+  const p={descanso:120,vacaciones:120,permiso:120,incapacidad:120,permuta_descanso:120,completo:110,tolerancia:105,retardo:100,sin_salida:90,sin_entrada:75,falta_injustificada:65};
+  return p[s]||40;
+}
+
+function _dd4_dedupeAttendance(rows=[]){
+  const groups=new Map();
+  (rows||[]).forEach((r,i)=>{
+    const key=_dd4_rowKey(r) || `unknown-${i}`;
+    if(!groups.has(key)) groups.set(key,[]);
+    groups.get(key).push(r);
+  });
+  const clean=[]; const duplicateGroups=[]; const conflicts=[];
+  groups.forEach((items,key)=>{
+    const sorted=[...items].sort((a,b)=>_dd4_statusPriority(b.audit_status)-_dd4_statusPriority(a.audit_status));
+    const statuses=[...new Set(items.map(x=>_dd_norm(x.audit_status)).filter(Boolean))];
+    const chosen={...sorted[0],dd_duplicate_count:items.length,dd_duplicate_statuses:statuses};
+    clean.push(chosen);
+    if(items.length>1) duplicateGroups.push({key,count:items.length,employee_id:chosen.employee_id,employee_name:chosen.employee_name,work_date:chosen.work_date,statuses,rows:items});
+    if(statuses.length>1) conflicts.push({key,employee_id:chosen.employee_id,employee_name:chosen.employee_name,work_date:chosen.work_date,statuses});
+  });
+  clean.sort((a,b)=>String(b.work_date||'').localeCompare(String(a.work_date||'')) || String(a.employee_name||'').localeCompare(String(b.employee_name||'')));
+  return {rows:clean,duplicateGroups,conflicts,rawCount:(rows||[]).length};
+}
+
+function _dd4_exceptionStatus(e){ return _dd_norm(e?.status)||'sin_status'; }
+function _dd4_isFinalException(e){
+  return ['approved','aprobado','aprobada','issued','active','confirmed','completed','completo','resuelto'].includes(_dd4_exceptionStatus(e));
+}
+function _dd4_isCancelledException(e){ return ['rejected','rechazado','rechazada','cancelled','canceled','cancelado','cancelada','denied'].includes(_dd4_exceptionStatus(e)); }
+function _dd4_isPendingException(e){ return ['pending','pendiente','requested','solicitado','solicitada','under_review'].includes(_dd4_exceptionStatus(e)); }
+function _dd4_exceptionKey(e){ return `${String(e?.employee_id||'').trim().toUpperCase()}|${String(e?.exception_date||'').slice(0,10)}`; }
+
+function _dd4_attachExceptions(rows=[],exceptions=[]){
+  const map=new Map();
+  (exceptions||[]).forEach(e=>{
+    const k=_dd4_exceptionKey(e); if(!map.has(k)) map.set(k,[]); map.get(k).push(e);
+  });
+  return rows.map(r=>{
+    const ex=map.get(_dd4_rowKey(r))||[];
+    const finals=ex.filter(_dd4_isFinalException);
+    return {...r,dd_exceptions:ex,dd_final_exceptions:finals,dd_has_final_exception:finals.length>0};
+  });
+}
+
+function _dd4_validAction(a){
+  return !['cancelled','canceled','rejected','rechazada','rechazado'].includes(_dd_norm(a?.status));
+}
+
+function _dd4_actionableRows(rows=[]){
+  return (rows||[]).filter(r=>r.audit_status==='falta_injustificada' || (r.audit_status==='retardo' && !['pending','approved'].includes(_dd_norm(r.late_justification_status))));
+}
+
+function _dd4_matchActions(rows=[],actions=[]){
+  const incidents=_dd4_actionableRows(rows).sort((a,b)=>String(a.work_date).localeCompare(String(b.work_date)));
+  const byEmp={};
+  (actions||[]).filter(_dd4_validAction).forEach(a=>{
+    const emp=String(_dd_actionEmployee(a)||'').trim().toUpperCase();
+    if(!emp) return; (byEmp[emp] ||= []).push(a);
+  });
+  Object.values(byEmp).forEach(list=>list.sort((a,b)=>new Date(_dd_actionDate(a)||0)-new Date(_dd_actionDate(b)||0)));
+  const used=new Set(); let matched=0,onTime=0,late=0;
+  incidents.forEach(r=>{
+    const emp=String(r.employee_id||'').trim().toUpperCase();
+    const incidentDate=_dd_parseDate(String(r.work_date).slice(0,10));
+    const list=byEmp[emp]||[];
+    let best=null,bestIndex=-1,bestDays=999;
+    list.forEach((a,idx)=>{
+      if(used.has(a.id||`${emp}-${idx}`)) return;
+      const ad=_dd_actionDate(a); if(!ad) return;
+      const days=Math.floor((new Date(ad)-incidentDate)/86400000);
+      if(days<0 || days>7) return;
+      if(days<bestDays){best=a;bestIndex=idx;bestDays=days;}
+    });
+    if(best){
+      used.add(best.id||`${emp}-${bestIndex}`); matched++; if(bestDays<=2) onTime++; else late++;
+      r.dd_action=best; r.dd_action_days=bestDays; r.dd_action_status=bestDays<=2?'on_time':'late';
+    }else{
+      r.dd_action=null; r.dd_action_days=null; r.dd_action_status='missing';
+    }
+  });
+  return {incidents,matched,onTime,late,missing:incidents.length-matched,coverage:_dd_pct(matched,incidents.length),usedActionIds:used};
+}
+
+function _dd4_filterEmployees(rows=[]){
+  return (rows||[]).filter(e=>{
+    if(_dd_FILTERS.campaign!=='all' && e.campaign_id!==_dd_FILTERS.campaign) return false;
+    if(_dd_FILTERS.supervisor!=='all' && e.supervisor_id!==_dd_FILTERS.supervisor) return false;
+    return true;
+  });
+}
+
+function _dd4_filterHistory(rows=[],employeeIds=new Set()){
+  return (rows||[]).filter(r=>{
+    if(_dd_FILTERS.campaign==='all' && _dd_FILTERS.supervisor==='all') return true;
+    const emp=String(_dd_firstValue(r,['employee_id','id'])||'').trim().toUpperCase();
+    if(emp && employeeIds.has(emp)) return true;
+    if(_dd_FILTERS.campaign!=='all' && _dd_firstValue(r,['campaign_id','campaign'])!==_dd_FILTERS.campaign) return false;
+    if(_dd_FILTERS.supervisor!=='all' && _dd_firstValue(r,['supervisor_id','manager_id'])!==_dd_FILTERS.supervisor) return false;
+    return true;
+  });
+}
+
+function _dd4_rotationSummary(historyRows=[],activeRows=[]){
+  const bajas=historyRows||[]; const active=(activeRows||[]).filter(e=>_dd_norm(e.status)==='active');
+  const estimatedOpening=active.length+bajas.length;
+  const avgHC=(estimatedOpening+active.length)/2;
+  const voluntary=bajas.filter(r=>['voluntary','voluntaria','renuncia'].includes(_dd_norm(r.termination_type))).length;
+  const involuntary=bajas.filter(r=>['involuntary','involuntaria','termination','baja'].includes(_dd_norm(r.termination_type))).length;
+  const earlyBands={d30:0,d60:0,d90:0};
+  bajas.forEach(r=>{
+    if(!r.hire_date||!r.termination_date) return;
+    const days=(new Date(r.termination_date+'T12:00:00')-new Date(r.hire_date+'T12:00:00'))/86400000;
+    if(days<30) earlyBands.d30++; else if(days<60) earlyBands.d60++; else if(days<90) earlyBands.d90++;
+  });
+  return {bajas:bajas.length,active:active.length,openingEstimated:estimatedOpening,avgHC:Math.round(avgHC*10)/10,rate:avgHC?Math.round((bajas.length/avgHC)*1000)/10:0,voluntary,involuntary,early:earlyBands.d30,earlyRate:bajas.length?Math.round((earlyBands.d30/bajas.length)*1000)/10:0,earlyBands,rows:bajas};
+}
+
+function _dd4_buildQuality(data){
+  const rows=data.current.rows||[]; const raw=data.current.rawRows||[]; const ex=data.current.exceptions||[];
+  const auditFaltas=rows.filter(r=>r.audit_status==='falta_injustificada');
+  const faltaExceptions=ex.filter(e=>_dd_norm(e.type)==='falta_injustificada');
+  const finalEx=faltaExceptions.filter(_dd4_isFinalException), pending=faltaExceptions.filter(_dd4_isPendingException), cancelled=faltaExceptions.filter(_dd4_isCancelledException);
+  const unknown=faltaExceptions.filter(e=>!_dd4_isFinalException(e)&&!_dd4_isPendingException(e)&&!_dd4_isCancelledException(e));
+  const auditKeys=new Set(auditFaltas.map(_dd4_rowKey)); const finalKeys=new Set(finalEx.map(_dd4_exceptionKey));
+  const auditWithoutException=auditFaltas.filter(r=>!finalKeys.has(_dd4_rowKey(r)));
+  const exceptionWithoutAudit=finalEx.filter(e=>!auditKeys.has(_dd4_exceptionKey(e)));
+  const activeIds=new Set((data.employees||[]).map(e=>String(e.id||'').trim().toUpperCase()));
+  const rowIds=new Set(rows.map(r=>String(r.employee_id||'').trim().toUpperCase()).filter(Boolean));
+  const activeWithoutRows=(data.employees||[]).filter(e=>!rowIds.has(String(e.id||'').trim().toUpperCase()));
+  const unknownEmployees=rows.filter(r=>r.employee_id&&!activeIds.has(String(r.employee_id).trim().toUpperCase()));
+  const missingSupervisor=rows.filter(r=>!r.supervisor_id); const missingCampaign=rows.filter(r=>!r.campaign_id);
+  const issues=[
+    {type:'duplicates',label:'Duplicados agente-fecha',count:data.current.duplicates.length,severity:data.current.duplicates.length?'bad':'ok',detail:'Filas adicionales eliminadas del cálculo.'},
+    {type:'conflicts',label:'Estados contradictorios',count:data.current.conflicts.length,severity:data.current.conflicts.length?'bad':'ok',detail:'Misma persona y fecha con más de un estado.'},
+    {type:'audit_without_exception',label:'Faltas sin registro final',count:auditWithoutException.length,severity:auditWithoutException.length?'warn':'ok',detail:'Auditoría marca falta, pero no hay excepción final.'},
+    {type:'exception_without_audit',label:'Registros sin falta auditada',count:exceptionWithoutAudit.length,severity:exceptionWithoutAudit.length?'warn':'ok',detail:'Excepción final sin coincidencia en auditoría.'},
+    {type:'pending',label:'Faltas pendientes',count:pending.length,severity:pending.length?'warn':'ok',detail:'No se cuentan como faltas confirmadas.'},
+    {type:'unknown_status',label:'Estatus de excepción desconocido',count:unknown.length,severity:unknown.length?'warn':'ok',detail:'Necesitan clasificación antes de usarse.'},
+    {type:'missing_supervisor',label:'Filas sin supervisor',count:missingSupervisor.length,severity:missingSupervisor.length?'bad':'ok',detail:'No pueden asignarse correctamente.'},
+    {type:'missing_campaign',label:'Filas sin campaña',count:missingCampaign.length,severity:missingCampaign.length?'warn':'ok',detail:'Quedan fuera del análisis por operación.'},
+    {type:'active_without_rows',label:'Activos sin auditoría',count:activeWithoutRows.length,severity:activeWithoutRows.length?'warn':'ok',detail:'Personas activas sin filas en el periodo.'},
+    {type:'unknown_employee',label:'Filas fuera del roster activo',count:unknownEmployees.length,severity:unknownEmployees.length?'warn':'ok',detail:'Puede incluir bajas o IDs desactualizados.'}
+  ];
+  return {auditFaltas,finalEx,pending,cancelled,unknown,auditWithoutException,exceptionWithoutAudit,activeWithoutRows,unknownEmployees,missingSupervisor,missingCampaign,issues,totalIssues:issues.reduce((s,x)=>s+x.count,0),rawCount:raw.length,cleanCount:rows.length};
+}
+
+function _dd4_windowCount(rows,to,days,fn){
+  const from=_dd4_dateAdd(to,-days+1); return rows.filter(r=>String(r.work_date||'')>=from&&String(r.work_date||'')<=to&&(!fn||fn(r))).length;
+}
+
+function _dd4_buildAgents(data){
+  const employees=data.employees||[]; const current=data.current.rows||[]; const hist=data.history90?.rows||[];
+  const allMap=new Map();
+  employees.forEach(e=>allMap.set(String(e.id||'').trim().toUpperCase(),{...e}));
+  current.forEach(r=>{const id=String(r.employee_id||'').trim().toUpperCase();if(id&&!allMap.has(id))allMap.set(id,{id:r.employee_id,full_name:r.employee_name,status:'unknown',campaign_id:r.campaign_id,supervisor_id:r.supervisor_id});});
+  const supNames={}; [...current,...hist].forEach(r=>{if(r.supervisor_id)supNames[r.supervisor_id]=r.supervisor_name||r.supervisor_id;});
+  const agents=[];
+  allMap.forEach((e,id)=>{
+    const cr=current.filter(r=>String(r.employee_id||'').trim().toUpperCase()===id);
+    const hr=hist.filter(r=>String(r.employee_id||'').trim().toUpperCase()===id);
+    const actionable90=_dd4_actionableRows(hr);
+    const i30=_dd4_windowCount(hr,data.to,30,r=>_dd4_actionableRows([r]).length>0);
+    const i60=_dd4_windowCount(hr,data.to,60,r=>_dd4_actionableRows([r]).length>0);
+    const i90=actionable90.length;
+    const faltas90=hr.filter(r=>r.audit_status==='falta_injustificada').length;
+    const retardos90=hr.filter(r=>r.audit_status==='retardo'&&!['pending','approved'].includes(_dd_norm(r.late_justification_status))).length;
+    const sinSalida90=hr.filter(r=>r.audit_status==='sin_salida').length;
+    const actions=(data.current.actionRowsAll||[]).filter(a=>String(_dd_actionEmployee(a)||'').trim().toUpperCase()===id);
+    const tickets=(data.current.ticketRows||[]).filter(t=>String(_dd_firstValue(t,['employee_id','requester_id','affected_employee_id'])||'').trim().toUpperCase()===id);
+    const riskScore=faltas90*4+retardos90*2+sinSalida90+Math.max(0,i90-actions.length)*2;
+    const recurrence=i90>=4?'Crónico':i90>=2?'Reincidente':i90===1?'Primera incidencia':'Sin incidencias';
+    agents.push({id:e.id||id,name:e.full_name||cr[0]?.employee_name||id,status:e.status||'unknown',campaign:e.campaign_id||cr[0]?.campaign_id||'Sin campaña',supervisorId:e.supervisor_id||cr[0]?.supervisor_id||'',supervisor:supNames[e.supervisor_id||cr[0]?.supervisor_id]||e.supervisor_id||cr[0]?.supervisor_name||'Sin supervisor',position:e.position_title||'Agente',hireDate:e.hire_date||'',currentRows:cr,historyRows:hr,incidents30:i30,incidents60:i60,incidents90:i90,faltas90,retardos90,sinSalida90,actions:actions.length,tickets:tickets.length,riskScore,recurrence});
+  });
+  return agents.sort((a,b)=>b.riskScore-a.riskScore||b.incidents90-a.incidents90||a.name.localeCompare(b.name));
+}
+
+function _dd4_supervisors(rows=[],actions=[],tickets=[]){
+  const map={};
+  rows.forEach(r=>{
+    const id=r.supervisor_id||'sin_supervisor';
+    if(!map[id])map[id]={supervisor_id:id,supervisor_name:r.supervisor_name||'Sin supervisor',rows:[],hcSet:new Set(),retardo:0,falta:0,sinSalida:0,sinEntrada:0,complete:0,missingException:0,matched:0,onTime:0,lateActions:0,missingActions:0,tickets:0};
+    const s=map[id];s.rows.push(r);if(r.employee_id)s.hcSet.add(r.employee_id);
+    if(r.audit_status==='retardo'&&!['pending','approved'].includes(_dd_norm(r.late_justification_status)))s.retardo++;
+    if(r.audit_status==='falta_injustificada'){s.falta++;if(!r.dd_has_final_exception)s.missingException++;}
+    if(r.audit_status==='sin_salida')s.sinSalida++;if(r.audit_status==='sin_entrada')s.sinEntrada++;if(r.audit_status==='completo')s.complete++;
+    if(_dd4_actionableRows([r]).length){if(r.dd_action){s.matched++;if(r.dd_action_status==='on_time')s.onTime++;else s.lateActions++;}else s.missingActions++;}
+  });
+  const empToSup={};rows.forEach(r=>{if(r.employee_id)empToSup[String(r.employee_id).trim().toUpperCase()]=r.supervisor_id||'sin_supervisor';});
+  tickets.forEach(t=>{const emp=String(_dd_firstValue(t,['employee_id','requester_id','affected_employee_id'])||'').trim().toUpperCase();const sid=empToSup[emp];if(sid&&map[sid])map[sid].tickets++;});
+  return Object.values(map).map(s=>{
+    const expected=s.retardo+s.falta; const coverage=_dd_pct(s.matched,expected); const issueRate=s.hcSet.size?_dd_pct(expected,s.hcSet.size):0;
+    let risk='Controlado'; if(s.missingActions>=3||coverage<50||s.missingException>=2)risk='Alto';else if(s.missingActions||coverage<80||s.missingException)risk='Medio';
+    return {...s,hc:s.hcSet.size,expectedActions:expected,actions:s.matched,compliance:expected?coverage:100,completeRate:_dd_pct(s.complete,s.rows.filter(r=>!_dd_isNonWorkStatus(r.audit_status)).length),issueRate,risk};
+  }).sort((a,b)=>({Alto:0,Medio:1,Controlado:2}[a.risk]-({Alto:0,Medio:1,Controlado:2}[b.risk]))||b.missingActions-a.missingActions||b.expectedActions-a.expectedActions);
+}
+
+async function _dd_loadData(){
+  _dd_LOADING=true;_dd_render();
+  const {from,to,prevFrom,prevTo}=_dd_FILTERS;
+  const toAction=_dd4_dateAdd(to,7),prevToAction=_dd4_dateAdd(prevTo,7),historyFrom=_dd4_dateAdd(to,-89);
+  const [attCur,attPrev,att90,ticketsCur,ticketsPrev,actionsCur,actionsPrev,excCur,excPrev,exc90,historyCur,historyPrev,activeEmployees]=await Promise.all([
+    _a_sb.rpc('attendance_audit_range',{p_from:from,p_to:to}),
+    _a_sb.rpc('attendance_audit_range',{p_from:prevFrom,p_to:prevTo}),
+    _a_sb.rpc('attendance_audit_range',{p_from:historyFrom,p_to:to}),
+    _a_sb.from('hr_tickets').select('*').gte('created_at',from+'T00:00:00').lte('created_at',to+'T23:59:59'),
+    _a_sb.from('hr_tickets').select('*').gte('created_at',prevFrom+'T00:00:00').lte('created_at',prevTo+'T23:59:59'),
+    _a_sb.from('people_action_cases').select('*').gte('created_at',from+'T00:00:00').lte('created_at',toAction+'T23:59:59'),
+    _a_sb.from('people_action_cases').select('*').gte('created_at',prevFrom+'T00:00:00').lte('created_at',prevToAction+'T23:59:59'),
+    _a_sb.from('attendance_exceptions').select('*').gte('exception_date',from).lte('exception_date',to),
+    _a_sb.from('attendance_exceptions').select('*').gte('exception_date',prevFrom).lte('exception_date',prevTo),
+    _a_sb.from('attendance_exceptions').select('*').gte('exception_date',historyFrom).lte('exception_date',to),
+    _a_sb.from('employment_history').select('*').gte('termination_date',from).lte('termination_date',to),
+    _a_sb.from('employment_history').select('*').gte('termination_date',prevFrom).lte('termination_date',prevTo),
+    _a_sb.from('employees').select('id,status,full_name,campaign_id,supervisor_id,position_title,hire_date,system_role').eq('status','active')
+  ]);
+  const required=[attCur,attPrev,ticketsCur,ticketsPrev,actionsCur,actionsPrev];const errors=required.map(x=>x.error).filter(Boolean);
+  [att90,excCur,excPrev,exc90,historyCur,historyPrev,activeEmployees].forEach(x=>{if(x?.error)console.warn('Deep Dive V4 fuente complementaria:',x.error);});
+  if(errors.length){console.error('Deep Dive V4 errors:',errors);alert('No se pudo cargar Deep Dive:\n\n'+errors.map(e=>e.message).join('\n'));_dd_LOADING=false;_dd_render();return;}
+
+  const curRawMarked=_dd_markLateJustifications(attCur.data||[],excCur?.data||[]);
+  const prevRawMarked=_dd_markLateJustifications(attPrev.data||[],excPrev?.data||[]);
+  const histRawMarked=_dd_markLateJustifications(att90?.data||[],exc90?.data||[]);
+  const curD=_dd4_dedupeAttendance(curRawMarked),prevD=_dd4_dedupeAttendance(prevRawMarked),histD=_dd4_dedupeAttendance(histRawMarked);
+  const curAttached=_dd4_attachExceptions(curD.rows,excCur?.data||[]),prevAttached=_dd4_attachExceptions(prevD.rows,excPrev?.data||[]),histAttached=_dd4_attachExceptions(histD.rows,exc90?.data||[]);
+  const campaigns=[...new Set(curD.rows.map(r=>r.campaign_id).filter(Boolean))].sort();
+  const supervisorSource=curD.rows.filter(r=>_dd_FILTERS.campaign==='all'||r.campaign_id===_dd_FILTERS.campaign);const supervisorsMap={};supervisorSource.forEach(r=>{if(r.supervisor_id)supervisorsMap[r.supervisor_id]=r.supervisor_name||r.supervisor_id;});
+  if(_dd_FILTERS.supervisor!=='all'&&!supervisorsMap[_dd_FILTERS.supervisor])_dd_FILTERS.supervisor='all';
+  const curRows=_dd_filterAttendanceRows(curAttached),prevRows=_dd_filterAttendanceRows(prevAttached),historyRows=_dd_filterAttendanceRows(histAttached);
+  const employees=_dd4_filterEmployees(activeEmployees?.data||[]);const employeeIds=new Set(employees.map(e=>String(e.id||'').trim().toUpperCase()));
+  const curScope=_dd_buildScope([...curRows,...employees.map(e=>({...e,employee_id:e.id}))]),prevScope=_dd_buildScope(prevRows);
+  const curTickets=_dd_filterRowsByScope(ticketsCur.data||[],curScope,'ticket');const prevTickets=_dd_filterRowsByScope(ticketsPrev.data||[],prevScope,'ticket');
+  const curActionsAll=_dd_filterRowsByScope(actionsCur.data||[],curScope,'action');const prevActionsAll=_dd_filterRowsByScope(actionsPrev.data||[],prevScope,'action');
+  const curActions=curActionsAll.filter(a=>_dd_inRangeTs(_dd_actionDate(a),from,to));const prevActions=prevActionsAll.filter(a=>_dd_inRangeTs(_dd_actionDate(a),prevFrom,prevTo));
+  const curExceptions=_dd_filterRowsByScope(excCur?.data||[],curScope,'exception');const prevExceptions=_dd_filterRowsByScope(excPrev?.data||[],prevScope,'exception');
+  const curHistory=_dd4_filterHistory(historyCur?.data||[],employeeIds);const prevHistory=_dd4_filterHistory(historyPrev?.data||[],employeeIds);
+  _dd4_matchActions(curRows,curActionsAll);_dd4_matchActions(prevRows,prevActionsAll);
+  const data={from,to,prevFrom,prevTo,historyFrom,campaigns,supervisors:[],supervisorsOptions:Object.entries(supervisorsMap).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)),employees,
+    current:{rawRows:_dd_filterAttendanceRows(curRawMarked),rows:curRows,duplicates:curD.duplicateGroups.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),conflicts:curD.conflicts.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),attendance:_dd_attendanceSummary(curRows),expectedActions:_dd_expectedActions(curRows),tickets:_dd_ticketSummary(curTickets,from,to),ticketRows:curTickets,actions:curActions,actionRowsAll:curActionsAll,exceptions:curExceptions,absenceSources:_dd_absenceSourceSummary(curExceptions.filter(_dd4_isFinalException)),rotation:_dd4_rotationSummary(curHistory,employees)},
+    previous:{rawRows:_dd_filterAttendanceRows(prevRawMarked),rows:prevRows,duplicates:prevD.duplicateGroups,conflicts:prevD.conflicts,attendance:_dd_attendanceSummary(prevRows),expectedActions:_dd_expectedActions(prevRows),tickets:_dd_ticketSummary(prevTickets,prevFrom,prevTo),ticketRows:prevTickets,actions:prevActions,actionRowsAll:prevActionsAll,exceptions:prevExceptions,absenceSources:_dd_absenceSourceSummary(prevExceptions.filter(_dd4_isFinalException)),rotation:_dd4_rotationSummary(prevHistory,employees)},
+    history90:{rawRows:histRawMarked,rows:historyRows,duplicates:histD.duplicateGroups,conflicts:histD.conflicts},payrollTickets:[]};
+  data.supervisors=_dd4_supervisors(curRows,curActionsAll,curTickets);data.actionCompliance=_dd4_matchActions(curRows,curActionsAll);data.quality=_dd4_buildQuality(data);data.agents=_dd4_buildAgents(data);data.recurrence=data.agents.filter(a=>a.incidents90>=2);data.narrative=_dd_generateNarrative(data);data.recommendations=_dd_generateRecommendations(data);
+  try{const{data:payrollRows,error}=await _a_sb.rpc('payroll_ticket_deepdive',{p_from:from,p_to:to});if(error)console.warn('No se pudo cargar Deep Dive Nómina:',error);else data.payrollTickets=_dd_filterRowsByScope(payrollRows||[],curScope,'payroll');}catch(e){console.warn('Error cargando Deep Dive Nómina:',e);}
+  _dd_DATA=data;_dd_LOADING=false;_dd_render();
+}
+
+function _dd4_setTab(tab){_dd4_UI.tab=tab;_dd_render();}
+function _dd4_setUI(key,value){_dd4_UI[key]=value;_dd_render();setTimeout(()=>{const el=document.getElementById('dd4-search');if(el&&key==='search'){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);}
+
+function _dd4_kpi(label,value,note,color='#0F172A',onclick=''){
+  return `<div class="dd4-kpi ${onclick?'clickable':''}" ${onclick?`onclick="${onclick}"`:''}><span class="dd4-kpi-stripe" style="background:${color}"></span><div class="dd4-kpi-label">${label}</div><div class="dd4-kpi-value" style="color:${color}">${value}</div><div class="dd4-kpi-note">${note}</div>${onclick?'<div class="dd4-kpi-link">Abrir detalle →</div>':''}</div>`;
+}
+function _dd4_statusPill(status){
+  const s=_dd_norm(status);if(['completo','tolerancia','descanso','vacaciones','permiso','incapacidad'].includes(s))return `<span class="dd4-status ok">${_dd_escape((status||'—').replaceAll('_',' '))}</span>`;if(['retardo','sin_salida','sin_entrada'].includes(s))return `<span class="dd4-status warn">${_dd_escape((status||'—').replaceAll('_',' '))}</span>`;if(s==='falta_injustificada')return `<span class="dd4-status bad">Falta injustificada</span>`;return `<span class="dd4-status neutral">${_dd_escape((status||'—').replaceAll('_',' '))}</span>`;
+}
+function _dd4_riskPill(risk){const c=risk==='Alto'?'bad':risk==='Medio'?'warn':'ok';return `<span class="dd4-status ${c}">${risk}</span>`;}
+function _dd4_recurrencePill(v){const c=v==='Crónico'?'bad':v==='Reincidente'?'warn':v==='Primera incidencia'?'neutral':'ok';return `<span class="dd4-status ${c}">${v}</span>`;}
+
+function _dd4_renderOverview(d){
+  const a=d.current.attendance,p=d.previous.attendance,q=d.quality,ac=d.actionCompliance,r=d.current.rotation;
+  const recurring=d.recurrence.length;const affected=new Set(_dd4_actionableRows(d.current.rows).map(x=>x.employee_id).filter(Boolean)).size;
+  return `<div class="dd4-grid">
+    ${_dd4_kpi('Headcount activo',d.employees.length,`${a.hc} personas con auditoría en el periodo`,'#2563EB',"_dd4_setTab('agents')")}
+    ${_dd4_kpi('Días-persona esperados',a.expectedDays,`${a.operationalPunctuality}% puntualidad operativa`,'#0E7490',"_dd4_setTab('attendance')")}
+    ${_dd4_kpi('Faltas confirmadas',a.falta,`${_dd_delta(a.falta,p.falta).label} vs periodo anterior · ${new Set(q.auditFaltas.map(x=>x.employee_id)).size} personas`,'#DC2626',"_dd_openIncidentDrawer('falta_injustificada')")}
+    ${_dd4_kpi('Retardos accionables',a.retardo,`${affected} personas con falta o retardo`,'#D97706',"_dd_openIncidentDrawer('retardo')")}
+    ${_dd4_kpi('Reincidentes 90 días',recurring,`${d.agents.filter(x=>x.recurrence==='Crónico').length} casos crónicos`,'#7C3AED',"_dd4_setTab('recurrence')")}
+    ${_dd4_kpi('Incidencias sin acción',ac.missing,`${ac.coverage}% de cobertura · ${ac.late} acciones tardías`,'#BE123C',"_dd4_setTab('supervisors')")}
+    ${_dd4_kpi('Rotación estimada',r.rate+'%',`${r.bajas} bajas · HC promedio estimado ${r.avgHC}`,'#0891B2',"_dd4_setTab('rotation')")}
+    ${_dd4_kpi('Alertas de datos',q.totalIssues,`${q.rawCount-q.cleanCount} filas duplicadas removidas`,'#B45309',"_dd4_setTab('quality')")}
+  </div>
+  <div class="dd4-two">
+    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Reconciliación de faltas</div><div class="dd4-panel-copy">Separa la auditoría operativa de los registros administrativos. Solo la auditoría limpia alimenta el KPI principal.</div></div><span class="dd4-chip ${q.auditFaltas.length===q.finalEx.length?'green':'amber'}">${q.auditFaltas.length===q.finalEx.length?'Conciliado':'Revisar diferencia'}</span></div><div class="dd4-panel-body"><div class="dd4-reconcile"><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Auditoría limpia</div><div class="dd4-reconcile-value">${q.auditFaltas.length}</div><div class="dd4-reconcile-note">Una fila por agente-fecha.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Excepciones finales</div><div class="dd4-reconcile-value">${q.finalEx.length}</div><div class="dd4-reconcile-note">Aprobadas o confirmadas.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Pendientes</div><div class="dd4-reconcile-value">${q.pending.length}</div><div class="dd4-reconcile-note">No cuentan como falta final.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Canceladas/rechazadas</div><div class="dd4-reconcile-value">${q.cancelled.length}</div><div class="dd4-reconcile-note">Excluidas de todos los KPIs.</div></div></div>${q.auditWithoutException.length||q.exceptionWithoutAudit.length?`<div class="dd4-alert amber" style="margin-top:12px;margin-bottom:0"><b>Hay una diferencia real que investigar:</b> ${q.auditWithoutException.length} faltas auditadas sin registro final y ${q.exceptionWithoutAudit.length} registros finales sin falta auditada.</div>`:`<div class="dd4-alert green" style="margin-top:12px;margin-bottom:0">La auditoría y los registros finales coinciden para este periodo.</div>`}</div></div>
+    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Accountability de liderazgo</div><div class="dd4-panel-copy">Incidencias vinculadas una-a-una con People Actions dentro de los siguientes 7 días.</div></div><span class="dd4-chip ${ac.coverage<50?'red':ac.coverage<80?'amber':'green'}">${ac.coverage}% cobertura</span></div><div class="dd4-panel-body"><div class="dd4-reconcile"><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Esperadas</div><div class="dd4-reconcile-value">${ac.incidents.length}</div><div class="dd4-reconcile-note">Faltas + retardos reales.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">A tiempo</div><div class="dd4-reconcile-value">${ac.onTime}</div><div class="dd4-reconcile-note">0 a 2 días después.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Tardías</div><div class="dd4-reconcile-value">${ac.late}</div><div class="dd4-reconcile-note">3 a 7 días después.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Sin acción</div><div class="dd4-reconcile-value">${ac.missing}</div><div class="dd4-reconcile-note">Sin caso vinculable.</div></div></div><button class="btn-primary" style="margin-top:12px" onclick="_dd4_setTab('supervisors')">Revisar supervisores</button></div></div>
+  </div>
+  ${_dd_renderCampaignTable(d.current.rows)}`;
+}
+
+function _dd4_filteredAttendance(d){const q=_dd_norm(_dd4_UI.search);return(d.current.rows||[]).filter(r=>{if(_dd4_UI.attendanceStatus!=='all'&&r.audit_status!==_dd4_UI.attendanceStatus)return false;if(q&&!_dd_norm([r.employee_name,r.employee_id,r.supervisor_name,r.campaign_id,r.audit_status,r.work_date].join(' ')).includes(q))return false;return true;});}
+function _dd4_renderAttendance(d){
+  const rows=_dd4_filteredAttendance(d);const statuses=[...new Set((d.current.rows||[]).map(r=>r.audit_status).filter(Boolean))].sort();
+  return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todos los estados</option>${statuses.map(s=>`<option value="${_dd_escape(s)}" ${_dd4_UI.attendanceStatus===s?'selected':''}>${_dd_escape(s.replaceAll('_',' '))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} filas únicas</span></div>
+  <div class="dd4-alert blue"><b>Regla del explorador:</b> cada renglón representa una sola persona en una sola fecha. Cuando el RPC devuelve duplicados, Deep Dive conserva la fila con mayor evidencia de asistencia y manda el conflicto a Calidad de datos.</div>
+  <div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1350px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Estado final</th><th class="dd4-center">Min. tarde</th><th>Entrada</th><th>Salida</th><th>Registro final</th><th>People Action</th><th>Calidad</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td>${r.dd_has_final_exception?'<span class="dd4-status ok">Encontrado</span>':r.audit_status==='falta_injustificada'?'<span class="dd4-status warn">Sin registro</span>':'<span class="dd4-status neutral">No aplica</span>'}</td><td>${_dd4_actionableRows([r]).length?(r.dd_action?`<span class="dd4-status ${r.dd_action_status==='on_time'?'ok':'warn'}">${r.dd_action_status==='on_time'?'A tiempo':'Tardía'}</span>`:'<span class="dd4-status bad">Sin acción</span>'):'<span class="dd4-status neutral">No aplica</span>'}</td><td>${r.dd_duplicate_count>1?`<span class="dd4-status bad">${r.dd_duplicate_count} duplicados</span>`:'<span class="dd4-status ok">OK</span>'}</td></tr>`).join(''):`<tr><td colspan="11"><div class="dd4-empty">No hay registros con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
+}
+
+function _dd4_renderSupervisors(d){
+  const rows=d.supervisors||[];return `<div class="dd4-alert blue">La cobertura ya no compara totales generales. Cada falta o retardo se vincula con máximo una People Action del mismo agente, creada entre 0 y 7 días después.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Supervisor</th><th class="dd4-center">HC</th><th class="dd4-center">Retardos</th><th class="dd4-center">Faltas</th><th class="dd4-center">Faltas sin registro</th><th class="dd4-center">Acciones esperadas</th><th class="dd4-center">A tiempo</th><th class="dd4-center">Tardías</th><th class="dd4-center">Sin acción</th><th>Cobertura</th><th class="dd4-center">Tickets</th><th>Riesgo</th></tr></thead><tbody>${rows.length?rows.map(s=>`<tr class="clickable" onclick="_dd_openSupervisorDetail('${String(s.supervisor_id).replaceAll("'","\\'")}')"><td><div class="dd-name-cell"><div class="dd-avatar">${_dd_initials(s.supervisor_name)}</div><div><div class="dd-primary">${_dd_escape(s.supervisor_name)}</div><div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div></div></div></td><td class="dd4-center dd4-mono">${s.hc}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.retardo}</td><td class="dd4-center dd4-mono" style="color:#DC2626">${s.falta}</td><td class="dd4-center dd4-mono" style="color:${s.missingException?'#BE123C':'#15803D'}">${s.missingException}</td><td class="dd4-center dd4-mono">${s.expectedActions}</td><td class="dd4-center dd4-mono" style="color:#15803D">${s.onTime}</td><td class="dd4-center dd4-mono" style="color:#B45309">${s.lateActions}</td><td class="dd4-center dd4-mono" style="color:#BE123C">${s.missingActions}</td><td><div class="dd4-strong dd4-center">${s.compliance}%</div><div class="dd4-bar ${s.compliance<50?'danger':s.compliance<80?'warn':''}"><span style="width:${Math.min(100,s.compliance)}%"></span></div></td><td class="dd4-center dd4-mono">${s.tickets}</td><td>${_dd4_riskPill(s.risk)}</td></tr>`).join(''):`<tr><td colspan="12"><div class="dd4-empty">Sin supervisores para el filtro seleccionado.</div></td></tr>`}</tbody></table></div></div>`;
+}
+
+function _dd4_filteredAgents(d,recOnly=false){const q=_dd_norm(_dd4_UI.search);return(d.agents||[]).filter(a=>{if(recOnly&&a.incidents90<2)return false;if(_dd4_UI.recurrence!=='all'&&a.recurrence!==_dd4_UI.recurrence)return false;if(q&&!_dd_norm([a.name,a.id,a.campaign,a.supervisor,a.recurrence].join(' ')).includes(q))return false;return true;});}
+function _dd4_renderAgents(d,recOnly=false){
+  const rows=_dd4_filteredAgents(d,recOnly);return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, campaña o supervisor..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('recurrence',this.value)"><option value="all">Todos los niveles</option>${['Sin incidencias','Primera incidencia','Reincidente','Crónico'].map(x=>`<option value="${x}" ${_dd4_UI.recurrence===x?'selected':''}>${x}</option>`).join('')}</select><span class="dd4-chip purple">${rows.length} personas</span></div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1320px"><thead><tr><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Ingreso</th><th class="dd4-center">Inc. 30d</th><th class="dd4-center">Inc. 60d</th><th class="dd4-center">Inc. 90d</th><th class="dd4-center">Faltas 90d</th><th class="dd4-center">Retardos 90d</th><th class="dd4-center">Sin salida</th><th class="dd4-center">Acciones</th><th>Reincidencia</th></tr></thead><tbody>${rows.length?rows.map(a=>`<tr class="clickable" onclick="_dd4_openAgent('${String(a.id).replaceAll("'","\\'")}')"><td><div class="dd-name-cell"><div class="dd-avatar">${_dd_initials(a.name)}</div><div><div class="dd-primary">${_dd_escape(a.name)}</div><div class="dd-secondary">${_dd_escape(a.id)}</div></div></div></td><td>${_dd_escape(a.campaign)}</td><td>${_dd_escape(a.supervisor)}</td><td class="dd4-mono">${a.hireDate?fmtDateShort(a.hireDate):'—'}</td><td class="dd4-center dd4-mono">${a.incidents30}</td><td class="dd4-center dd4-mono">${a.incidents60}</td><td class="dd4-center dd4-mono"><b>${a.incidents90}</b></td><td class="dd4-center dd4-mono" style="color:#DC2626">${a.faltas90}</td><td class="dd4-center dd4-mono" style="color:#D97706">${a.retardos90}</td><td class="dd4-center dd4-mono" style="color:#7C3AED">${a.sinSalida90}</td><td class="dd4-center dd4-mono">${a.actions}</td><td>${_dd4_recurrencePill(a.recurrence)}</td></tr>`).join(''):`<tr><td colspan="12"><div class="dd4-empty">No hay personas con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
+}
+
+function _dd4_renderRotation(d){const r=d.current.rotation||{};const rows=r.rows||[];return `<div class="dd4-grid">${_dd4_kpi('Bajas',r.bajas,`${_dd_delta(r.bajas,d.previous.rotation?.bajas||0).label} vs anterior`,'#DC2626')}${_dd4_kpi('Tasa estimada',r.rate+'%',`Bajas / HC promedio estimado (${r.avgHC})`,'#D97706')}${_dd4_kpi('Voluntarias',r.voluntary,`${r.involuntary} involuntarias`,'#2563EB')}${_dd4_kpi('Early attrition <30d',r.early,`${r.earlyBands?.d60||0} entre 31–60d · ${r.earlyBands?.d90||0} entre 61–90d`,'#7C3AED')}</div><div class="dd4-alert amber"><b>Nota metodológica:</b> la base actual no guarda el headcount histórico diario. La tasa usa un HC promedio estimado entre apertura y cierre; el detalle de bajas sí es exacto para las filas disponibles en employment_history.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1100px"><thead><tr><th>Persona</th><th>Ingreso</th><th>Baja</th><th>Antigüedad</th><th>Campaña</th><th>Supervisor</th><th>Tipo</th><th>Motivo</th></tr></thead><tbody>${rows.length?rows.map(x=>{const hd=x.hire_date&&x.termination_date?Math.max(0,Math.round((new Date(x.termination_date+'T12:00:00')-new Date(x.hire_date+'T12:00:00'))/86400000)):null;return`<tr><td><div class="dd4-strong">${_dd_escape(_dd_firstValue(x,['employee_name','full_name','name'])||_dd_firstValue(x,['employee_id','id'])||'—')}</div><div class="dd-secondary">${_dd_escape(_dd_firstValue(x,['employee_id','id'])||'—')}</div></td><td class="dd4-mono">${x.hire_date?fmtDateShort(x.hire_date):'—'}</td><td class="dd4-mono">${x.termination_date?fmtDateShort(x.termination_date):'—'}</td><td class="dd4-mono">${hd===null?'—':hd+' días'}</td><td>${_dd_escape(_dd_firstValue(x,['campaign_id','campaign'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['supervisor_name','manager_name','supervisor_id'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_type','type'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_reason','reason','notes'])||'—')}</td></tr>`;}).join(''):`<tr><td colspan="8"><div class="dd4-empty">No hubo bajas en el periodo.</div></td></tr>`}</tbody></table></div></div>`;}
+
+function _dd4_qualityRows(d){const q=d.quality;const map={duplicates:q.auditFaltas.filter(r=>r.dd_duplicate_count>1),conflicts:q.auditFaltas.filter(r=>(r.dd_duplicate_statuses||[]).length>1),audit_without_exception:q.auditWithoutException,exception_without_audit:q.exceptionWithoutAudit,pending:q.pending,unknown_status:q.unknown,missing_supervisor:q.missingSupervisor,missing_campaign:q.missingCampaign,active_without_rows:q.activeWithoutRows,unknown_employee:q.unknownEmployees};return map[_dd4_UI.quality]||[];}
+function _dd4_renderQuality(d){const q=d.quality,detail=_dd4_qualityRows(d);return `<div class="dd4-grid">${q.issues.slice(0,8).map(x=>_dd4_kpi(x.label,x.count,x.detail,x.severity==='bad'?'#DC2626':x.severity==='warn'?'#D97706':'#16A34A',`_dd4_setUI('quality','${x.type}')`)).join('')}</div><div class="dd4-two"><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Control de duplicados</div><div class="dd4-panel-copy">El cálculo usa ${q.cleanCount} filas únicas a partir de ${q.rawCount} filas recibidas.</div></div><span class="dd4-chip ${d.current.duplicates.length?'red':'green'}">${d.current.duplicates.length} grupos</span></div><div class="dd4-panel-body">${d.current.duplicates.length?d.current.duplicates.slice(0,8).map(x=>`<div class="dd4-alert red"><b>${_dd_escape(x.employee_name||x.employee_id||'—')} · ${fmtDateShort(x.work_date)}</b><br>${x.count} filas: ${x.statuses.map(s=>_dd_escape(s)).join(', ')}</div>`).join(''):'<div class="dd4-alert green">No se detectaron duplicados agente-fecha en el universo filtrado.</div>'}</div></div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Reglas activas de confianza</div><div class="dd4-panel-copy">Lo que Deep Dive incluye y excluye automáticamente.</div></div></div><div class="dd4-panel-body"><div class="dd4-alert blue">1. Una fila por agente-fecha.<br>2. Pendientes y rechazadas no cuentan como faltas finales.<br>3. Evidencia de asistencia prevalece sobre una fila duplicada de ausencia.<br>4. Una People Action solo cubre una incidencia.<br>5. Todas las diferencias quedan visibles en esta pestaña.</div></div></div></div>${_dd4_UI.quality!=='all'?`<div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Detalle · ${_dd_escape(q.issues.find(x=>x.type===_dd4_UI.quality)?.label||_dd4_UI.quality)}</div><div class="dd4-panel-copy">Registros encontrados para la alerta seleccionada.</div></div><button class="btn-ghost" onclick="_dd4_setUI('quality','all')">Cerrar detalle</button></div><div class="dd4-panel-body"><pre style="white-space:pre-wrap;font:11px var(--fm);color:#334155;max-height:420px;overflow:auto;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">${_dd_escape(JSON.stringify(detail.slice(0,100),null,2))}</pre></div></div>`:''}`;}
+
+function _dd4_openAgent(id){
+  const a=(_dd_DATA?.agents||[]).find(x=>String(x.id).toUpperCase()===String(id).toUpperCase());if(!a)return;
+  const events=[];(a.historyRows||[]).filter(r=>['retardo','falta_injustificada','sin_salida','sin_entrada'].includes(r.audit_status)).forEach(r=>events.push({date:r.work_date,title:_dd_incidentTypeLabel(r.audit_status),note:[r.minutes_late?`${r.minutes_late} min tarde`:'',r.supervisor_name,r.campaign_id].filter(Boolean).join(' · '),type:'attendance'}));
+  (_dd_DATA.current.actionRowsAll||[]).filter(x=>String(_dd_actionEmployee(x)||'').toUpperCase()===String(id).toUpperCase()).forEach(x=>events.push({date:String(_dd_actionDate(x)||'').slice(0,10),title:`People Action · ${_dd_actionLevelLabel(_dd_actionLevel(x))}`,note:_dd_actionStatusLabel(x),type:'action'}));
+  events.sort((x,y)=>String(y.date).localeCompare(String(x.date)));
+  const html=`<div class="modal-backdrop" id="dd4-agent-modal" onclick="if(event.target===this)_dd4_closeAgent()"><div class="modal" style="width:980px;max-width:96vw"><div class="modal-hd"><div><h3>${_dd_escape(a.name)}</h3><div class="sub">${_dd_escape(a.id)} · ${_dd_escape(a.campaign)} · ${_dd_escape(a.supervisor)}</div></div><button class="modal-hd-close" onclick="_dd4_closeAgent()">×</button></div><div class="modal-body"><div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('Incidencias 30d',a.incidents30,'Faltas + retardos','#D97706')}${_dd4_kpi('Incidencias 90d',a.incidents90,`${a.faltas90} faltas · ${a.retardos90} retardos`,'#DC2626')}${_dd4_kpi('People Actions',a.actions,'Cargadas en el rango ampliado','#2563EB')}${_dd4_kpi('Clasificación',a.recurrence,`Riesgo ${a.riskScore}`,'#7C3AED')}</div><div class="modal-section"><div class="ms-title">Perfil laboral</div><div class="kv"><span class="k">Estatus</span><span class="v">${_dd_escape(a.status)}</span></div><div class="kv"><span class="k">Puesto</span><span class="v">${_dd_escape(a.position)}</span></div><div class="kv"><span class="k">Ingreso</span><span class="v">${a.hireDate?fmtDateShort(a.hireDate):'—'}</span></div><div class="kv"><span class="k">Campaña / supervisor</span><span class="v">${_dd_escape(a.campaign)} · ${_dd_escape(a.supervisor)}</span></div></div><div class="modal-section"><div class="ms-title">Línea del tiempo · últimos 90 días</div><div class="dd4-timeline">${events.length?events.slice(0,80).map(e=>`<div class="dd4-timeline-item"><div class="dd4-timeline-date">${e.date?fmtDateShort(e.date):'—'}</div><div><div class="dd4-timeline-title">${_dd_escape(e.title)}</div><div class="dd4-timeline-note">${_dd_escape(e.note||'Sin detalle')}</div></div></div>`).join(''):'<div class="dd4-empty">Sin incidencias ni acciones en los últimos 90 días.</div>'}</div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="_dd4_closeAgent()">Cerrar</button></div></div></div>`;document.getElementById('dd4-agent-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);
+}
+function _dd4_closeAgent(){document.getElementById('dd4-agent-modal')?.remove();}
+
+function _dd4_tabContent(d){switch(_dd4_UI.tab){case'attendance':return _dd4_renderAttendance(d);case'supervisors':return _dd4_renderSupervisors(d);case'agents':return _dd4_renderAgents(d,false);case'recurrence':return _dd4_renderAgents(d,true);case'rotation':return _dd4_renderRotation(d);case'quality':return _dd4_renderQuality(d);case'tickets':return `${_dd_renderTicketCommandCenter(d)}${_dd_renderDetalleCorreccionesAsistencia(d.current.ticketRows||[])}${_dd_renderPayrollDeepDive(d.payrollTickets||[])}`;default:return _dd4_renderOverview(d);}}
+
+function _dd_render(){
+  const c=document.getElementById('content');if(!c)return;
+  if(!_dd_canAccess()){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><div style="font-size:13px;color:#64748B">Este módulo es solo para People / Head People.</div></div>';return;}
+  if(_dd_LOADING){c.innerHTML='<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando Deep Dive de investigación...</div>';return;}
+  const d=_dd_DATA;if(!d){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><button class="btn-primary" onclick="_dd_loadData()">Cargar análisis</button></div>';return;}
+  const trust=Math.max(0,100-Math.min(100,Math.round((d.quality.totalIssues/Math.max(1,d.current.attendance.expectedDays))*100)));
+  const tabs=[['overview','Control Tower'],['attendance','Asistencia'],['supervisors','Supervisores'],['agents','Agentes 360'],['recurrence','Reincidencias'],['rotation','Rotación'],['tickets','Tickets y nómina'],['quality','Calidad de datos']];
+  c.innerHTML=`<div class="dd4-shell"><div class="dd4-toolbar"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}"><span style="color:#94A3B8">→</span><input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}"><button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button><select class="df-input" onchange="_dd_setFilter('campaign',this.value)"><option value="all">Todas las campañas</option>${d.campaigns.map(x=>`<option value="${_dd_escape(x)}" ${_dd_FILTERS.campaign===x?'selected':''}>${_dd_escape(x)}</option>`).join('')}</select><select class="df-input" onchange="_dd_setFilter('supervisor',this.value)"><option value="all">Todos los supervisores</option>${d.supervisorsOptions.map(x=>`<option value="${_dd_escape(x.id)}" ${_dd_FILTERS.supervisor===x.id?'selected':''}>${_dd_escape(x.name)}</option>`).join('')}</select></div><div style="display:flex;gap:8px"><button class="btn-ghost" onclick="_dd_copyExecutiveSummary()">📋 Resumen</button><button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button></div></div><div class="dd4-header"><div class="dd4-header-main"><div><div class="dd-eyebrow">People Intelligence · Investigation Workspace</div><div class="dd4-title">Deep Dive</div><div class="dd4-subtitle">${fmtDateShort(d.from)} al ${fmtDateShort(d.to)} · ${_dd_FILTERS.campaign==='all'?'Todas las campañas':_dd_escape(_dd_FILTERS.campaign)} · ${_dd_FILTERS.supervisor==='all'?'Todos los supervisores':_dd_escape(d.supervisorsOptions.find(x=>x.id===_dd_FILTERS.supervisor)?.name||_dd_FILTERS.supervisor)}<br>Cada número puede rastrearse hasta las personas y registros que lo forman.</div></div><div class="dd4-trust"><div class="dd4-trust-label">Confianza del universo</div><div class="dd4-trust-value">${trust}%</div><div class="dd4-trust-note">${d.quality.totalIssues} alertas visibles · ${d.current.rows.length} filas únicas analizadas</div></div></div></div><div class="dd4-tabs">${tabs.map(([k,l])=>`<button class="dd4-tab ${_dd4_UI.tab===k?'on':''}" onclick="_dd4_setTab('${k}')">${l}</button>`).join('')}</div>${_dd4_tabContent(d)}</div>`;
+}
+
+window._dd4_setTab=_dd4_setTab;window._dd4_setUI=_dd4_setUI;window._dd4_openAgent=_dd4_openAgent;window._dd4_closeAgent=_dd4_closeAgent;
+
 async function _init_deepdive() {
   updateSidebarUser();
 
@@ -22392,9 +22785,11 @@ window['_rerender_equipo']=function(){ _e_render(); };
 // ── ARRANQUE — Auth primero ──
 _initImpulse();
 
-/* =========================================================
-   IMPULSE - SISTEMA DE ACTUALIZACIÓN AUTOMÁTICA
-   ========================================================= */
+/*****************************************************************
+ IMPULSE
+ Version: 1.0.1
+ Build: 2026-07-23
+*****************************************************************/
 
    const IMPULSE_VERSION = '1.0.0';
 const IMPULSE_VERSION_CHECK_INTERVAL = 60 * 1000;
