@@ -11292,7 +11292,32 @@ function _dd_closeIncidentDrawer() {
 
 function _dd_setIncidentDrawerFilter(key, value) {
   _dd_INCIDENT_DRAWER[key] = value;
+
+  if (key !== 'search') {
+    _dd_renderIncidentDrawer();
+    return;
+  }
+
+  const inputActual = document.activeElement;
+  const cursorInicio = inputActual?.selectionStart ?? String(value || '').length;
+  const cursorFin = inputActual?.selectionEnd ?? cursorInicio;
+
   _dd_renderIncidentDrawer();
+
+  requestAnimationFrame(() => {
+    const inputNuevo = document.getElementById('dd-incident-search');
+    if (!inputNuevo) return;
+    inputNuevo.focus();
+    const max = inputNuevo.value.length;
+    try {
+      inputNuevo.setSelectionRange(
+        Math.min(cursorInicio, max),
+        Math.min(cursorFin, max)
+      );
+    } catch (error) {
+      console.warn('No se pudo restaurar el cursor del buscador de incidencias:', error);
+    }
+  });
 }
 
 function _dd_toggleIncidentGrouping() {
@@ -11415,7 +11440,7 @@ function _dd_renderIncidentDrawer() {
           </div>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <input class="search-box" style="flex:1;min-width:190px" placeholder="Buscar empleado, ID o supervisor..." value="${_dd_escape(_dd_INCIDENT_DRAWER.search)}" oninput="_dd_setIncidentDrawerFilter('search',this.value)">
+            <input id="dd-incident-search" class="search-box" style="flex:1;min-width:190px" placeholder="Buscar empleado, ID o supervisor..." value="${_dd_escape(_dd_INCIDENT_DRAWER.search)}" oninput="_dd_setIncidentDrawerFilter('search',this.value)">
             <select class="df-input" onchange="_dd_setIncidentDrawerFilter('supervisorId',this.value)">
               <option value="all">Todos los supervisores</option>
               ${supervisors.map(s => `<option value="${_dd_escape(s.id)}" ${_dd_INCIDENT_DRAWER.supervisorId===s.id?'selected':''}>${_dd_escape(s.name)}</option>`).join('')}
@@ -11447,7 +11472,7 @@ function _dd_renderIncidentDrawer() {
   document.getElementById('dd-incident-drawer')?.remove();
   document.body.insertAdjacentHTML('beforeend', html);
   setTimeout(() => {
-    const el = document.querySelector('#dd-incident-drawer input.search-box');
+    const el = document.getElementById('dd-incident-search');
     if (el && _dd_INCIDENT_DRAWER.search) {
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
@@ -14238,9 +14263,7 @@ function _t_setFiltro(k, v) {
 
   // Recupera el buscador después de reconstruir la pantalla.
   requestAnimationFrame(() => {
-    const inputNuevo = document.querySelector(
-      'input[placeholder="Buscar ticket o nombre del agente..."]'
-    );
+    const inputNuevo = document.getElementById('t-search-input');
 
     if (!inputNuevo) return;
 
@@ -14641,6 +14664,7 @@ function _t_renderFiltros(baseLista = _t_TICKETS, options = {}) {
       </select>
 
       <input
+        id="t-search-input"
         class="search-box"
         placeholder="Buscar ticket..."
         value="${String(_t_filtros.search || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}"
@@ -19291,9 +19315,7 @@ function _d_setFiltroTexto(valor) {
   _d_render();
 
   requestAnimationFrame(() => {
-    const inputNuevo = document.querySelector(
-      'input[placeholder="Agente, ID, infracción..."]'
-    );
+    const inputNuevo = document.getElementById('d-search-input');
 
     if (!inputNuevo) return;
 
@@ -19320,6 +19342,7 @@ function _d_filtrosHTML() {
       <span class="df-label">Buscar</span>
 
       <input
+        id="d-search-input"
         class="df-input"
         style="min-width:240px;font-family:var(--f)"
         placeholder="Agente, ID, infracción..."
