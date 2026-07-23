@@ -2328,6 +2328,7 @@ const _a_sb = supabase.createClient(_a_SB_URL, _a_SB_KEY);
 let _a_TEAM    = [];  // equipo del supervisor (hoy)
 let _a_TEAM_ALL = []; // empleados cargados para búsquedas/detalle
 let _a_DAYOFF_REQS = []; // solicitudes de cambio temporal de descanso
+let _a_SCHEDULE_REQS = []; // solicitudes de cambio temporal de horario
 let _a_QDAYS   = [];  // quincena del agente actual
 let _a_cargando = false;
 
@@ -2539,21 +2540,225 @@ function _a_renderCambioDescansoBox() {
 
   return `
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
         <div>
-          <div class="card-title" style="margin-bottom:4px">Cambio temporal de descanso</div>
-          <div style="font-size:12px;color:#64748B">
-            Cambia el descanso de una semana sin modificar el descanso fijo del colaborador.
-            Requiere aprobación de Manager o People.
+          <div class="card-title" style="margin-bottom:4px">Cambios temporales</div>
+          <div style="font-size:12px;color:#64748B;max-width:720px">
+            Solicita un cambio de descanso o de horario para una fecha específica. Basta con la aprobación de una persona con rol Manager, People, Head People o CEO.
           </div>
         </div>
 
-        <button class="btn-cyan" onclick="_a_abrirCambioDescanso('${empId}')">
-          Cambiar descanso temporal
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-cyan" onclick="_a_abrirCambioDescanso('${empId}')">
+            🛌 Cambio de descanso
+          </button>
+          <button class="btn-primary" onclick="_a_abrirCambioHorario('${empId}')">
+            🕒 Cambio de horario
+          </button>
+        </div>
       </div>
     </div>
   `;
+}
+
+function _a_abrirCambioHorario(empId) {
+  const team = Array.isArray(_a_TEAM) ? _a_TEAM : [];
+  const all = Array.isArray(_a_TEAM_ALL) ? _a_TEAM_ALL : [];
+  const sups = Array.isArray(_a_SUPS_REAL) ? _a_SUPS_REAL : [];
+
+  const emp = team.find(e => e.id === empId)
+    || all.find(e => e.id === empId)
+    || sups.find(e => e.id === empId)
+    || _a_empActualDetalle();
+
+  const nombre = emp?.name || emp?.full_name || 'Colaborador';
+  const entradaActual = String(emp?.shift_start || emp?.shiftStart || '').slice(0, 5) || '—';
+  const salidaActual = String(emp?.shift_end || emp?.shiftEnd || '').slice(0, 5) || '—';
+
+  document.getElementById('modalTitle').textContent = '🕒 Cambio temporal de horario';
+  document.getElementById('modalSub').textContent = 'Aplica únicamente para el día seleccionado';
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="alert alert-blue">
+      El horario aprobado sustituirá el horario habitual solo en esa fecha. Al día siguiente volverá automáticamente al horario normal.
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">Colaborador</div>
+      <div class="kv"><span class="k">Nombre</span><span class="v">${nombre}</span></div>
+      <div class="kv"><span class="k">ID</span><span class="v">${empId}</span></div>
+      <div class="kv"><span class="k">Horario habitual</span><span class="v">${entradaActual} – ${salidaActual}</span></div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">Nuevo horario temporal</div>
+
+      <div class="form-row">
+        <label>Fecha</label>
+        <input type="date" id="a-schedule-date" min="${ymd(new Date())}" onchange="_a_actualizarResumenCambioHorario()">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-row">
+          <label>Hora de entrada</label>
+          <input type="time" id="a-schedule-start" value="${entradaActual !== '—' ? entradaActual : '09:00'}" onchange="_a_actualizarResumenCambioHorario()">
+        </div>
+        <div class="form-row">
+          <label>Hora de salida</label>
+          <input type="time" id="a-schedule-end" value="${salidaActual !== '—' ? salidaActual : '18:00'}" onchange="_a_actualizarResumenCambioHorario()">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Motivo / comentario</label>
+        <textarea id="a-schedule-notes" placeholder="Ej. Cobertura operativa, cita personal, ajuste excepcional..."></textarea>
+      </div>
+    </div>
+
+    <div id="a-schedule-summary" style="display:none"></div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button class="btn-primary" onclick="_a_solicitarCambioHorario('${empId}')">
+      Enviar a aprobación
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+function _a_actualizarResumenCambioHorario() {
+  const fecha = document.getElementById('a-schedule-date')?.value;
+  const entrada = document.getElementById('a-schedule-start')?.value;
+  const salida = document.getElementById('a-schedule-end')?.value;
+  const box = document.getElementById('a-schedule-summary');
+  if (!box) return;
+
+  if (!fecha || !entrada || !salida) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+    return;
+  }
+
+  box.style.display = 'block';
+
+  if (_a_esFechaPasada(fecha)) {
+    box.innerHTML = `<div class="alert alert-red" style="margin:0">No puedes solicitar cambios para fechas pasadas.</div>`;
+    return;
+  }
+
+  if (entrada === salida) {
+    box.innerHTML = `<div class="alert alert-red" style="margin:0">La hora de entrada y salida no pueden ser iguales.</div>`;
+    return;
+  }
+
+  box.innerHTML = `
+    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:13px">
+      <div style="font-size:12px;font-weight:800;color:#166534;margin-bottom:8px">Resumen</div>
+      <div style="font-size:12px;color:#334155;line-height:1.7">
+        <div>✅ Fecha: <b>${_a_fechaLabel(fecha)}</b></div>
+        <div>✅ Horario temporal: <b>${entrada} – ${salida}</b></div>
+        <div>⏳ Basta con una aprobación de Manager, People, Head People o CEO.</div>
+      </div>
+    </div>
+  `;
+}
+
+async function _a_solicitarCambioHorario(empId) {
+  const fecha = document.getElementById('a-schedule-date')?.value;
+  const entrada = document.getElementById('a-schedule-start')?.value;
+  const salida = document.getElementById('a-schedule-end')?.value;
+  const notes = document.getElementById('a-schedule-notes')?.value?.trim() || null;
+
+  if (!fecha) return alert('Selecciona la fecha del cambio.');
+  if (!entrada || !salida) return alert('Selecciona la hora de entrada y salida.');
+  if (_a_esFechaPasada(fecha)) return alert('Solo puedes solicitar cambios de hoy en adelante.');
+  if (entrada === salida) return alert('La hora de entrada y salida no pueden ser iguales.');
+
+  const { error } = await _a_sb.rpc('request_temporary_schedule_change', {
+    p_employee_id: empId,
+    p_work_date: fecha,
+    p_start_time: entrada,
+    p_end_time: salida,
+    p_notes: notes
+  });
+
+  if (error) {
+    console.error('Error solicitando cambio temporal de horario:', error);
+    alert('No se pudo solicitar el cambio:\n\n' + (error.message || 'Error desconocido'));
+    return;
+  }
+
+  closeModal();
+  _a_cargando = true;
+  _a_render();
+  await _a_cargarDatos();
+  _a_cargando = false;
+  _a_render();
+  alert('Solicitud enviada. Basta con la aprobación de Manager, People, Head People o CEO.');
+}
+
+async function _a_cargarCambiosHorario() {
+  try {
+    const { data, error } = await _a_sb
+      .from('temporary_schedule_change_requests')
+      .select('id, employee_id, work_date, start_time, end_time, status, notes, requested_by, requested_at, reviewed_by, reviewed_at, rejection_reason')
+      .order('requested_at', { ascending: false });
+
+    if (error) throw error;
+    const rows = data || [];
+    const ids = [...new Set(rows.flatMap(r => [r.employee_id, r.requested_by, r.reviewed_by]).filter(Boolean))];
+    let empMap = {};
+
+    if (ids.length) {
+      const { data: emps } = await _a_sb
+        .from('employees')
+        .select('id, full_name, campaign_id, supervisor_id, system_role')
+        .in('id', ids);
+      empMap = Object.fromEntries((emps || []).map(e => [e.id, e]));
+    }
+
+    _a_SCHEDULE_REQS = rows.map(r => ({
+      ...r,
+      employee_name: empMap[r.employee_id]?.full_name || r.employee_id,
+      requested_by_name: empMap[r.requested_by]?.full_name || r.requested_by || 'No registrado',
+      reviewed_by_name: empMap[r.reviewed_by]?.full_name || r.reviewed_by || null
+    }));
+  } catch (e) {
+    console.warn('No se pudieron cargar cambios temporales de horario:', e);
+    _a_SCHEDULE_REQS = [];
+  }
+}
+
+async function _a_revisarCambioHorario(id, approve) {
+  let reason = null;
+  if (!approve) {
+    reason = prompt('Motivo de rechazo:') || '';
+    if (!reason.trim()) return;
+  } else if (!confirm('¿Seguro que quieres aprobar este horario temporal? Una sola aprobación es suficiente.')) {
+    return;
+  }
+
+  const { error } = await _a_sb.rpc('review_temporary_schedule_change', {
+    p_request_id: id,
+    p_approve: approve,
+    p_reason: reason
+  });
+
+  if (error) {
+    console.error('Error revisando cambio temporal de horario:', error);
+    alert('No se pudo revisar el cambio:\n\n' + (error.message || 'Error desconocido'));
+    return;
+  }
+
+  _a_cargando = true;
+  _a_render();
+  await _a_cargarDatos();
+  const empId = _a_QDAYS_EMPLEADO_ID || _a_drillAgent?.id || ROLES[currentRole].id;
+  if (empId) await _a_cargarQDAYS(empId, _a_dateFilter.from, _a_dateFilter.to);
+  _a_cargando = false;
+  _a_render();
 }
 
 function _a_abrirCambioDescanso(empId) {
@@ -2570,7 +2775,7 @@ function _a_abrirCambioDescanso(empId) {
   const descansos = emp?.daysOff || emp?.days_off || [];
 
   document.getElementById('modalTitle').textContent = '🔄 Cambio temporal de descanso';
-  document.getElementById('modalSub').textContent = 'Requiere aprobación de Manager o People';
+  document.getElementById('modalSub').textContent = 'Basta con una aprobación de Manager, People, Head People o CEO';
 
   document.getElementById('modalBody').innerHTML = `
     <div class="alert alert-blue">
@@ -2668,7 +2873,7 @@ function _a_actualizarResumenCambioDescanso() {
         <div>✅ Semana aplicable: <b>${_a_fechaLabel(inicioSemana)} al ${_a_fechaLabel(finSemana)}</b></div>
         <div>✅ Trabajará su descanso original: <b>${_a_fechaLabel(originalDate)}</b></div>
         <div>✅ Descansará temporalmente: <b>${_a_fechaLabel(newDate)}</b></div>
-        <div>⏳ Quedará pendiente de aprobación de Manager o People.</div>
+        <div>⏳ Basta con una aprobación de Manager, People, Head People o CEO.</div>
       </div>
     </div>
   `;
@@ -2730,30 +2935,31 @@ if (!_a_mismaSemanaLunesDomingo(originalDate, newDate)) {
   _a_cargando = false;
   _a_render();
 
-  alert('Solicitud enviada a aprobación de Manager/People.');
+  alert('Solicitud enviada. Basta con una aprobación de Manager, People, Head People o CEO.');
 }
 
 function _a_renderCambiosDescansoPendientes() {
   if (!_a_puedeAprobarCambioDescanso()) return '';
 
-  const pendientes = (_a_DAYOFF_REQS || []).filter(r => r.status === 'pending');
+  const descanso = (_a_DAYOFF_REQS || [])
+    .filter(r => r.status === 'pending')
+    .map(r => ({ ...r, change_kind: 'day_off' }));
+
+  const horario = (_a_SCHEDULE_REQS || [])
+    .filter(r => r.status === 'pending')
+    .map(r => ({ ...r, change_kind: 'schedule' }));
+
+  const pendientes = [...descanso, ...horario].sort((a, b) =>
+    String(b.requested_at || '').localeCompare(String(a.requested_at || ''))
+  );
 
   if (!pendientes.length) return '';
 
   const rows = pendientes.map(r => {
-    const all = Array.isArray(_a_TEAM_ALL) ? _a_TEAM_ALL : [];
-    const team = Array.isArray(_a_TEAM) ? _a_TEAM : [];
-
-    const emp = all.find(e => e.id === r.employee_id)
-      || team.find(e => e.id === r.employee_id);
-
-    const nombre = r.employee_name || emp?.full_name || emp?.name || r.employee_id;
-
-    const solicitadoFecha = r.requested_at
-      ? fmtDateTimeCDMX(r.requested_at, { month: '2-digit' })
-      : '—';
-
+    const nombre = r.employee_name || r.employee_id;
+    const solicitadoFecha = r.requested_at ? fmtDateTimeCDMX(r.requested_at, { month: '2-digit' }) : '—';
     const solicitadoPor = r.requested_by_name || r.requested_by || 'No registrado';
+    const esHorario = r.change_kind === 'schedule';
 
     return `
       <tr>
@@ -2761,35 +2967,22 @@ function _a_renderCambiosDescansoPendientes() {
           <div class="agent-row-name">${nombre}</div>
           <div class="agent-row-id">${r.employee_id}</div>
         </td>
-
-        <td>${_a_fechaLabel(r.original_rest_date)}</td>
-
-        <td>${_a_fechaLabel(r.new_rest_date)}</td>
-
-        <td style="max-width:360px;white-space:normal;line-height:1.35">
-          ${r.notes || '—'}
-        </td>
-
         <td>
-          <div style="font-size:12px;font-weight:900;color:#0F172A">
-            ${solicitadoPor}
-          </div>
-
-          <div style="font-size:11px;color:#64748B;margin-top:3px">
-            ${solicitadoFecha}
-          </div>
-
-          ${r.requested_by ? `
-            <div style="font-size:10px;color:#94A3B8;margin-top:2px">
-              ${r.requested_by}
-            </div>
-          ` : ''}
+          <span class="pill ${esHorario ? 'pill-blue' : 'pill-purple'}">
+            <span class="dot"></span>${esHorario ? 'Cambio de horario' : 'Cambio de descanso'}
+          </span>
         </td>
-
+        <td>${esHorario ? _a_fechaLabel(r.work_date) : `${_a_fechaLabel(r.original_rest_date)} → ${_a_fechaLabel(r.new_rest_date)}`}</td>
+        <td>${esHorario ? `<b>${String(r.start_time || '').slice(0,5)} – ${String(r.end_time || '').slice(0,5)}</b>` : '—'}</td>
+        <td style="max-width:320px;white-space:normal;line-height:1.35">${r.notes || '—'}</td>
+        <td>
+          <div style="font-size:12px;font-weight:900;color:#0F172A">${solicitadoPor}</div>
+          <div style="font-size:11px;color:#64748B;margin-top:3px">${solicitadoFecha}</div>
+        </td>
         <td>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="btn-green" onclick="_a_revisarCambioDescanso('${r.id}', true)">Aprobar</button>
-            <button class="btn-red" onclick="_a_revisarCambioDescanso('${r.id}', false)">Rechazar</button>
+            <button class="btn-green" onclick="${esHorario ? `_a_revisarCambioHorario('${r.id}', true)` : `_a_revisarCambioDescanso('${r.id}', true)`}">Aprobar</button>
+            <button class="btn-red" onclick="${esHorario ? `_a_revisarCambioHorario('${r.id}', false)` : `_a_revisarCambioDescanso('${r.id}', false)`}">Rechazar</button>
           </div>
         </td>
       </tr>
@@ -2798,25 +2991,14 @@ function _a_renderCambiosDescansoPendientes() {
 
   return `
     <div class="card">
-      <div class="card-title">Cambios temporales de descanso pendientes</div>
-
+      <div class="card-title">Cambios temporales pendientes</div>
       <div class="alert alert-amber">
-        Estas solicitudes requieren aprobación de Manager o People antes de reflejarse en asistencia.
+        Una sola aprobación de Manager, People, Head People o CEO aplica el cambio. No se requiere una cadena de aprobaciones.
       </div>
-
       <div class="tbl-wrap">
         <div style="overflow-x:auto">
-          <table style="min-width:980px">
-            <thead>
-              <tr>
-                <th>Colaborador</th>
-                <th>Trabajará descanso original</th>
-                <th>Nuevo descanso</th>
-                <th>Motivo</th>
-                <th>Solicitado por</th>
-                <th>Acción</th>
-              </tr>
-            </thead>
+          <table style="min-width:1080px">
+            <thead><tr><th>Colaborador</th><th>Tipo</th><th>Fecha / movimiento</th><th>Horario</th><th>Motivo</th><th>Solicitado por</th><th>Acción</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
@@ -3805,6 +3987,9 @@ async function _a_cargarDatos() {
 
     if (typeof _a_cargarCambiosDescanso === 'function') {
       await _a_cargarCambiosDescanso();
+    }
+    if (typeof _a_cargarCambiosHorario === 'function') {
+      await _a_cargarCambiosHorario();
     }
 
     return true;
