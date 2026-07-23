@@ -1601,7 +1601,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.3';
+const APP_VERSION   = '1.0.4';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -13133,22 +13133,43 @@ function _dd4_buildWarningRisk(cases=[],matrixRows=[],employees=[]){
   return {today,byEmployee,all,activeWarnings,activeLastWarnings,byCampaign,red:all.filter(x=>x.riskColor==='red').length,yellow:all.filter(x=>x.riskColor==='yellow').length,green:all.filter(x=>x.riskColor==='green').length};
 }
 
+function _dd4_isCountableAbsenceException(e){
+  return _dd_norm(e?.type)==='falta_injustificada' && !_dd4_isCancelledException(e);
+}
+
 function _dd4_absenceSourceDetailed(row={},employeeById){
   const notes=_dd_norm([row.notes,row.source,row.created_source,row.origin].filter(Boolean).join(' '));
-  if(notes.includes('bot')||notes.includes('🤖')||_dd_norm(row.created_by)==='bot') return {source:'bot',label:'Bot',creatorId:row.created_by||row.requested_by||'',creatorName:'Bot'};
+  if(notes.includes('bot')||notes.includes('🤖')||_dd_norm(row.created_by)==='bot'){
+    return {source:'bot',label:'Bot',creatorId:row.created_by||row.requested_by||'',creatorName:'Bot',creatorRole:'bot'};
+  }
   const creatorId=String(row.created_by||row.requested_by||'').trim();
   const creator=employeeById?.get(creatorId.toUpperCase());
   const role=_dd_norm(creator?.system_role);
-  if(role==='supervisor') return {source:'supervisor',label:'Supervisor',creatorId,creatorName:creator?.full_name||creatorId||'Supervisor'};
-  if(creatorId) return {source:'other_manual',label:'Otro manual',creatorId,creatorName:creator?.full_name||creatorId,creatorRole:role||'sin rol identificado'};
-  return {source:'unidentified',label:'Sin identificar',creatorId:'',creatorName:'—'};
+  return {
+    source:'supervisor',
+    label:'Supervisor',
+    creatorId,
+    creatorName:creator?.full_name||creatorId||'Sin usuario identificado',
+    creatorRole:role||'sin rol identificado'
+  };
 }
 
 function _dd4_absenceSourceSummary(rows=[],employeeById){
-  const faltas=(rows||[]).filter(r=>_dd_norm(r.type)==='falta_injustificada');
-  const out={total:faltas.length,bot:0,supervisor:0,other_manual:0,unidentified:0,rows:[]};
-  faltas.forEach(r=>{const src=_dd4_absenceSourceDetailed(r,employeeById);out[src.source]++;out.rows.push({...r,dd_source:src.source,dd_source_label:src.label,dd_creator_id:src.creatorId,dd_creator_name:src.creatorName,dd_creator_role:src.creatorRole||''});});
-  ['bot','supervisor','other_manual','unidentified'].forEach(k=>out[k+'Pct']=_dd_pct(out[k],out.total));
+  // Para Bot vs Sup sí se incluyen las faltas pending: representan cargas reales.
+  // Solo se eliminan las canceladas/rechazadas para no inflar el resultado.
+  const faltas=(rows||[]).filter(_dd4_isCountableAbsenceException);
+  const out={total:faltas.length,bot:0,supervisor:0,rows:[]};
+  const people={bot:new Set(),supervisor:new Set()};
+  faltas.forEach(r=>{
+    const src=_dd4_absenceSourceDetailed(r,employeeById);
+    out[src.source]++;
+    if(r.employee_id) people[src.source].add(String(r.employee_id).trim().toUpperCase());
+    out.rows.push({...r,dd_source:src.source,dd_source_label:src.label,dd_creator_id:src.creatorId,dd_creator_name:src.creatorName,dd_creator_role:src.creatorRole||''});
+  });
+  ['bot','supervisor'].forEach(k=>{
+    out[k+'Pct']=_dd_pct(out[k],out.total);
+    out[k+'People']=people[k].size;
+  });
   return out;
 }
 
@@ -13386,8 +13407,8 @@ async function _dd_loadData(){
   _dd4_matchActions(curRows,curActionsAll);_dd4_matchActions(prevRows,prevActionsAll);
   const warningRisk=_dd4_buildWarningRisk(activeWarningCases?.data||[],matrixDirectory?.data||[],employees);
   const data={from,to,prevFrom,prevTo,historyFrom,campaigns,supervisors:[],supervisorsOptions:Object.entries(supervisorsMap).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)),employees,allActiveEmployees,directoryRows,attendanceUniverse,warningRisk,matrixRows:matrixDirectory?.data||[],
-    current:{rawRows:_dd_filterAttendanceRows(curRawMarked),rows:curRows,duplicates:curD.duplicateGroups.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),conflicts:curD.conflicts.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),attendance:_dd_attendanceSummary(curRows),expectedActions:_dd_expectedActions(curRows),tickets:_dd_ticketSummary(curTickets,from,to),ticketRows:curTickets,actions:curActions,actionRowsAll:curActionsAll,exceptions:curExceptions,absenceSources:_dd4_absenceSourceSummary(curExceptions.filter(_dd4_isFinalException),employeeById),rotation:_dd4_rotationSummary(rotationHistoryCur,allActiveEmployees)},
-    previous:{rawRows:_dd_filterAttendanceRows(prevRawMarked),rows:prevRows,duplicates:prevD.duplicateGroups,conflicts:prevD.conflicts,attendance:_dd_attendanceSummary(prevRows),expectedActions:_dd_expectedActions(prevRows),tickets:_dd_ticketSummary(prevTickets,prevFrom,prevTo),ticketRows:prevTickets,actions:prevActions,actionRowsAll:prevActionsAll,exceptions:prevExceptions,absenceSources:_dd4_absenceSourceSummary(prevExceptions.filter(_dd4_isFinalException),employeeById),rotation:_dd4_rotationSummary(rotationHistoryPrev,allActiveEmployees)},
+    current:{rawRows:_dd_filterAttendanceRows(curRawMarked),rows:curRows,duplicates:curD.duplicateGroups.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),conflicts:curD.conflicts.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),attendance:_dd_attendanceSummary(curRows),expectedActions:_dd_expectedActions(curRows),tickets:_dd_ticketSummary(curTickets,from,to),ticketRows:curTickets,actions:curActions,actionRowsAll:curActionsAll,exceptions:curExceptions,absenceSources:_dd4_absenceSourceSummary(curExceptions,employeeById),rotation:_dd4_rotationSummary(rotationHistoryCur,allActiveEmployees)},
+    previous:{rawRows:_dd_filterAttendanceRows(prevRawMarked),rows:prevRows,duplicates:prevD.duplicateGroups,conflicts:prevD.conflicts,attendance:_dd_attendanceSummary(prevRows),expectedActions:_dd_expectedActions(prevRows),tickets:_dd_ticketSummary(prevTickets,prevFrom,prevTo),ticketRows:prevTickets,actions:prevActions,actionRowsAll:prevActionsAll,exceptions:prevExceptions,absenceSources:_dd4_absenceSourceSummary(prevExceptions,employeeById),rotation:_dd4_rotationSummary(rotationHistoryPrev,allActiveEmployees)},
     history90:{rawRows:histRawMarked,rows:historyRows,duplicates:histD.duplicateGroups,conflicts:histD.conflicts},payrollTickets:[]};
   data.supervisors=_dd4_supervisors(curRows,curActionsAll,curTickets);data.actionCompliance=_dd4_matchActions(curRows,curActionsAll);data.quality=_dd4_buildQuality(data);data.agents=_dd4_buildAgents(data);data.recurrence=data.agents.filter(a=>a.incidents90>=2);data.narrative=_dd_generateNarrative(data);data.recommendations=_dd_generateRecommendations(data);
   try{const{data:payrollRows,error}=await _a_sb.rpc('payroll_ticket_deepdive',{p_from:from,p_to:to});if(error)console.warn('No se pudo cargar Deep Dive Nómina:',error);else data.payrollTickets=_dd_filterRowsByScope(payrollRows||[],curScope,'payroll');}catch(e){console.warn('Error cargando Deep Dive Nómina:',e);}
@@ -13421,15 +13442,13 @@ function _dd4_riskColorPill(color){
 }
 
 function _dd4_renderAbsenceOriginPanel(d){
-  const src=d.current.absenceSources||{total:0,bot:0,supervisor:0,other_manual:0,unidentified:0};
+  const src=d.current.absenceSources||{total:0,bot:0,supervisor:0,botPeople:0,supervisorPeople:0};
   return `<div class="dd4-panel">
-    <div class="dd4-panel-head"><div><div class="dd4-panel-title">Faltas registradas · Bot vs liderazgo</div><div class="dd4-panel-copy">Clasifica cada falta final por el rol real de quien la creó. People y Managers ya no se mezclan con Supervisores.</div></div><span class="dd4-chip blue">${src.total} registros</span></div>
+    <div class="dd4-panel-head"><div><div class="dd4-panel-title">Faltas registradas · Bot vs Sup</div><div class="dd4-panel-copy">Cuenta todas las faltas cargadas en el periodo, incluidas las pendientes. Las canceladas o rechazadas no se consideran.</div></div><span class="dd4-chip blue">${src.total} registros</span></div>
     <div class="dd4-panel-body">
-      <div class="dd4-reconcile">
-        <div class="dd4-reconcile-item" style="cursor:pointer" onclick="_dd4_openAbsenceSources('bot')"><div class="dd4-reconcile-label">Bot</div><div class="dd4-reconcile-value" style="color:#7C3AED">${src.bot}</div><div class="dd4-reconcile-note">${src.botPct||0}% del total.</div></div>
-        <div class="dd4-reconcile-item" style="cursor:pointer" onclick="_dd4_openAbsenceSources('supervisor')"><div class="dd4-reconcile-label">Supervisores</div><div class="dd4-reconcile-value" style="color:#2563EB">${src.supervisor}</div><div class="dd4-reconcile-note">${src.supervisorPct||0}% del total.</div></div>
-        <div class="dd4-reconcile-item" style="cursor:pointer" onclick="_dd4_openAbsenceSources('other_manual')"><div class="dd4-reconcile-label">Otro manual</div><div class="dd4-reconcile-value" style="color:#D97706">${src.other_manual}</div><div class="dd4-reconcile-note">People, Manager u otro rol.</div></div>
-        <div class="dd4-reconcile-item" style="cursor:pointer" onclick="_dd4_openAbsenceSources('unidentified')"><div class="dd4-reconcile-label">Sin identificar</div><div class="dd4-reconcile-value" style="color:#64748B">${src.unidentified}</div><div class="dd4-reconcile-note">Sin creador reconocible.</div></div>
+      <div class="dd4-reconcile" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+        <div class="dd4-reconcile-item" style="cursor:pointer" onclick="_dd4_openAbsenceSources('bot')"><div class="dd4-reconcile-label">Bot</div><div class="dd4-reconcile-value" style="color:#7C3AED">${src.bot}</div><div class="dd4-reconcile-note">${src.botPeople||0} agentes · ${src.botPct||0}% del total. Haz clic para ver agentes y supervisores.</div></div>
+        <div class="dd4-reconcile-item" style="cursor:pointer" onclick="_dd4_openAbsenceSources('supervisor')"><div class="dd4-reconcile-label">Sup</div><div class="dd4-reconcile-value" style="color:#2563EB">${src.supervisor}</div><div class="dd4-reconcile-note">${src.supervisorPeople||0} agentes · ${src.supervisorPct||0}% del total. Incluye toda carga manual no Bot.</div></div>
       </div>
     </div>
   </div>`;
@@ -13485,8 +13504,25 @@ function _dd4_openRiskList(campaign='all',level='all'){
 
 function _dd4_openAbsenceSources(source='all'){
   const src=_dd_DATA?.current?.absenceSources;if(!src)return;
-  const rows=(src.rows||[]).filter(x=>source==='all'||x.dd_source===source);
-  const html=`<div class="modal-backdrop" id="dd4-source-modal" onclick="if(event.target===this)this.remove()"><div class="modal" style="width:1120px;max-width:97vw"><div class="modal-hd"><div><h3>Origen de faltas registradas</h3><div class="sub">${rows.length} registros · ${source==='all'?'todos los orígenes':source}</div></div><button class="modal-hd-close" onclick="document.getElementById('dd4-source-modal')?.remove()">×</button></div><div class="modal-body"><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1050px"><thead><tr><th>Fecha</th><th>Agente</th><th>Origen</th><th>Cargada por</th><th>Rol creador</th><th>Status</th><th>Notas</th></tr></thead><tbody>${rows.length?rows.map(x=>{const emp=(_dd_DATA.directoryRows||[]).find(e=>String(e.id).toUpperCase()===String(x.employee_id).toUpperCase());return`<tr><td class="dd4-mono">${fmtDateShort(x.exception_date)}</td><td><div class="dd4-strong">${_dd_escape(emp?.full_name||x.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(x.employee_id||'—')}</div></td><td><span class="dd4-status ${x.dd_source==='bot'?'neutral':x.dd_source==='supervisor'?'ok':'warn'}">${_dd_escape(x.dd_source_label)}</span></td><td>${_dd_escape(x.dd_creator_name||'—')}</td><td>${_dd_escape(x.dd_creator_role||'—')}</td><td>${_dd_escape(x.status||'—')}</td><td>${_dd_escape(x.notes||'—')}</td></tr>`;}).join(''):`<tr><td colspan="7"><div class="dd4-empty">No hay registros para este origen.</div></td></tr>`}</tbody></table></div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="document.getElementById('dd4-source-modal')?.remove()">Cerrar</button></div></div></div>`;
+  const rows=(src.rows||[]).filter(x=>source==='all'||x.dd_source===source).sort((a,b)=>String(b.exception_date||'').localeCompare(String(a.exception_date||''))||String(a.employee_id||'').localeCompare(String(b.employee_id||'')));
+  const currentRows=_dd_DATA?.current?.rows||[];
+  const directory=_dd_DATA?.directoryRows||[];
+  const employeeMap=new Map(directory.map(e=>[String(e.id||'').trim().toUpperCase(),e]));
+  const sourceLabel=source==='bot'?'Bot':source==='supervisor'?'Sup':'Todos';
+  const uniqueAgents=new Set(rows.map(x=>String(x.employee_id||'').trim().toUpperCase()).filter(Boolean));
+  const supervisors=new Set();
+  const rowHtml=rows.map(x=>{
+    const empId=String(x.employee_id||'').trim().toUpperCase();
+    const emp=employeeMap.get(empId)||{};
+    const audit=currentRows.find(r=>_dd4_rowKey(r)===_dd4_exceptionKey(x))||{};
+    const supervisorId=audit.supervisor_id||emp.supervisor_id||'';
+    const supervisorEmp=employeeMap.get(String(supervisorId||'').trim().toUpperCase())||{};
+    const supervisorName=audit.supervisor_name||emp.supervisor_name||supervisorEmp.full_name||supervisorId||'Sin supervisor';
+    const campaign=audit.campaign_id||emp.campaign_id||'Sin campaña';
+    if(supervisorName&&supervisorName!=='Sin supervisor')supervisors.add(supervisorName);
+    return `<tr><td class="dd4-mono">${fmtDateShort(x.exception_date)}</td><td><div class="dd4-strong">${_dd_escape(emp.full_name||audit.employee_name||x.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(x.employee_id||'—')}</div></td><td>${_dd_escape(campaign)}</td><td>${_dd_escape(supervisorName)}</td><td><span class="dd4-status ${x.dd_source==='bot'?'neutral':'ok'}">${_dd_escape(x.dd_source_label)}</span></td><td>${_dd_escape(x.dd_creator_name||'—')}</td><td>${_dd_escape(x.dd_creator_role||'—')}</td><td>${_dd4_statusPill(x.status||'—')}</td><td>${_dd_escape(x.notes||'—')}</td></tr>`;
+  }).join('');
+  const html=`<div class="modal-backdrop" id="dd4-source-modal" onclick="if(event.target===this)this.remove()"><div class="modal" style="width:1280px;max-width:98vw"><div class="modal-hd"><div><h3>Faltas cargadas por ${sourceLabel}</h3><div class="sub">${rows.length} registros · ${uniqueAgents.size} agentes · ${supervisors.size} supervisores asignados</div></div><button class="modal-hd-close" onclick="document.getElementById('dd4-source-modal')?.remove()">×</button></div><div class="modal-body"><div class="dd4-alert blue">Las filas pendientes sí aparecen porque esta vista mide quién cargó la falta. Las canceladas y rechazadas quedan fuera.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor asignado</th><th>Origen</th><th>Cargada por</th><th>Rol creador</th><th>Status</th><th>Notas</th></tr></thead><tbody>${rows.length?rowHtml:`<tr><td colspan="9"><div class="dd4-empty">No hay registros para este origen.</div></td></tr>`}</tbody></table></div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="document.getElementById('dd4-source-modal')?.remove()">Cerrar</button></div></div></div>`;
   document.getElementById('dd4-source-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);
 }
 
@@ -23203,7 +23239,7 @@ _initImpulse();
 
 /*****************************************************************
  IMPULSE
- Version: 1.0.3
+ Version: 1.0.4
  Build: 2026-07-23
 *****************************************************************/
 
