@@ -14044,13 +14044,28 @@ async function _t_resolverTicket(id) {
         <select id="tr-incident-final-type" style="border:1px solid #93C5FD;border-radius:7px;padding:7px 10px;font-size:12px;font-family:var(--f);background:#fff;color:#0F172A">
           <option value="">Selecciona...</option>
           <option value="permuta_descanso">🛏️ Descanso</option>
+          <option value="jornada_trabajada">✅ Sí trabajó — registrar jornada</option>
           <option value="incapacidad">🏥 Incapacidad</option>
           <option value="falta_justificada">📋 Falta justificada</option>
           <option value="permiso">🤝 Permiso</option>
           <option value="falta_injustificada">🚫 Falta injustificada</option>
         </select>
       </span></div>
-      <div style="font-size:11px;color:#1E40AF;margin-top:9px">Al confirmar, se actualizará la excepción con el tipo elegido y se limpiarán los punches del día para evitar registros contradictorios.</div>
+      <div id="tr-worked-schedule" style="display:none;margin-top:12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:12px">
+        <div style="font-size:11px;font-weight:800;color:#166534;margin-bottom:8px">✅ Jornada administrativa</div>
+        <div id="tr-worked-loading" style="font-size:11px;color:#166534">Consultando el horario efectivo de ese día...</div>
+        <div id="tr-worked-fields" style="display:none;grid-template-columns:1fr 1fr;gap:10px">
+          <label style="font-size:11px;color:#166534">Entrada
+            <input type="time" id="tr-worked-in" style="display:block;width:100%;margin-top:4px;border:1px solid #86EFAC;border-radius:7px;padding:7px 9px;font-family:'DM Mono',monospace;font-weight:700;background:#fff">
+          </label>
+          <label style="font-size:11px;color:#166534">Salida
+            <input type="time" id="tr-worked-out" style="display:block;width:100%;margin-top:4px;border:1px solid #86EFAC;border-radius:7px;padding:7px 9px;font-family:'DM Mono',monospace;font-weight:700;background:#fff">
+          </label>
+        </div>
+        <div id="tr-worked-source" style="font-size:10px;color:#15803D;margin-top:8px"></div>
+        <div style="font-size:10px;color:#166534;margin-top:6px">Las marcas quedarán identificadas como administrativas y ligadas a este ticket.</div>
+      </div>
+      <div style="font-size:11px;color:#1E40AF;margin-top:9px">Para ausencias se actualizará la excepción y se limpiarán los punches. Si eliges “Sí trabajó”, se quitará la falta y se crearán entrada y salida con el horario indicado.</div>
       <div style="font-size:11px;color:#1E40AF;margin-top:6px"><strong>Motivo del supervisor:</strong> ${incidentData?.request_reason || '—'}</div>
     </div>` : esCorreccion ? `<div class="modal-section" style="background:#FFFBEB;border-color:#FDE68A">
       <div class="ms-title" style="color:#92400E">🚩 Revisá antes de aplicar — podés ajustar la hora</div>
@@ -14076,6 +14091,44 @@ async function _t_resolverTicket(id) {
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
     <button class="btn-primary" onclick="_t_confirmarResolver('${id}')">${esCorreccionIncidencia ? '✅ Aplicar clasificación y completar' : esCorreccion ? '✅ Aplicar y completar' : esJerarquia ? '✅ Aprobar y actualizar supervisor' : esBaja ? '✅ Aprobar y continuar con la baja' : 'Marcar como completado'}</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
+
+  if (esCorreccionIncidencia) {
+    const selector = document.getElementById('tr-incident-final-type');
+    selector?.addEventListener('change', () => _t_toggleJornadaTrabajada(t));
+  }
+}
+
+async function _t_toggleJornadaTrabajada(t) {
+  const finalType = document.getElementById('tr-incident-final-type')?.value;
+  const box = document.getElementById('tr-worked-schedule');
+  if (!box) return;
+  box.style.display = finalType === 'jornada_trabajada' ? 'block' : 'none';
+  if (finalType !== 'jornada_trabajada' || box.dataset.loaded === '1') return;
+
+  const d = _t_parseIncidentCorrectionData(t);
+  const workDate = d?.original_date || t.target_date;
+  const loading = document.getElementById('tr-worked-loading');
+  const fields = document.getElementById('tr-worked-fields');
+  const source = document.getElementById('tr-worked-source');
+
+  const { data, error } = await _t_sb.rpc('get_effective_schedule_for_date', {
+    p_employee_id: t.target_employee_id,
+    p_work_date: workDate
+  });
+
+  if (error || !data?.start_time || !data?.end_time) {
+    if (loading) loading.textContent = 'No se pudo detectar el horario automáticamente. Captura las horas manualmente.';
+    if (fields) fields.style.display = 'grid';
+    if (source) source.textContent = error?.message || 'Horario no encontrado.';
+    return;
+  }
+
+  document.getElementById('tr-worked-in').value = String(data.start_time).slice(0, 5);
+  document.getElementById('tr-worked-out').value = String(data.end_time).slice(0, 5);
+  if (loading) loading.style.display = 'none';
+  if (fields) fields.style.display = 'grid';
+  if (source) source.textContent = `Horario detectado: ${data.source_label || data.source || 'horario efectivo'}. Puedes ajustarlo antes de guardar.`;
+  box.dataset.loaded = '1';
 }
 
 
@@ -14085,9 +14138,19 @@ async function _t_aplicarCorreccionIncidencia(t, finalType) {
   const d = _t_parseIncidentCorrectionData(t);
   if (!d) return { error: new Error('El ticket no contiene el detalle de la incidencia.') };
 
-  const finalLabel = _a_incidentTypeLabel(finalType);
+  const esJornada = finalType === 'jornada_trabajada';
+  const finalLabel = esJornada ? 'Jornada trabajada' : _a_incidentTypeLabel(finalType);
+  const clockIn = esJornada ? document.getElementById('tr-worked-in')?.value : null;
+  const clockOut = esJornada ? document.getElementById('tr-worked-out')?.value : null;
+
+  if (esJornada && (!clockIn || !clockOut)) {
+    return { error: new Error('Indica la hora de entrada y salida que se registrarán.') };
+  }
+
   const resolutionNotes = document.getElementById('tr-notas')?.value?.trim()
-    || `Incidencia reclasificada como ${finalLabel}. Motivo: ${d.request_reason || 'Corrección autorizada por People'}.`;
+    || (esJornada
+      ? `Jornada registrada administrativamente. Supervisor confirmó que el colaborador sí laboró. Motivo: ${d.request_reason || 'Corrección autorizada por People'}.`
+      : `Incidencia reclasificada como ${finalLabel}. Motivo: ${d.request_reason || 'Corrección autorizada por People'}.`);
 
   const { data, error } = await _t_sb.rpc('resolve_attendance_exception_correction', {
     p_ticket_id: t.id,
@@ -14095,7 +14158,9 @@ async function _t_aplicarCorreccionIncidencia(t, finalType) {
     p_exception_date: d.original_date || t.target_date,
     p_final_type: finalType,
     p_actor_id: ROLES[currentRole]?.id || null,
-    p_resolution_notes: resolutionNotes
+    p_resolution_notes: resolutionNotes,
+    p_clock_in: clockIn || null,
+    p_clock_out: clockOut || null
   });
 
   return { data, error, summary: resolutionNotes };
@@ -14132,8 +14197,18 @@ async function _t_confirmarResolver(id) {
       return;
     }
 
-    const finalLabel = _a_incidentTypeLabel(finalType);
-    const ok = confirm(`Esta acción clasificará el día como ${finalLabel.toUpperCase()} y eliminará cualquier entrada o salida registrada para ese día. ¿Continuar?`);
+    const esJornada = finalType === 'jornada_trabajada';
+    const finalLabel = esJornada ? 'Jornada trabajada' : _a_incidentTypeLabel(finalType);
+    const inTime = document.getElementById('tr-worked-in')?.value;
+    const outTime = document.getElementById('tr-worked-out')?.value;
+    if (esJornada && (!inTime || !outTime)) {
+      alert('Indica la hora de entrada y salida que se registrarán.');
+      return;
+    }
+    const mensaje = esJornada
+      ? `Se quitará la falta y se registrará una jornada administrativa de ${inTime} a ${outTime}. ¿Continuar?`
+      : `Esta acción clasificará el día como ${finalLabel.toUpperCase()} y eliminará cualquier entrada o salida registrada para ese día. ¿Continuar?`;
+    const ok = confirm(mensaje);
     if (!ok) return;
 
     const { error: errInc } = await _t_aplicarCorreccionIncidencia(t, finalType);
@@ -14151,7 +14226,9 @@ async function _t_confirmarResolver(id) {
       if (typeof _a_cargarDatos === 'function') await _a_cargarDatos();
       if (activeModule === 'asistencia' && typeof _a_render === 'function') _a_render();
     } catch (e) { console.warn('Corrección aplicada, pero no se pudo refrescar asistencia en memoria:', e); }
-    alert(`✅ La incidencia se clasificó como ${finalLabel} y el ticket quedó completado.`);
+    alert(esJornada
+      ? `✅ Se registró la jornada administrativa ${inTime}–${outTime} y el ticket quedó completado.`
+      : `✅ La incidencia se clasificó como ${finalLabel} y el ticket quedó completado.`);
     return;
   }
 
@@ -15442,12 +15519,12 @@ function _t_renderDetalle(id) {
         ${_t_esCorreccionIncidencia(t) ? (() => {
           const d = _t_parseIncidentCorrectionData(t);
           return `<div style="margin-bottom:16px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:14px">
-            <div style="font-size:11px;font-weight:800;color:#1D4ED8;margin-bottom:12px">🛏️ Convertir incidencia en descanso</div>
+            <div style="font-size:11px;font-weight:800;color:#1D4ED8;margin-bottom:12px">🧭 Resolver incidencia</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px">
               <div><span style="color:#1D4ED8">Colaborador:</span><br><strong>${_t_nombreEmpleado(t.target_employee_id)}</strong></div>
               <div><span style="color:#1D4ED8">Fecha:</span><br><strong>${d?.original_date || t.target_date || '—'}</strong></div>
               <div><span style="color:#1D4ED8">Incidencia actual:</span><br>${_a_incidentTypeLabel(d?.original_type)}</div>
-              <div><span style="color:#1D4ED8">Resultado:</span><br><strong>Descanso + eliminación de punches</strong></div>
+              <div><span style="color:#1D4ED8">Resolución:</span><br><strong>People define el resultado correcto</strong></div>
             </div>
             <div style="margin-top:12px;padding-top:10px;border-top:1px solid #BFDBFE;font-size:12px;color:#1E3A8A"><strong>Motivo:</strong> ${d?.request_reason || '—'}</div>
           </div>`;
@@ -15479,7 +15556,7 @@ ${t.resolution_notes ? `
             ` : ''}
 
             <button onclick="_t_resolverTicket('${t.id}')" class="btn-green">
-              ${_t_esCorreccionIncidencia(t) ? '✅ Convertir en descanso' : t.type === 'correccion_asistencia' ? '✅ Aplicar y completar' : _t_esSolicitudBajaValor(_t_categoriaLabel(t.type), t.subtype) ? '✅ Aprobar y continuar con la baja' : '✅ Marcar como completado'}
+              ${_t_esCorreccionIncidencia(t) ? '✅ Resolver incidencia' : t.type === 'correccion_asistencia' ? '✅ Aplicar y completar' : _t_esSolicitudBajaValor(_t_categoriaLabel(t.type), t.subtype) ? '✅ Aprobar y continuar con la baja' : '✅ Marcar como completado'}
             </button>
 
             <button onclick="_t_cancelarTicket('${t.id}')" class="btn-ghost">Cancelar ticket</button>
