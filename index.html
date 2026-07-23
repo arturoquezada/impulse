@@ -1397,6 +1397,141 @@ body{font-family:var(--f);background:#F0F2F7;min-height:100vh;color:#0F172A;font
 @media(max-width:1000px){.dd-mini-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:620px){.dd-mini-grid{grid-template-columns:1fr}.dd-table-card-head{flex-direction:column}}
 
+/* =========================================================
+   IMPULSE - AVISO DE NUEVA VERSIÓN
+   ========================================================= */
+
+   #impulse-update-banner {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  z-index: 999999;
+
+  width: min(720px, calc(100vw - 32px));
+
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+
+  transform: translate(-50%, -18px);
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease,
+    visibility 0.22s ease;
+}
+
+#impulse-update-banner.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+
+  transform: translate(-50%, 0);
+}
+
+.impulse-update-banner__content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+
+  padding: 14px 16px;
+
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+
+  color: #ffffff;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(17, 24, 39, 0.98),
+      rgba(30, 41, 59, 0.98)
+    );
+
+  box-shadow:
+    0 18px 50px rgba(15, 23, 42, 0.28),
+    0 4px 16px rgba(15, 23, 42, 0.18);
+
+  backdrop-filter: blur(18px);
+}
+
+.impulse-update-banner__icon {
+  flex: 0 0 auto;
+
+  display: grid;
+  place-items: center;
+
+  width: 42px;
+  height: 42px;
+
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.1);
+
+  font-size: 21px;
+}
+
+.impulse-update-banner__text {
+  min-width: 0;
+  flex: 1;
+
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.impulse-update-banner__text strong {
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.impulse-update-banner__text span {
+  color: rgba(255, 255, 255, 0.72);
+
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.impulse-update-banner__button {
+  flex: 0 0 auto;
+
+  padding: 10px 14px;
+
+  border: 0;
+  border-radius: 11px;
+
+  color: #111827;
+  background: #ffffff;
+
+  font-size: 12px;
+  font-weight: 800;
+
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.impulse-update-banner__button:hover {
+  transform: translateY(-1px);
+}
+
+.impulse-update-banner__button:active {
+  transform: translateY(0);
+  opacity: 0.88;
+}
+
+@media (max-width: 640px) {
+  .impulse-update-banner__content {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .impulse-update-banner__text {
+    min-width: calc(100% - 60px);
+  }
+
+  .impulse-update-banner__button {
+    width: 100%;
+  }
+}
 
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -22256,6 +22391,200 @@ window['_rerender_equipo']=function(){ _e_render(); };
 
 // ── ARRANQUE — Auth primero ──
 _initImpulse();
+
+/* =========================================================
+   IMPULSE - SISTEMA DE ACTUALIZACIÓN AUTOMÁTICA
+   ========================================================= */
+
+   const IMPULSE_VERSION = '1.0.0';
+const IMPULSE_VERSION_CHECK_INTERVAL = 60 * 1000;
+
+let _impulseUpdateDetected = false;
+let _impulseUpdateChecking = false;
+let _impulseUpdateInterval = null;
+
+async function _impulseCheckForUpdates(options = {}) {
+  const {
+    silent = true
+  } = options;
+
+  if (_impulseUpdateChecking || _impulseUpdateDetected) {
+    return;
+  }
+
+  _impulseUpdateChecking = true;
+
+  try {
+    const { data, error } = await _a_sb
+      .from('app_config')
+      .select('value, updated_at')
+      .eq('key', 'version')
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    const remoteVersion = String(data?.value || '').trim();
+    const localVersion = String(IMPULSE_VERSION || '').trim();
+
+    if (!remoteVersion) {
+      console.warn(
+        '[Impulse Update] No se encontró app_config.version.'
+      );
+      return;
+    }
+
+    console.log(
+      `[Impulse Update] Local: ${localVersion} | Remota: ${remoteVersion}`
+    );
+
+    if (remoteVersion !== localVersion) {
+      _impulseUpdateDetected = true;
+
+      _impulseShowUpdateBanner({
+        currentVersion: localVersion,
+        newVersion: remoteVersion
+      });
+
+      return;
+    }
+
+    if (!silent) {
+      _impulseShowVersionCurrentMessage(localVersion);
+    }
+  } catch (error) {
+    console.error(
+      '[Impulse Update] No fue posible revisar la versión:',
+      error
+    );
+  } finally {
+    _impulseUpdateChecking = false;
+  }
+}
+
+function _impulseShowUpdateBanner({
+  currentVersion,
+  newVersion
+}) {
+  let banner = document.getElementById('impulse-update-banner');
+
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'impulse-update-banner';
+
+    banner.innerHTML = `
+      <div class="impulse-update-banner__content">
+        <div class="impulse-update-banner__icon">🚀</div>
+
+        <div class="impulse-update-banner__text">
+          <strong>Nueva versión disponible</strong>
+
+          <span>
+            Impulse se actualizó de
+            <b>v${_impulseEscapeHtml(currentVersion)}</b>
+            a
+            <b>v${_impulseEscapeHtml(newVersion)}</b>.
+          </span>
+        </div>
+
+        <button
+          type="button"
+          class="impulse-update-banner__button"
+          onclick="_impulseReloadLatestVersion()"
+        >
+          Actualizar ahora
+        </button>
+      </div>
+    `;
+
+    document.body.appendChild(banner);
+  }
+
+  requestAnimationFrame(() => {
+    banner.classList.add('is-visible');
+  });
+}
+
+function _impulseReloadLatestVersion() {
+  const currentUrl = new URL(window.location.href);
+
+  /*
+   * Este parámetro obliga al navegador y a GitHub Pages
+   * a solicitar una URL distinta.
+   */
+  currentUrl.searchParams.set('_impulse_v', Date.now().toString());
+
+  window.location.replace(currentUrl.toString());
+}
+
+function _impulseShowVersionCurrentMessage(version) {
+  if (typeof toast === 'function') {
+    toast(`Impulse está actualizado: v${version}`, 'success');
+    return;
+  }
+
+  console.log(`Impulse está actualizado: v${version}`);
+}
+
+function _impulseEscapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function _impulseStartVersionWatcher() {
+  if (_impulseUpdateInterval) {
+    clearInterval(_impulseUpdateInterval);
+  }
+
+  /*
+   * Revisar inmediatamente al abrir Impulse.
+   */
+  _impulseCheckForUpdates();
+
+  /*
+   * Revisar cada 60 segundos.
+   */
+  _impulseUpdateInterval = setInterval(() => {
+    _impulseCheckForUpdates();
+  }, IMPULSE_VERSION_CHECK_INTERVAL);
+}
+
+/*
+ * Cuando la persona vuelve a la pestaña,
+ * revisar inmediatamente si hubo un deploy.
+ */
+document.addEventListener('visibilitychange', () => {
+  if (
+    document.visibilityState === 'visible' &&
+    !_impulseUpdateDetected
+  ) {
+    _impulseCheckForUpdates();
+  }
+});
+
+/*
+ * Cuando la ventana vuelve a recibir foco,
+ * también revisar.
+ */
+window.addEventListener('focus', () => {
+  if (!_impulseUpdateDetected) {
+    _impulseCheckForUpdates();
+  }
+});
+
+/*
+ * Iniciar después de que cargue la página.
+ */
+window.addEventListener('load', () => {
+  window.setTimeout(() => {
+    _impulseStartVersionWatcher();
+  }, 1500);
+});
 
 </script>
 </body>
