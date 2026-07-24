@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.16';
+const APP_VERSION   = '1.0.17';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -4928,6 +4928,9 @@ function _a_otMinutes(r) {
 }
 
 function _a_otDetectedMinutes(r) {
+  if (r?.net_overtime_minutes !== undefined && r?.net_overtime_minutes !== null) {
+    return _a_otNum(r.net_overtime_minutes);
+  }
   return _a_otNum(r.detected_pre_minutes)
     + _a_otNum(r.detected_post_minutes)
     + _a_otNum(r.detected_rest_minutes || 0);
@@ -4990,19 +4993,69 @@ function _a_otPayrollPill(adjustment) {
   return `<span class="pill ${pill}">${_a_otEsc(label)}</span>`;
 }
 
+function _a_otClockMinutes(value) {
+  const match = String(value || '').match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function _a_otDurationBetween(start, end) {
+  const a = _a_otClockMinutes(start);
+  const b0 = _a_otClockMinutes(end);
+  if (a === null || b0 === null) return 0;
+  const b = b0 < a ? b0 + 1440 : b0;
+  return Math.max(0, b - a);
+}
+
+function _a_otExpectedMinutes(r) {
+  return _a_otNum(r.expected_minutes) || _a_otDurationBetween(r.expected_start, r.expected_end);
+}
+
+function _a_otWorkedMinutes(r) {
+  return _a_otNum(r.worked_minutes) || _a_otDurationBetween(r.actual_time_in, r.actual_time_out);
+}
+
+function _a_otVarianceBreakdown(r) {
+  const parts = [];
+  const rawPre = _a_otNum(r.raw_pre_minutes);
+  const rawPost = _a_otNum(r.raw_post_minutes);
+  const lateStart = _a_otNum(r.late_start_minutes);
+  const earlyEnd = _a_otNum(r.early_end_minutes);
+  if (rawPre) parts.push(`Entrada ${_a_otMinsToStr(rawPre)} antes`);
+  if (lateStart) parts.push(`Entrada ${_a_otMinsToStr(lateStart)} después`);
+  if (rawPost) parts.push(`Salida ${_a_otMinsToStr(rawPost)} después`);
+  if (earlyEnd) parts.push(`Salida ${_a_otMinsToStr(earlyEnd)} antes`);
+  return parts.join(' · ') || 'Sin diferencia relevante';
+}
+
 function _a_otTipoLabel(r) {
+  const type = String(r?.detection_type || '').toLowerCase();
+  const labels = {
+    shifted_schedule: 'Jornada desplazada',
+    schedule_variance: 'Diferencia de jornada',
+    overtime_pre_shift: 'OT pre-turno',
+    overtime_post_shift: 'OT post-turno',
+    overtime_mixed: 'OT mixto',
+    overtime_rest_day: 'Trabajo en descanso',
+    manual_overtime: 'Registro manual'
+  };
+  if (labels[type]) return labels[type];
+
   const pre = _a_otNum(r.detected_pre_minutes);
   const post = _a_otNum(r.detected_post_minutes);
   const rest = _a_otNum(r.detected_rest_minutes);
   const active = [pre > 0, post > 0, rest > 0].filter(Boolean).length;
-  if (active > 1) return 'Mixto';
-  if (rest > 0) return 'Día de descanso';
-  if (pre > 0) return 'Pre-turno';
-  if (post > 0) return 'Post-turno';
-  return String(r.source || '').toLowerCase() === 'manual' ? 'Manual' : 'Tiempo extra';
+  if (active > 1) return 'OT mixto';
+  if (rest > 0) return 'Trabajo en descanso';
+  if (pre > 0) return 'OT pre-turno';
+  if (post > 0) return 'OT post-turno';
+  return String(r.source || '').toLowerCase() === 'manual' ? 'Registro manual' : 'Diferencia de jornada';
 }
 
 function _a_otBreakdown(r, approved = false) {
+  if (!approved && ['shifted_schedule', 'schedule_variance'].includes(String(r?.detection_type || '').toLowerCase())) {
+    return _a_otVarianceBreakdown(r);
+  }
   const pre = _a_otNum(approved ? r.approved_pre_minutes : r.detected_pre_minutes);
   const post = _a_otNum(approved ? r.approved_post_minutes : r.detected_post_minutes);
   const rest = _a_otNum(approved ? r.approved_rest_minutes : r.detected_rest_minutes);
@@ -5010,7 +5063,7 @@ function _a_otBreakdown(r, approved = false) {
   if (pre) parts.push(`Pre ${_a_otMinsToStr(pre)}`);
   if (post) parts.push(`Post ${_a_otMinsToStr(post)}`);
   if (rest) parts.push(`Descanso ${_a_otMinsToStr(rest)}`);
-  return parts.join(' · ') || '—';
+  return parts.join(' · ') || (approved ? '—' : 'Sin OT neto');
 }
 
 function _a_otRegistrosPorRol() {
@@ -5158,13 +5211,13 @@ function _a_renderOTSection() {
     <div class="card" style="border-color:${r.pendientes.length ? '#FDE68A' : '#E2E8F0'}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
         <div>
-          <div class="card-title" style="margin-bottom:4px">⏱️ Tiempo extra y entradas anticipadas</div>
-          <div style="font-size:12px;color:#64748B;line-height:1.5">Impulse detecta el bloque; liderazgo decide si es pagable, parcial, cambio de horario o corrección de marcaje.</div>
+          <div class="card-title" style="margin-bottom:4px">⏱️ Diferencias de jornada y tiempo extra</div>
+          <div style="font-size:12px;color:#64748B;line-height:1.5">Impulse compara la jornada trabajada contra la esperada; solo el excedente neto puede aprobarse como OT.</div>
         </div>
         <button class="btn-primary" onclick="_a_openTiempoExtra('pendientes')">Abrir gestión</button>
       </div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px">
-        <div class="kpi-box incard"><div class="kpi-lbl">Por revisar</div><div class="kpi-val" style="font-size:20px;color:#D97706">${_a_otMinsToStr(r.minPend)}</div><div style="font-size:11px;color:#94A3B8">${r.pendientes.length} casos</div></div>
+        <div class="kpi-box incard"><div class="kpi-lbl">OT neto por revisar</div><div class="kpi-val" style="font-size:20px;color:#D97706">${_a_otMinsToStr(r.minPend)}</div><div style="font-size:11px;color:#94A3B8">${r.pendientes.length} casos</div></div>
         <div class="kpi-box incard"><div class="kpi-lbl">Aprobado</div><div class="kpi-val" style="font-size:20px;color:#16A34A">${_a_otMinsToStr(r.minAprob)}</div><div style="font-size:11px;color:#94A3B8">${r.aprobadas.length} casos</div></div>
         <div class="kpi-box incard"><div class="kpi-lbl">En flujo de nómina</div><div class="kpi-val" style="font-size:20px;color:#7E22CE">${_a_otMinsToStr(r.minNomina)}</div><div style="font-size:11px;color:#94A3B8">${r.nomina.length} movimientos</div></div>
       </div>
@@ -5187,24 +5240,40 @@ function _a_openOTReview(id) {
   const pre = _a_otNum(r.detected_pre_minutes);
   const post = _a_otNum(r.detected_post_minutes);
   const rest = _a_otNum(r.detected_rest_minutes);
+  const net = _a_otDetectedMinutes(r);
+  const expected = _a_otExpectedMinutes(r);
+  const worked = _a_otWorkedMinutes(r);
+  const detectionType = String(r.detection_type || '').toLowerCase();
+  const isScheduleDifference = ['shifted_schedule', 'schedule_variance'].includes(detectionType) || net <= 0;
+  const suggested = String(r.suggested_decision || '').toLowerCase();
+  const defaultDecision = net > 0
+    ? (suggested === 'approve_partial' ? 'approve_partial' : 'approve_full')
+    : (suggested === 'not_overtime' ? 'not_overtime' : 'schedule_corrected');
 
-  document.getElementById('modalTitle').textContent = 'Revisar tiempo detectado';
+  const approvalOptions = net > 0 ? `
+        <option value="approve_full" ${defaultDecision === 'approve_full' ? 'selected' : ''}>Aprobar OT neto completo (${_a_otMinsToStr(net)})</option>
+        <option value="approve_partial" ${defaultDecision === 'approve_partial' ? 'selected' : ''}>Aprobar parcialmente</option>` : '';
+
+  document.getElementById('modalTitle').textContent = 'Revisar diferencia de jornada';
   document.getElementById('modalSub').textContent = `${_a_otNombre(r)} · ${fmtDate(r.work_date)}`;
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-section" style="background:#EFF6FF;border-color:#BFDBFE">
       <div class="ms-title" style="color:#1D4ED8">Evidencia del día</div>
       <div class="kv"><span class="k">Horario esperado</span><span class="v" style="font-family:var(--fm)">${String(r.expected_start || '—').slice(0,5)}–${String(r.expected_end || '—').slice(0,5)}</span></div>
       <div class="kv"><span class="k">Marcaje real</span><span class="v" style="font-family:var(--fm)">${String(r.actual_time_in || '—').slice(0,5)}–${String(r.actual_time_out || '—').slice(0,5)}</span></div>
-      <div class="kv"><span class="k">Detectado</span><span class="v" style="color:#6366F1">${_a_otMinsToStr(_a_otDetectedMinutes(r))}</span></div>
-      <div style="font-size:11px;color:#64748B;margin-top:8px">${_a_otBreakdown(r)}</div>
+      <div class="kv"><span class="k">Jornada esperada</span><span class="v" style="font-family:var(--fm)">${_a_otMinsToStr(expected)}</span></div>
+      <div class="kv"><span class="k">Jornada trabajada</span><span class="v" style="font-family:var(--fm)">${_a_otMinsToStr(worked)}</span></div>
+      <div class="kv"><span class="k">Clasificación</span><span class="v">${_a_otEsc(_a_otTipoLabel(r))}</span></div>
+      <div class="kv"><span class="k">Tiempo extra neto</span><span class="v" style="color:${net > 0 ? '#16A34A' : '#64748B'};font-family:var(--fm)">${_a_otMinsToStr(net)}</span></div>
+      <div style="font-size:11px;color:#64748B;margin-top:8px">${_a_otEsc(_a_otVarianceBreakdown(r))}</div>
     </div>
+    ${isScheduleDifference ? `<div class="alert alert-amber" style="margin:0"><b>No se detectó OT pagable.</b> La duración trabajada no supera la jornada esperada. Revisa si fue un cambio de horario, una entrada voluntaria o un error de marcaje.</div>` : `<div class="alert alert-green" style="margin:0"><b>OT neto candidato: ${_a_otMinsToStr(net)}.</b> Solo este excedente puede aprobarse para Nómina.</div>`}
     <div class="modal-section">
       <div class="ms-title">Tratamiento *</div>
       <select id="ot-decision" onchange="_a_otDecisionFields()" style="width:100%;border:1px solid #E2E8F0;border-radius:8px;padding:9px 11px">
-        <option value="approve_full">Aprobar todo como tiempo extra</option>
-        <option value="approve_partial">Aprobar parcialmente</option>
-        <option value="not_overtime">No fue tiempo extra / entrada voluntaria</option>
-        <option value="schedule_corrected">Corregir horario del día</option>
+        ${approvalOptions}
+        <option value="schedule_corrected" ${defaultDecision === 'schedule_corrected' ? 'selected' : ''}>Corregir horario del día</option>
+        <option value="not_overtime" ${defaultDecision === 'not_overtime' ? 'selected' : ''}>No fue tiempo extra / entrada voluntaria</option>
         <option value="punch_corrected">Corregir marcaje efectivo</option>
         <option value="declined">Declinar por falta de autorización</option>
       </select>
@@ -5224,13 +5293,14 @@ function _a_openOTReview(id) {
     </div>
     <div class="modal-section">
       <div class="ms-title">Justificación *</div>
-      <textarea id="ot-review-reason" rows="3" placeholder="Describe qué ocurrió, qué bloque autorizas y por qué..." style="width:100%;resize:vertical"></textarea>
+      <textarea id="ot-review-reason" rows="3" placeholder="Describe si fue cambio de horario, trabajo adicional autorizado o error de marcaje..." style="width:100%;resize:vertical"></textarea>
     </div>
-    <div class="alert alert-blue" style="margin:0">El punch original nunca se borra. Las correcciones quedan auditadas y solo el tiempo aprobado genera un movimiento para Nómina.</div>`;
+    <div class="alert alert-blue" style="margin:0">El punch original nunca se borra. Trabajar fuera de la ventana esperada no es automáticamente OT: solo el excedente neto aprobado genera un movimiento para Nómina.</div>`;
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
     <button class="btn-primary" id="ot-review-btn" onclick="_a_submitOTReview('${r.id}')">Guardar decisión</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
+  setTimeout(_a_otDecisionFields, 0);
 }
 
 async function _a_submitOTReview(id) {
@@ -5337,7 +5407,7 @@ function _a_renderTiempoExtra() {
     ${roleSwitcher()}
     <div class="drilldown-header">
       <button class="back-btn" onclick="_a_closeTiempoExtra()">← Volver</button>
-      <div><div style="font-size:16px;font-weight:800">⏱️ Tiempo extra y entradas anticipadas</div><div style="font-size:11px;color:#64748B">${_a_dateFilter?.label || 'Periodo actual'} · Del marcaje a Nómina</div></div>
+      <div><div style="font-size:16px;font-weight:800">⏱️ Diferencias de jornada y tiempo extra</div><div style="font-size:11px;color:#64748B">${_a_dateFilter?.label || 'Periodo actual'} · Del marcaje a Nómina</div></div>
       <span class="pill pill-gray">${r.records.length} registros</span>
       <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn-ghost" onclick="_a_syncOvertimeCandidates(true).then(()=>_a_cargarOTRecords({sync:false})).then(()=>_a_render())">🔄 Detectar ahora</button>
@@ -5345,12 +5415,12 @@ function _a_renderTiempoExtra() {
       </div>
     </div>
     <div class="kpi4">
-      <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${_a_otMinsToStr(r.minPend)}</div><div class="kpi-lbl">Por revisar</div><div style="font-size:11px;color:#94A3B8">${r.pendientes.length} casos</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${_a_otMinsToStr(r.minPend)}</div><div class="kpi-lbl">OT neto por revisar</div><div style="font-size:11px;color:#94A3B8">${r.pendientes.length} casos</div></div>
       <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${_a_otMinsToStr(r.minAprob)}</div><div class="kpi-lbl">Aprobado</div><div style="font-size:11px;color:#94A3B8">${r.aprobadas.length} casos</div></div>
       <div class="kpi-box"><div class="kpi-val" style="color:#1D4ED8">${r.correcciones.length}</div><div class="kpi-lbl">No pagable / corregido</div><div style="font-size:11px;color:#94A3B8">Decisiones auditadas</div></div>
       <div class="kpi-box"><div class="kpi-val" style="color:#7E22CE">${_a_otMinsToStr(r.minNomina)}</div><div class="kpi-lbl">En Nómina</div><div style="font-size:11px;color:#94A3B8">${r.nomina.length} movimientos</div></div>
     </div>
-    <div class="alert alert-blue">Una entrada anticipada no se paga automáticamente. El supervisor debe aprobarla, reducirla, declararla no pagable o corregir el horario/marcaje.</div>
+    <div class="alert alert-blue">Una entrada anticipada o salida posterior no es OT por sí sola. Primero se compara la duración total; solo el excedente neto puede pasar a Nómina.</div>
     <div class="tabs" style="margin-bottom:14px">
       ${_a_otTabButton('pendientes', 'Pendientes', r.pendientes.length)}
       ${_a_otTabButton('aprobadas', 'Aprobadas', r.aprobadas.length)}
@@ -5360,7 +5430,7 @@ function _a_renderTiempoExtra() {
     </div>
     <div class="card">
       <div class="card-title">${_a_otTab === 'pendientes' ? 'Pendientes de decisión' : _a_otTab === 'aprobadas' ? 'Tiempo aprobado' : _a_otTab === 'correcciones' ? 'Casos no pagables o corregidos' : _a_otTab === 'nomina' ? 'Movimientos enviados a Nómina' : 'Histórico completo'}</div>
-      <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:1180px"><thead><tr><th>Agente</th><th>Fecha</th><th>Campaña</th><th>Tipo</th><th>Detectado</th><th>Aprobado</th><th>Estado</th><th>Justificación</th><th>Acción</th></tr></thead><tbody>${rows || '<tr><td colspan="9" style="padding:28px;text-align:center;color:#94A3B8">Sin registros en esta vista.</td></tr>'}</tbody></table></div></div>
+      <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:1180px"><thead><tr><th>Agente</th><th>Fecha</th><th>Campaña</th><th>Tipo</th><th>OT neto</th><th>Aprobado</th><th>Estado</th><th>Justificación</th><th>Acción</th></tr></thead><tbody>${rows || '<tr><td colspan="9" style="padding:28px;text-align:center;color:#94A3B8">Sin registros en esta vista.</td></tr>'}</tbody></table></div></div>
     </div>`;
 }
 
@@ -10345,7 +10415,7 @@ function _n_renderAjustes() {
     <div class="tabs" style="margin-bottom:14px">
       ${[['all','Todos'],['ready','Listos'],['validated','Validados'],['included','Incluidos'],['returned','Devueltos'],['excluded','Excluidos']].map(([v,l]) => `<button class="tab ${_n_adjustmentFilter === v ? 'on' : ''}" onclick="_n_setAdjustmentFilter('${v}')">${l}${v === 'all' ? ` · ${_n_AJUSTES.length}` : ` · ${counts(v)}`}</button>`).join('')}
     </div>
-    <div class="tw" style="overflow-x:auto"><table style="min-width:1050px"><thead><tr><th>Empleado</th><th>Fecha</th><th>Campaña</th><th>Tipo</th><th>Detectado</th><th>Aprobado</th><th>Estado</th><th>Notas</th><th>Acción</th></tr></thead><tbody>${tableRows || '<tr><td colspan="9" style="padding:28px;text-align:center;color:#94A3B8">Sin movimientos en esta vista.</td></tr>'}</tbody></table></div>`;
+    <div class="tw" style="overflow-x:auto"><table style="min-width:1050px"><thead><tr><th>Empleado</th><th>Fecha</th><th>Campaña</th><th>Tipo</th><th>OT neto</th><th>Aprobado</th><th>Estado</th><th>Notas</th><th>Acción</th></tr></thead><tbody>${tableRows || '<tr><td colspan="9" style="padding:28px;text-align:center;color:#94A3B8">Sin movimientos en esta vista.</td></tr>'}</tbody></table></div>`;
 }
 
 // ── CÁLCULO DE LÍNEAS ──────────────────────────────────────────────────────
