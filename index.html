@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.12';
+const APP_VERSION   = '1.0.13';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -1936,21 +1936,76 @@ async function _doChangePw() {
   _startApp(window._pendingUser);
 }
 
+// ── RESOLVER IDENTIDAD DEL EMPLEADO ────────────────────────────
+function _auth_normalizeEmployeeId(value) {
+  if (Array.isArray(value)) value = value[0];
+  if (value && typeof value === 'object') {
+    value = value.employee_id || value.id || value.emp_id || null;
+  }
+  const id = String(value || '').trim();
+  return id || null;
+}
+
+async function _auth_resolveEmployeeId(user, fallbackId = null) {
+  let employeeId = _auth_normalizeEmployeeId(fallbackId)
+    || _auth_normalizeEmployeeId(user?.user_metadata?.employee_id);
+
+  // Source of truth: la sesión autenticada. Esto corrige cuentas antiguas
+  // cuyo user_metadata no tiene employee_id (caso Guillermo / CX00794).
+  try {
+    const { data, error } = await _auth_sb.rpc('current_emp_id');
+    if (!error) employeeId = _auth_normalizeEmployeeId(data) || employeeId;
+    else console.warn('[Impulse] current_emp_id no disponible:', error.message);
+  } catch (e) {
+    console.warn('[Impulse] No se pudo resolver current_emp_id:', e);
+  }
+
+  // Fallback final por correo corporativo cuando el metadata esté vacío.
+  if (!employeeId && user?.email) {
+    try {
+      const { data, error } = await _auth_sb.from('employees')
+        .select('id')
+        .ilike('email', String(user.email).trim())
+        .maybeSingle();
+      if (!error) employeeId = _auth_normalizeEmployeeId(data?.id);
+    } catch (e) {
+      console.warn('[Impulse] No se pudo resolver empleado por email:', e);
+    }
+  }
+
+  return employeeId;
+}
+
+function _auth_shiftLabel(emp, fallback = '') {
+  const start = emp?.shift_start ? String(emp.shift_start).slice(0, 5) : '';
+  const end = emp?.shift_end ? String(emp.shift_end).slice(0, 5) : '';
+  return start && end ? `${start}-${end}` : fallback;
+}
+
 // ── INICIAR APP ───────────────────────────────────────────────
 async function _startApp(user) {
   const meta  = user.user_metadata || {};
-  const empId = meta.employee_id;
+  const empId = await _auth_resolveEmployeeId(user, meta.employee_id);
 
-  // Rol/nombre SIEMPRE frescos desde employees, nunca del metadata viejo
-  // guardado al crear la cuenta (si el rol se corrigió después por SQL,
-  // el metadata se queda obsoleto y por eso es la fuente de verdad equivocada).
+  // Rol/nombre SIEMPRE frescos desde employees, nunca del metadata viejo.
   let role = meta.system_role || 'agent';
   let nombre = meta.nombre || user.email;
   let camp = null, campSec = null;
+  let empProfile = null;
+
+  if (!empId) {
+    await _auth_sb.auth.signOut();
+    showLogin('No pudimos relacionar tu cuenta con un empleado. Contacta a People.');
+    return;
+  }
+
   try {
     const { data: emp, error } = await _auth_sb.from('employees')
-      .select('system_role, full_name, status, campaign_id, secondary_campaign').eq('id', empId).maybeSingle();
+      .select('id, system_role, full_name, status, campaign_id, secondary_campaign, shift_start, shift_end, position_title, days_off, supervisor_id')
+      .eq('id', empId)
+      .maybeSingle();
     if (error) throw error;
+    empProfile = emp || null;
     if (emp) {
       role = emp.system_role || role;
       nombre = emp.full_name || nombre;
@@ -1963,13 +2018,28 @@ async function _startApp(user) {
       }
     }
   } catch(e) {
-    console.error('[Impulse] No se pudo refrescar el rol desde employees, usando metadata:', e);
+    console.error('[Impulse] No se pudo refrescar el perfil desde employees:', e);
   }
 
   role = String(role || 'agent').trim().toLowerCase();
   currentRole = role;
-  ROLES[role] = { ...ROLES[role], name: nombre, id: empId, camp: camp || ROLES[role]?.camp,
-    campSec, email: user.email, av: initials(nombre), label: ROLES[role]?.label || role };
+  ROLES[role] = {
+    ...ROLES[role],
+    name: nombre,
+    id: empId,
+    camp: camp || ROLES[role]?.camp,
+    campSec,
+    email: user.email,
+    av: initials(nombre),
+    label: ROLES[role]?.label || role,
+    shift: _auth_shiftLabel(empProfile, ROLES[role]?.shift || ''),
+    shift_start: empProfile?.shift_start || null,
+    shift_end: empProfile?.shift_end || null,
+    puesto: empProfile?.position_title || ROLES[role]?.puesto || '',
+    position_title: empProfile?.position_title || null,
+    days_off: empProfile?.days_off || [],
+    supervisor_id: empProfile?.supervisor_id || null
+  };
 
   sessionStorage.setItem('impulse_user', JSON.stringify({
     email: user.email, empId, role, nombre, camp, campSec, sessionStart: Date.now()
@@ -2567,10 +2637,23 @@ async function _initImpulse() {
         const { data: { session } } = await _auth_sb.auth.getSession();
         if(session) {
           let role = u.role, nombre = u.nombre, camp = u.camp, campSec = u.campSec;
+          const resolvedEmpId = await _auth_resolveEmployeeId(session.user, u.empId);
+          let empProfile = null;
+
+          if (!resolvedEmpId) {
+            await _auth_sb.auth.signOut();
+            sessionStorage.removeItem('impulse_user');
+            showLogin('No pudimos relacionar tu cuenta con un empleado. Contacta a People.');
+            return;
+          }
+
           try {
             const { data: emp, error } = await _auth_sb.from('employees')
-              .select('system_role, full_name, status, campaign_id, secondary_campaign').eq('id', u.empId).maybeSingle();
+              .select('id, system_role, full_name, status, campaign_id, secondary_campaign, shift_start, shift_end, position_title, days_off, supervisor_id')
+              .eq('id', resolvedEmpId)
+              .maybeSingle();
             if (error) throw error;
+            empProfile = emp || null;
             if (emp) {
               if (emp.status !== 'active') {
                 await _auth_sb.auth.signOut();
@@ -2583,13 +2666,27 @@ async function _initImpulse() {
               camp = emp.campaign_id || camp;
               campSec = emp.secondary_campaign || null;
             }
-          } catch(e) { console.error('[Impulse] No se pudo refrescar el rol al restaurar sesión:', e); }
+          } catch(e) { console.error('[Impulse] No se pudo refrescar el perfil al restaurar sesión:', e); }
 
           role = String(role || 'agent').trim().toLowerCase();
           currentRole = role;
-          ROLES[role] = { ...ROLES[role], name: nombre, id: u.empId, camp, campSec,
-            email: session.user?.email || u.email, av: initials(nombre) };
-          sessionStorage.setItem('impulse_user', JSON.stringify({ ...u, role, nombre, camp, campSec }));
+          ROLES[role] = {
+            ...ROLES[role],
+            name: nombre,
+            id: resolvedEmpId,
+            camp,
+            campSec,
+            email: session.user?.email || u.email,
+            av: initials(nombre),
+            shift: _auth_shiftLabel(empProfile, ROLES[role]?.shift || ''),
+            shift_start: empProfile?.shift_start || null,
+            shift_end: empProfile?.shift_end || null,
+            puesto: empProfile?.position_title || ROLES[role]?.puesto || '',
+            position_title: empProfile?.position_title || null,
+            days_off: empProfile?.days_off || [],
+            supervisor_id: empProfile?.supervisor_id || null
+          };
+          sessionStorage.setItem('impulse_user', JSON.stringify({ ...u, empId: resolvedEmpId, role, nombre, camp, campSec }));
           _auth_sessionStart = u.sessionStart;
           window._auth_loggedIn = true;
           roleSwitcher = function(){ return ''; };
@@ -3991,7 +4088,17 @@ async function _a_cargarQDAYS(empId, from, to) {
 
 async function _a_cargarDatos() {
   try {
-    const ro = ROLES[currentRole];
+    const ro = ROLES[currentRole] || {};
+    if (!ro.id) {
+      const { data: { session } } = await _auth_sb.auth.getSession();
+      const resolvedId = await _auth_resolveEmployeeId(session?.user, null);
+      if (resolvedId) {
+        ro.id = resolvedId;
+        const saved = JSON.parse(sessionStorage.getItem('impulse_user') || '{}');
+        sessionStorage.setItem('impulse_user', JSON.stringify({ ...saved, empId: resolvedId }));
+      }
+    }
+    if (!ro.id) throw new Error('No se pudo identificar al empleado autenticado.');
     const hoy = ymd(NOW);
 
     const _a_norm = (v) => String(v || '').trim().toLowerCase();
@@ -7733,17 +7840,34 @@ function _a_quincenaTable(){
 function _a_renderAgent(){
   const {rows,tw,tl,tr,te,pct}=_a_quincenaTable();
   const {entrada:en, salida:sa} = _a_getPunch();
+  const r = ROLES[currentRole] || {};
+  const todayKey = ymd(NOW);
+  const todayRow = (_a_QDAYS || []).find(d => d.fecha === todayKey) || null;
+  const todayShiftStart = todayRow?.horario_inicio || r.shift_start || null;
+  const todayShiftEnd = todayRow?.horario_fin || r.shift_end || null;
+  const todayShift = todayRow?.esVacacion
+    ? 'Vacaciones'
+    : todayRow?.esDescanso
+      ? 'Descanso'
+      : (todayShiftStart && todayShiftEnd)
+        ? `${String(todayShiftStart).slice(0,5)}–${String(todayShiftEnd).slice(0,5)}`
+        : (r.shift || 'Horario no configurado').replace('-', '–');
+  const toleranciaHoy = Number(todayRow?.tolerance_minutes ?? _a_toleranciaRetardoMin({
+    camp: r.camp,
+    campaign_id: r.camp,
+    position_title: r.position_title || r.puesto || ''
+  }));
   return`${_a_roleSwitcherHTML()}
   <div class="card">
     <div class="card-title">Hoy — ${fmtDateCDMX(NOW, { weekday:'long', day:'numeric', month:'long', year:undefined })}
-      <span class="pill pill-blue">08:00–17:00</span>
+      <span class="pill pill-blue">${todayShift}</span>
     </div>
     <div class="hoy-grid">
       <div class="hoy-box" style="display:flex;flex-direction:column;justify-content:space-between;gap:12px">
         <div>
           <div class="hoy-box-label">🟢 Entrada</div>
           <div class="hoy-box-val ${en?'':'empty'}">${en||'——:——'}</div>
-          <div class="hoy-box-sub">Tolerancia: <strong>0 min</strong></div>
+          <div class="hoy-box-sub">Tolerancia: <strong>${toleranciaHoy} min</strong></div>
         </div>
         <button class="btn-punch ${en?'disabled':'entrada'}" style="width:100%;justify-content:center" ${en?'disabled':''} onclick="_a_marcarEntrada()">
           <span class="dot"></span> ${en?'Entrada registrada':'Marcar entrada'}
@@ -24169,14 +24293,24 @@ window['_init_disciplinario']=function(){
 };
 window['_rerender_disciplinario']=function(){ if(typeof _d_render==='function')_d_render(); };
 
-window['_init_equipo']=function(){
+window['_init_equipo']=async function(){
   _e_cargando=true; _e_render();
-  Promise.all([_e_cargarEmpleados(), _e_cargarHistory()]).then(function(results){
-    const ok = results[0];
-    _e_cargando=false;
-    if (ok) _e_render();
-    else document.getElementById('content').innerHTML='<div style="text-align:center;padding:60px;color:#DC2626"><p style="font-weight:600">Error cargando empleados desde Supabase. Verifica la conexión.</p></div>';
-  });
+
+  // Revalidar la identidad antes de abrir Mi Perfil. Algunas cuentas antiguas
+  // no traían employee_id en metadata y terminaban en “Empleado no encontrado”.
+  const { data: { session } } = await _auth_sb.auth.getSession();
+  const resolvedId = await _auth_resolveEmployeeId(session?.user, ROLES[currentRole]?.id);
+  if (resolvedId) {
+    ROLES[currentRole].id = resolvedId;
+    const saved = JSON.parse(sessionStorage.getItem('impulse_user') || '{}');
+    sessionStorage.setItem('impulse_user', JSON.stringify({ ...saved, empId: resolvedId }));
+  }
+
+  const results = await Promise.all([_e_cargarEmpleados(), _e_cargarHistory()]);
+  const ok = results[0];
+  _e_cargando=false;
+  if (ok) _e_render();
+  else document.getElementById('content').innerHTML='<div style="text-align:center;padding:60px;color:#DC2626"><p style="font-weight:600">Error cargando empleados desde Supabase. Verifica la conexión.</p></div>';
 };
 window['_rerender_equipo']=function(){ _e_render(); };
 
@@ -24186,7 +24320,7 @@ _initImpulse();
 
 /*****************************************************************
  IMPULSE
- Version: 1.0.12
+ Version: 1.0.13
  Build: 2026-07-23
 *****************************************************************/
 
