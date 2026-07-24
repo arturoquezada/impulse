@@ -1601,7 +1601,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.4';
+const APP_VERSION   = '1.0.5';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -1997,7 +1997,7 @@ function _buildAppShell() {
     {id:'asistencia',   icon:'👤', label:'Asistencia',   roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
     {id:'nomina',       icon:'💰', label:'Nómina',        roles:['supervisor','manager','people','head_people','ceo']},
     {id:'tickets',      icon:'🎫', label:'Tickets HR',    roles:['agent','supervisor','manager','people','head_people','ceo']},
-    {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people']},
+    {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
@@ -16522,6 +16522,7 @@ const _p_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIs
 const _p_sb = supabase.createClient(_p_SB_URL, _p_SB_KEY);
 
 let _p_SWAPS = [];
+let _p_PARTIAL_SWAPS = [];
 let _p_EMPLEADOS = [];
 let _p_cargando = false;
 let _p_vista = 'mis';
@@ -16590,6 +16591,16 @@ function _p_statusBadge(s, peerStatus) {
       color: '#166534',
       label: 'Aprobada'
     },
+    completed: {
+      bg: '#DCFCE7',
+      color: '#166534',
+      label: 'Completada'
+    },
+    breached: {
+      bg: '#FEE2E2',
+      color: '#991B1B',
+      label: 'Incumplida'
+    },
     rejected: {
       bg: '#FEE2E2',
       color: '#991B1B',
@@ -16646,7 +16657,62 @@ function _p_mismoHorario(a, b) {
     && String(a.shift_end || '').slice(0, 5) === String(b.shift_end || '').slice(0, 5);
 }
 
+function _p_horaMinutos(h) {
+  const [hh, mm] = String(h || '').slice(0, 5).split(':').map(Number);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return hh * 60 + mm;
+}
+
+function _p_minutosHora(total) {
+  const t = ((Number(total) % 1440) + 1440) % 1440;
+  const hh = String(Math.floor(t / 60)).padStart(2, '0');
+  const mm = String(t % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function _p_duracionMinutos(inicio, fin) {
+  const a = _p_horaMinutos(inicio);
+  const b = _p_horaMinutos(fin);
+  if (a === null || b === null) return 0;
+  return b > a ? b - a : (1440 - a) + b;
+}
+
+function _p_esJornadaExtendida(emp) {
+  return _p_duracionMinutos(emp?.shift_start, emp?.shift_end) >= 780;
+}
+
+function _p_companerosParcialDisponibles() {
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+  const camp = me?.campaign_id || ro.camp;
+
+  return _p_EMPLEADOS
+    .filter(e =>
+      e.id !== ro.id &&
+      e.status === 'active' &&
+      e.system_role === 'agent' &&
+      e.campaign_id === camp
+    )
+    .sort((a, b) => a.full_name.localeCompare(b.full_name));
+}
+
+function _p_bloqueSugerido(emp) {
+  const start = _p_horaMinutos(emp?.shift_start);
+  const duracion = _p_duracionMinutos(emp?.shift_start, emp?.shift_end);
+
+  if (start === null) return { start:'08:00', end:'15:00' };
+  if (duracion >= 420) {
+    return { start:_p_minutosHora(start), end:_p_minutosHora(start + 420) };
+  }
+
+  return {
+    start:_p_minutosHora(start),
+    end:_p_minutosHora(start + 420)
+  };
+}
+
 function _p_tipoLabel(s) {
+  if (s.swap_type === 'partial') return 'Permuta parcial 7x7';
   if (s.swap_type === 'shift') return 'Permuta de horario';
   return 'Permuta de descanso';
 }
@@ -16756,7 +16822,42 @@ async function _p_cargarDatos() {
     const { data: swaps, error: e1 } = await query;
     if (e1) throw e1;
 
-    _p_SWAPS = swaps || [];
+    // Actualiza el cumplimiento de coberturas pasadas. Si la migración aún
+    // no existe, el módulo tradicional continúa funcionando sin romperse.
+    try {
+      await _p_sb.rpc('refresh_partial_shift_swap_compliance');
+    } catch (refreshError) {
+      console.warn('No se pudo refrescar cumplimiento 7x7:', refreshError);
+    }
+
+    let partialSwaps = [];
+    const { data: partialData, error: ePartial } = await _p_sb
+      .from('partial_shift_swaps')
+      .select('*, partial_shift_swap_legs(*)')
+      .order('created_at', { ascending:false });
+
+    if (ePartial) {
+      console.warn('Permuta parcial 7x7 aún no disponible:', ePartial);
+    } else {
+      partialSwaps = (partialData || []).map(s => {
+        const legs = (s.partial_shift_swap_legs || [])
+          .slice()
+          .sort((a, b) => Number(a.leg_number) - Number(b.leg_number));
+
+        return {
+          ...s,
+          swap_type: 'partial',
+          _is_partial: true,
+          legs,
+          work_date: legs[0]?.work_date || null,
+          rest_date: legs[1]?.work_date || null
+        };
+      });
+    }
+
+    _p_PARTIAL_SWAPS = partialSwaps;
+    _p_SWAPS = [...(swaps || []), ...partialSwaps]
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
     const { data: dayOffReqs, error: eDayOff } = await _p_sb
   .from('day_off_override_requests')
@@ -16877,6 +16978,44 @@ function _p_renderTabs() {
 function _p_detallePermutaHTML(s) {
   const req = _p_emp(s.requester_id);
   const peer = _p_emp(s.swap_with_id);
+
+  if (s.swap_type === 'partial') {
+    const legs = (s.legs || []).slice().sort((a, b) => Number(a.leg_number) - Number(b.leg_number));
+    const legStatus = {
+      scheduled: ['Programada', '#1D4ED8', '#DBEAFE'],
+      completed: ['Cumplida', '#166534', '#DCFCE7'],
+      missed: ['Incumplida', '#991B1B', '#FEE2E2'],
+      cancelled: ['Cancelada', '#475569', '#F1F5F9']
+    };
+
+    const renderLeg = (leg, title) => {
+      if (!leg) return '';
+      const cfg = legStatus[leg.status] || [leg.status || '—', '#475569', '#F1F5F9'];
+      return `
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">
+          <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">
+            <div style="font-size:10px;font-weight:800;color:#64748B;text-transform:uppercase;letter-spacing:.5px">${title}</div>
+            <span class="pill" style="background:${cfg[2]};color:${cfg[1]}"><span class="dot"></span>${cfg[0]}</span>
+          </div>
+          <div style="font-size:12px;color:#334155">Fecha: <b>${_p_fmtDate(leg.work_date)}</b> <span style="color:#94A3B8">(${_p_diaLabel(leg.work_date)})</span></div>
+          <div style="font-size:12px;color:#334155;margin-top:3px">Bloque: <b>${_p_fmtHora(leg.start_time)}–${_p_fmtHora(leg.end_time)}</b> · 7 horas</div>
+          <div style="font-size:12px;color:#334155;margin-top:3px">Cubre: <b>${_p_esc(_p_nombre(leg.covering_employee_id))}</b></div>
+          <div style="font-size:12px;color:#64748B;margin-top:3px">Persona cubierta: ${_p_esc(_p_nombre(leg.covered_employee_id))}</div>
+          ${leg.actual_entry || leg.actual_exit ? `<div style="font-size:11px;color:#64748B;margin-top:6px">Marcas: ${_p_fmtHora(leg.actual_entry)}–${_p_fmtHora(leg.actual_exit)}</div>` : ''}
+        </div>
+      `;
+    };
+
+    return `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        ${renderLeg(legs[0], 'Cobertura inicial')}
+        ${renderLeg(legs[1], 'Devolución de cobertura')}
+      </div>
+      <div style="display:flex;justify-content:center;margin-bottom:12px">
+        <span class="pill" style="background:#F3E8FF;color:#7E22CE"><span class="dot"></span>Balance: 7 h ↔ 7 h · 0 h pendientes</span>
+      </div>
+    `;
+  }
 
   if (s.swap_type === 'shift') {
     return `
@@ -17034,6 +17173,7 @@ function _p_renderMis() {
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn-primary" onclick="_p_abrirNueva()">+ Permuta de descanso</button>
     <button class="btn-cyan" onclick="_p_abrirNuevaHorario()">+ Permuta de horario</button>
+    <button class="btn-warn" onclick="_p_abrirNuevaParcial()">+ Permuta parcial 7x7</button>
   </div>
 ` : ''}
       </div>
@@ -17071,7 +17211,8 @@ function _p_group(lista, fn) {
     const key = fn(s) || '—';
     if (!map[key]) map[key] = { key, total:0, pending:0, pending_approval:0, approved:0, rejected:0, cancelled:0 };
     map[key].total++;
-    map[key][s.status] = (map[key][s.status] || 0) + 1;
+    const bucket = s.status === 'completed' ? 'approved' : (s.status === 'breached' ? 'rejected' : s.status);
+    map[key][bucket] = (map[key][bucket] || 0) + 1;
   });
   return Object.values(map).sort((a,b) => b.total - a.total);
 }
@@ -17144,12 +17285,22 @@ function _p_fmtDateTime(v) {
 }
 
 function _p_tipoHistorialLabel(s) {
+  if (s.swap_type === 'partial') return 'Parcial 7x7';
   if (s.swap_type === 'shift') return 'Horario';
   if (s.swap_type === 'day_off') return 'Descanso';
   return s.swap_type || '—';
 }
 
 function _p_detalleFechasHistorial(s) {
+  if (s.swap_type === 'partial') {
+    const legs = (s.legs || []).slice().sort((a,b) => Number(a.leg_number) - Number(b.leg_number));
+    return legs.map((l, i) => `
+      <div style="font-size:12px;color:#334155${i ? ';margin-top:3px' : ''}">
+        <b>${i === 0 ? 'Cobertura' : 'Devolución'}:</b> ${_p_labelFechaCompleta(l.work_date)} · ${_p_fmtHora(l.start_time)}–${_p_fmtHora(l.end_time)}
+      </div>
+    `).join('');
+  }
+
   if (s.swap_type === 'shift') {
     return `
       <div style="font-size:12px;color:#334155">
@@ -17173,7 +17324,7 @@ function _p_detalleFechasHistorial(s) {
 
 function _p_renderHistorialAprobadas() {
   const aprobadas = (_p_SWAPS || [])
-    .filter(s => s.status === 'approved')
+    .filter(s => ['approved','completed'].includes(s.status))
     .sort((a, b) => new Date(b.approved_at || b.created_at || 0) - new Date(a.approved_at || a.created_at || 0));
 
   return `
@@ -17544,8 +17695,8 @@ function _p_renderReportes() {
   const total = _p_SWAPS.length;
   const pendComp = _p_SWAPS.filter(s => s.status === 'pending').length;
   const pendAprob = _p_SWAPS.filter(s => s.status === 'pending_approval').length;
-  const aprobadas = _p_SWAPS.filter(s => s.status === 'approved').length;
-  const rechazadas = _p_SWAPS.filter(s => s.status === 'rejected').length;
+  const aprobadas = _p_SWAPS.filter(s => ['approved','completed'].includes(s.status)).length;
+  const rechazadas = _p_SWAPS.filter(s => ['rejected','breached'].includes(s.status)).length;
 
   const porCampana = _p_group(_p_SWAPS, s => _p_campaign(s.requester_id));
   const porSupervisor = _p_group(_p_SWAPS, s => _p_nombre(_p_emp(s.requester_id)?.supervisor_id));
@@ -17560,7 +17711,7 @@ function _p_renderReportes() {
         <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${pendComp}</div><div class="kpi-lbl">Pend. compañero</div></div>
         <div class="kpi-box"><div class="kpi-val" style="color:#1D4ED8">${pendAprob}</div><div class="kpi-lbl">Pend. aprobación</div></div>
         <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${aprobadas}</div><div class="kpi-lbl">Aprobadas</div></div>
-        <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${rechazadas}</div><div class="kpi-lbl">Rechazadas</div></div>
+        <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${rechazadas}</div><div class="kpi-lbl">Rechazadas / incumplidas</div></div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
@@ -17624,6 +17775,188 @@ function _p_companerosMismaCampania() {
       e.campaign_id === camp
     )
     .sort((a,b) => a.full_name.localeCompare(b.full_name));
+}
+
+
+function _p_abrirNuevaParcial() {
+  if (currentRole !== 'agent') {
+    alert('Solo agentes pueden solicitar permutas parciales.');
+    return;
+  }
+
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+  const peers = _p_companerosParcialDisponibles();
+  const bloqueMio = _p_bloqueSugerido(me);
+
+  if (!me) {
+    alert('No se pudo cargar tu información de empleado.');
+    return;
+  }
+
+  document.getElementById('modalTitle').textContent = '⏱️ Permuta parcial 7x7';
+  document.getElementById('modalSub').textContent = 'Intercambio de dos bloques iguales de siete horas';
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="alert alert-blue">
+      Una persona cubre 7 horas y recibe otras 7 horas en una fecha diferente. Al menos una de las dos personas debe tener jornada extendida de aproximadamente 14 horas.
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">1. Compañero de la misma campaña</div>
+      <select id="p-partial-peer" onchange="_p_actualizarParcialPeer()" style="width:100%;padding:9px 11px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
+        <option value="">Selecciona compañero...</option>
+        ${peers.map(e => `<option value="${e.id}">${_p_esc(e.full_name)} · ${_p_horarioTxt(e)}${_p_esJornadaExtendida(e) ? ' · Jornada extendida' : ''}</option>`).join('')}
+      </select>
+      <div style="font-size:11px;color:#64748B;margin-top:6px">Tu horario: ${_p_horarioTxt(me)}${_p_esJornadaExtendida(me) ? ' · Jornada extendida' : ''}</div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">2. Bloque que tu compañero te cubrirá</div>
+      <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:8px">
+        <input type="date" id="p-partial-first-date" min="${ymd(new Date())}" onchange="_p_actualizarResumenParcial()" style="padding:9px;border:1px solid #E2E8F0;border-radius:8px;font-family:var(--f)">
+        <input type="time" id="p-partial-first-start" value="${bloqueMio.start}" onchange="_p_actualizarResumenParcial()" style="padding:9px;border:1px solid #E2E8F0;border-radius:8px;font-family:var(--f)">
+        <input type="time" id="p-partial-first-end" value="${bloqueMio.end}" onchange="_p_actualizarResumenParcial()" style="padding:9px;border:1px solid #E2E8F0;border-radius:8px;font-family:var(--f)">
+      </div>
+      <div style="font-size:11px;color:#64748B;margin-top:6px">Este bloque debe coincidir con el inicio, final o turno completo de tu horario.</div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">3. Bloque de 7 horas que devolverás</div>
+      <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:8px">
+        <input type="date" id="p-partial-return-date" min="${ymd(new Date())}" onchange="_p_actualizarResumenParcial()" style="padding:9px;border:1px solid #E2E8F0;border-radius:8px;font-family:var(--f)">
+        <input type="time" id="p-partial-return-start" value="15:00" onchange="_p_actualizarResumenParcial()" style="padding:9px;border:1px solid #E2E8F0;border-radius:8px;font-family:var(--f)">
+        <input type="time" id="p-partial-return-end" value="22:00" onchange="_p_actualizarResumenParcial()" style="padding:9px;border:1px solid #E2E8F0;border-radius:8px;font-family:var(--f)">
+      </div>
+      <div style="font-size:11px;color:#64748B;margin-top:6px">En esta fecha tú cubrirás a tu compañero.</div>
+    </div>
+
+    <div class="form-row">
+      <label>Motivo o contexto</label>
+      <textarea id="p-partial-notes" placeholder="Ej. Necesito que me cubran el bloque de la mañana y devolveré las horas en la fecha seleccionada."></textarea>
+    </div>
+
+    <div id="p-partial-summary"></div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button id="p-partial-submit" class="btn-primary" onclick="_p_crearSolicitudParcial()" disabled style="opacity:.5;cursor:not-allowed">Enviar solicitud 7x7</button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+  _p_actualizarResumenParcial();
+}
+
+function _p_actualizarParcialPeer() {
+  const peerId = document.getElementById('p-partial-peer')?.value || '';
+  const peer = _p_emp(peerId);
+
+  if (peer) {
+    const bloque = _p_bloqueSugerido(peer);
+    const s = document.getElementById('p-partial-return-start');
+    const e = document.getElementById('p-partial-return-end');
+    if (s) s.value = bloque.start;
+    if (e) e.value = bloque.end;
+  }
+
+  _p_actualizarResumenParcial();
+}
+
+function _p_actualizarResumenParcial() {
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+  const peerId = document.getElementById('p-partial-peer')?.value || '';
+  const peer = _p_emp(peerId);
+  const firstDate = document.getElementById('p-partial-first-date')?.value || '';
+  const firstStart = document.getElementById('p-partial-first-start')?.value || '';
+  const firstEnd = document.getElementById('p-partial-first-end')?.value || '';
+  const returnDate = document.getElementById('p-partial-return-date')?.value || '';
+  const returnStart = document.getElementById('p-partial-return-start')?.value || '';
+  const returnEnd = document.getElementById('p-partial-return-end')?.value || '';
+  const summary = document.getElementById('p-partial-summary');
+  const btn = document.getElementById('p-partial-submit');
+
+  if (!summary || !btn) return;
+
+  const firstMinutes = _p_duracionMinutos(firstStart, firstEnd);
+  const returnMinutes = _p_duracionMinutos(returnStart, returnEnd);
+  const extendedOk = !!(me && peer && (_p_esJornadaExtendida(me) || _p_esJornadaExtendida(peer)));
+  const datesOk = !!(firstDate && returnDate && firstDate !== returnDate);
+  const durationOk = firstMinutes === 420 && returnMinutes === 420;
+  const complete = !!(me && peer && datesOk && durationOk && extendedOk);
+
+  const issues = [];
+  if (peerId && !extendedOk) issues.push('Al menos una persona debe tener jornada extendida.');
+  if (firstDate && returnDate && firstDate === returnDate) issues.push('Las coberturas deben ocurrir en fechas distintas.');
+  if ((firstStart && firstEnd) && firstMinutes !== 420) issues.push(`El primer bloque dura ${firstMinutes} minutos; debe durar 420.`);
+  if ((returnStart && returnEnd) && returnMinutes !== 420) issues.push(`La devolución dura ${returnMinutes} minutos; debe durar 420.`);
+
+  summary.innerHTML = `
+    <div style="background:${complete ? '#F0FDF4' : '#F8FAFC'};border:1px solid ${complete ? '#BBF7D0' : '#E2E8F0'};border-radius:12px;padding:13px">
+      <div style="font-size:12px;font-weight:800;color:${complete ? '#166534' : '#475569'};margin-bottom:8px">Balance de la permuta</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center">
+        <div><div style="font-size:18px;font-weight:800">${(firstMinutes / 60).toFixed(firstMinutes % 60 ? 1 : 0)} h</div><div style="font-size:10px;color:#64748B">RECIBES COBERTURA</div></div>
+        <div><div style="font-size:18px;font-weight:800">${(returnMinutes / 60).toFixed(returnMinutes % 60 ? 1 : 0)} h</div><div style="font-size:10px;color:#64748B">DEVUELVES</div></div>
+        <div><div style="font-size:18px;font-weight:800;color:${firstMinutes === returnMinutes ? '#16A34A' : '#DC2626'}">${Math.abs(firstMinutes - returnMinutes)} min</div><div style="font-size:10px;color:#64748B">DIFERENCIA</div></div>
+      </div>
+      ${complete ? `<div style="font-size:12px;color:#166534;margin-top:10px">✅ ${_p_esc(peer.full_name)} te cubre el primer bloque y tú cubres el segundo. Balance final: 0 horas.</div>` : ''}
+      ${issues.length ? `<div style="font-size:11px;color:#DC2626;margin-top:10px">${issues.map(x => `• ${_p_esc(x)}`).join('<br>')}</div>` : ''}
+    </div>
+  `;
+
+  btn.disabled = !complete;
+  btn.style.opacity = complete ? '1' : '.5';
+  btn.style.cursor = complete ? 'pointer' : 'not-allowed';
+}
+
+async function _p_crearSolicitudParcial() {
+  const ro = ROLES[currentRole];
+  const me = _p_emp(ro.id);
+  const peerId = document.getElementById('p-partial-peer')?.value || '';
+  const peer = _p_emp(peerId);
+  const firstDate = document.getElementById('p-partial-first-date')?.value || '';
+  const firstStart = document.getElementById('p-partial-first-start')?.value || '';
+  const firstEnd = document.getElementById('p-partial-first-end')?.value || '';
+  const returnDate = document.getElementById('p-partial-return-date')?.value || '';
+  const returnStart = document.getElementById('p-partial-return-start')?.value || '';
+  const returnEnd = document.getElementById('p-partial-return-end')?.value || '';
+  const notes = document.getElementById('p-partial-notes')?.value?.trim() || null;
+
+  if (!me || !peer) {
+    alert('Selecciona a la persona con quien harás la permuta.');
+    return;
+  }
+
+  if (_p_duracionMinutos(firstStart, firstEnd) !== 420 || _p_duracionMinutos(returnStart, returnEnd) !== 420) {
+    alert('Ambos bloques deben durar exactamente siete horas.');
+    return;
+  }
+
+  const { error } = await _p_sb.rpc('create_partial_shift_swap', {
+    p_requester_id: ro.id,
+    p_swap_with_id: peerId,
+    p_first_date: firstDate,
+    p_first_start: firstStart,
+    p_first_end: firstEnd,
+    p_return_date: returnDate,
+    p_return_start: returnStart,
+    p_return_end: returnEnd,
+    p_notes: notes
+  });
+
+  if (error) {
+    console.error('Error creando permuta parcial 7x7:', error);
+    alert('No se pudo crear la permuta parcial:\n\n' + (error.message || 'Error desconocido'));
+    return;
+  }
+
+  closeModal();
+  _p_cargando = true;
+  _p_render();
+  await _p_cargarDatos();
+  _p_cargando = false;
+  _p_render();
 }
 
 function _p_abrirNueva() {
@@ -18306,40 +18639,36 @@ async function _p_crearSolicitud() {
 }
 
 async function _p_responder(id, accept) {
-  let reason = null;
+  const s = _p_SWAPS.find(x => x.id === id);
+  if (!s) {
+    alert('No se encontró la permuta.');
+    return;
+  }
 
+  let reason = null;
   if (!accept) {
     reason = prompt('Motivo de rechazo:') || '';
     if (!reason.trim()) return;
   }
 
-  const { data, error } = await _p_sb.rpc('respond_day_off_swap', {
-    p_swap_id: id,
-    p_accept: accept,
-    p_reason: reason
-  });
+  const isPartial = s.swap_type === 'partial';
+  const rpcName = isPartial ? 'respond_partial_shift_swap' : 'respond_day_off_swap';
+  const args = isPartial
+    ? { p_swap_id:id, p_actor_id:ROLES[currentRole].id, p_accept:accept, p_reason:reason }
+    : { p_swap_id:id, p_accept:accept, p_reason:reason };
+
+  const { data, error } = await _p_sb.rpc(rpcName, args);
 
   if (error) {
     console.error('Error completo al responder permuta:', error);
-
-    alert(
-      'No se pudo responder la permuta:\n\n' +
-      (error.message || 'Error desconocido') +
-      (error.details ? '\n\nDetalle: ' + error.details : '') +
-      (error.hint ? '\n\nHint: ' + error.hint : '') +
-      (error.code ? '\n\nCódigo: ' + error.code : '')
-    );
-
+    alert('No se pudo responder la permuta:\n\n' + (error.message || 'Error desconocido'));
     return;
   }
 
   console.log('Permuta respondida correctamente:', data);
-
   _p_cargando = true;
   _p_render();
-
   await _p_cargarDatos();
-
   _p_cargando = false;
   _p_render();
 }
@@ -18353,42 +18682,32 @@ async function _p_aprobar(id, approve) {
   }
 
   let reason = null;
-
   if (!approve) {
     reason = prompt('Motivo de rechazo:') || '';
     if (!reason.trim()) return;
   } else {
-    const tipo = s.swap_type === 'shift' ? 'horario' : 'descanso';
-    if (!confirm(`¿Seguro que quieres aprobar y aplicar esta permuta de ${tipo} en Asistencia?`)) return;
+    if (!confirm(`¿Seguro que quieres aprobar y aplicar esta ${_p_tipoLabel(s).toLowerCase()} en Asistencia?`)) return;
   }
 
-  const rpcName = s.swap_type === 'shift'
-    ? 'review_shift_swap'
-    : 'review_day_off_swap';
+  const isPartial = s.swap_type === 'partial';
+  const rpcName = isPartial
+    ? 'review_partial_shift_swap'
+    : (s.swap_type === 'shift' ? 'review_shift_swap' : 'review_day_off_swap');
 
-  const { error } = await _p_sb.rpc(rpcName, {
-    p_swap_id: id,
-    p_approve: approve,
-    p_reason: reason
-  });
+  const args = isPartial
+    ? { p_swap_id:id, p_actor_id:ROLES[currentRole].id, p_approve:approve, p_reason:reason }
+    : { p_swap_id:id, p_approve:approve, p_reason:reason };
+
+  const { error } = await _p_sb.rpc(rpcName, args);
 
   if (error) {
     console.error('Error completo al revisar permuta:', error);
-
-    alert(
-      'No se pudo revisar la permuta:\n\n' +
-      (error.message || 'Error desconocido') +
-      (error.details ? '\n\nDetalle: ' + error.details : '') +
-      (error.hint ? '\n\nHint: ' + error.hint : '') +
-      (error.code ? '\n\nCódigo: ' + error.code : '')
-    );
-
+    alert('No se pudo revisar la permuta:\n\n' + (error.message || 'Error desconocido'));
     return;
   }
 
   _p_cargando = true;
   _p_render();
-
   await _p_cargarDatos();
 
   if (typeof _a_cargarDatos === 'function') {
@@ -18404,12 +18723,20 @@ async function _p_aprobar(id, approve) {
 }
 
 async function _p_cancelar(id) {
-  const reason = prompt('Motivo de cancelación opcional:') || null;
+  const s = _p_SWAPS.find(x => x.id === id);
+  if (!s) {
+    alert('No se encontró la permuta.');
+    return;
+  }
 
-  const { error } = await _p_sb.rpc('cancel_day_off_swap', {
-    p_swap_id: id,
-    p_reason: reason
-  });
+  const reason = prompt('Motivo de cancelación opcional:') || null;
+  const isPartial = s.swap_type === 'partial';
+  const rpcName = isPartial ? 'cancel_partial_shift_swap' : 'cancel_day_off_swap';
+  const args = isPartial
+    ? { p_swap_id:id, p_actor_id:ROLES[currentRole].id, p_reason:reason }
+    : { p_swap_id:id, p_reason:reason };
+
+  const { error } = await _p_sb.rpc(rpcName, args);
 
   if (error) {
     alert(error.message || 'No se pudo cancelar la permuta.');
@@ -23239,7 +23566,7 @@ _initImpulse();
 
 /*****************************************************************
  IMPULSE
- Version: 1.0.4
+ Version: 1.0.5
  Build: 2026-07-23
 *****************************************************************/
 
