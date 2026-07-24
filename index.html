@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.17';
+const APP_VERSION   = '1.0.18';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2320,7 +2320,7 @@ async function _rt_refreshActiveModule() {
         ['supervisor','manager','people','head_people'].includes(currentRole) &&
         typeof _a_cargarOTRecords === 'function'
       ) {
-        await _a_cargarOTRecords();
+        await _a_cargarOTRecords({ sync: false });
       }
 
       if (typeof _a_render === 'function') _a_render();
@@ -5102,7 +5102,9 @@ async function _a_syncOvertimeCandidates(showMessage = false) {
 }
 
 async function _a_cargarOTRecords(options = {}) {
-  const { sync = true } = options;
+  // Cargar datos nunca debe recalcular ni escribir en Supabase de forma oculta.
+  // La detección explícita vive en “Detectar ahora” y en el trigger de salida.
+  const { sync = false } = options;
   _a_otLoading = true;
   try {
     if (sync) await _a_syncOvertimeCandidates(false);
@@ -5153,7 +5155,7 @@ function _a_openTiempoExtra(tab = 'pendientes') {
   _a_drillAgent = null;
   _a_drillSup = null;
   _a_drillMgr = null;
-  _a_cargarOTRecords().then(() => _a_render());
+  _a_cargarOTRecords({ sync: false }).then(() => _a_render());
   _a_render();
 }
 
@@ -5167,13 +5169,30 @@ function _a_setOTTab(tab) {
   _a_render();
 }
 
+const _A_OT_PENDING_STATUSES = ['pending', 'detected', 'returned', 'escalated_manager', 'escalated_ceo'];
+
+function _a_otEsPendiente(r) {
+  return _A_OT_PENDING_STATUSES.includes(_a_otStatusNormalized(r));
+}
+
+function _a_otEsOTPendiente(r) {
+  return _a_otEsPendiente(r) && _a_otDetectedMinutes(r) > 0;
+}
+
+function _a_otEsHorarioPendiente(r) {
+  if (!_a_otEsPendiente(r) || _a_otDetectedMinutes(r) > 0) return false;
+  const type = String(r?.detection_type || '').toLowerCase();
+  return ['shifted_schedule', 'schedule_variance'].includes(type)
+    || ['schedule_corrected', 'not_overtime'].includes(String(r?.suggested_decision || '').toLowerCase());
+}
+
 function _a_otRegistrosTab() {
   const records = _a_otRegistrosPorRol();
-  const pending = ['pending', 'detected', 'returned', 'escalated_manager', 'escalated_ceo'];
   const approved = ['approved', 'partially_approved'];
   const corrections = ['not_overtime', 'declined', 'schedule_corrected', 'punch_corrected', 'cancelled'];
 
-  if (_a_otTab === 'pendientes') return records.filter(r => pending.includes(_a_otStatusNormalized(r)));
+  if (_a_otTab === 'pendientes') return records.filter(_a_otEsOTPendiente);
+  if (_a_otTab === 'horarios') return records.filter(_a_otEsHorarioPendiente);
   if (_a_otTab === 'aprobadas') return records.filter(r => approved.includes(_a_otStatusNormalized(r)));
   if (_a_otTab === 'correcciones') return records.filter(r => corrections.includes(_a_otStatusNormalized(r)));
   if (_a_otTab === 'nomina') return records.filter(r => !!_a_otPayrollStatus(r));
@@ -5182,16 +5201,17 @@ function _a_otRegistrosTab() {
 
 function _a_otResumen() {
   const records = _a_otRegistrosPorRol();
-  const pendingStatuses = ['pending', 'detected', 'returned', 'escalated_manager', 'escalated_ceo'];
   const approvedStatuses = ['approved', 'partially_approved'];
   const correctionStatuses = ['not_overtime', 'declined', 'schedule_corrected', 'punch_corrected', 'cancelled'];
-  const pendientes = records.filter(r => pendingStatuses.includes(_a_otStatusNormalized(r)));
+  const pendientes = records.filter(_a_otEsOTPendiente);
+  const horarios = records.filter(_a_otEsHorarioPendiente);
   const aprobadas = records.filter(r => approvedStatuses.includes(_a_otStatusNormalized(r)));
   const correcciones = records.filter(r => correctionStatuses.includes(_a_otStatusNormalized(r)));
   const nomina = records.filter(r => !!_a_otPayrollStatus(r));
   return {
     records,
     pendientes,
+    horarios,
     aprobadas,
     correcciones,
     nomina,
@@ -5207,17 +5227,19 @@ function _a_otTabButton(tab, label, count) {
 
 function _a_renderOTSection() {
   const r = _a_otResumen();
+  const initialTab = r.pendientes.length ? 'pendientes' : (r.horarios.length ? 'horarios' : 'pendientes');
   return `
-    <div class="card" style="border-color:${r.pendientes.length ? '#FDE68A' : '#E2E8F0'}">
+    <div class="card" style="border-color:${(r.pendientes.length || r.horarios.length) ? '#FDE68A' : '#E2E8F0'}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
         <div>
           <div class="card-title" style="margin-bottom:4px">⏱️ Diferencias de jornada y tiempo extra</div>
-          <div style="font-size:12px;color:#64748B;line-height:1.5">Impulse compara la jornada trabajada contra la esperada; solo el excedente neto puede aprobarse como OT.</div>
+          <div style="font-size:12px;color:#64748B;line-height:1.5">OT y cambios de horario se gestionan por separado. Una jornada desplazada nunca cuenta como horas extra.</div>
         </div>
-        <button class="btn-primary" onclick="_a_openTiempoExtra('pendientes')">Abrir gestión</button>
+        <button class="btn-primary" onclick="_a_openTiempoExtra('${initialTab}')">Abrir gestión</button>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px">
-        <div class="kpi-box incard"><div class="kpi-lbl">OT neto por revisar</div><div class="kpi-val" style="font-size:20px;color:#D97706">${_a_otMinsToStr(r.minPend)}</div><div style="font-size:11px;color:#94A3B8">${r.pendientes.length} casos</div></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px">
+        <div class="kpi-box incard"><div class="kpi-lbl">OT neto por revisar</div><div class="kpi-val" style="font-size:20px;color:#D97706">${_a_otMinsToStr(r.minPend)}</div><div style="font-size:11px;color:#94A3B8">${r.pendientes.length} casos con excedente</div></div>
+        <div class="kpi-box incard"><div class="kpi-lbl">Horarios por revisar</div><div class="kpi-val" style="font-size:20px;color:#1D4ED8">${r.horarios.length}</div><div style="font-size:11px;color:#94A3B8">0 minutos de OT</div></div>
         <div class="kpi-box incard"><div class="kpi-lbl">Aprobado</div><div class="kpi-val" style="font-size:20px;color:#16A34A">${_a_otMinsToStr(r.minAprob)}</div><div style="font-size:11px;color:#94A3B8">${r.aprobadas.length} casos</div></div>
         <div class="kpi-box incard"><div class="kpi-lbl">En flujo de nómina</div><div class="kpi-val" style="font-size:20px;color:#7E22CE">${_a_otMinsToStr(r.minNomina)}</div><div style="font-size:11px;color:#94A3B8">${r.nomina.length} movimientos</div></div>
       </div>
@@ -5395,7 +5417,7 @@ function _a_renderTiempoExtra() {
       <td style="font-family:var(--fm)">${fmtDate(ot.work_date)}</td>
       <td><span class="pill pill-gray">${_a_otEsc(_a_otCamp(ot))}</span></td>
       <td><b>${_a_otEsc(_a_otTipoLabel(ot))}</b><div style="font-size:10px;color:#94A3B8;margin-top:3px">${_a_otEsc(_a_otBreakdown(ot))}</div></td>
-      <td><div style="font-family:var(--fm);font-weight:800;color:#6366F1">${_a_otMinsToStr(detected)}</div><div style="font-size:10px;color:#94A3B8">${String(ot.actual_time_in || '—').slice(0,5)}–${String(ot.actual_time_out || '—').slice(0,5)}</div></td>
+      <td><div style="font-family:var(--fm);font-weight:800;color:${detected > 0 ? '#6366F1' : '#64748B'}">${detected > 0 ? _a_otMinsToStr(detected) : 'No aplica'}</div><div style="font-size:10px;color:#94A3B8">${String(ot.actual_time_in || '—').slice(0,5)}–${String(ot.actual_time_out || '—').slice(0,5)}</div></td>
       <td><div style="font-family:var(--fm);font-weight:800;color:${approved ? '#16A34A' : '#94A3B8'}">${approved ? _a_otMinsToStr(approved) : '—'}</div>${approved ? `<div style="font-size:10px;color:#94A3B8">${_a_otEsc(_a_otBreakdown(ot, true))}</div>` : ''}</td>
       <td><span class="pill ${st.pill}">${st.icon} ${_a_otEsc(st.label)}</span><div style="margin-top:5px">${_a_otPayrollPill(adjustment)}</div></td>
       <td style="font-size:11px;color:#64748B;max-width:250px">${_a_otEsc(ot.review_reason || ot.notes || '—')}</td>
@@ -5415,21 +5437,22 @@ function _a_renderTiempoExtra() {
       </div>
     </div>
     <div class="kpi4">
-      <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${_a_otMinsToStr(r.minPend)}</div><div class="kpi-lbl">OT neto por revisar</div><div style="font-size:11px;color:#94A3B8">${r.pendientes.length} casos</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#D97706">${_a_otMinsToStr(r.minPend)}</div><div class="kpi-lbl">OT neto por revisar</div><div style="font-size:11px;color:#94A3B8">${r.pendientes.length} casos con excedente</div></div>
+      <div class="kpi-box"><div class="kpi-val" style="color:#1D4ED8">${r.horarios.length}</div><div class="kpi-lbl">Horarios por revisar</div><div style="font-size:11px;color:#94A3B8">Jornadas desplazadas · 0 OT</div></div>
       <div class="kpi-box"><div class="kpi-val" style="color:#16A34A">${_a_otMinsToStr(r.minAprob)}</div><div class="kpi-lbl">Aprobado</div><div style="font-size:11px;color:#94A3B8">${r.aprobadas.length} casos</div></div>
-      <div class="kpi-box"><div class="kpi-val" style="color:#1D4ED8">${r.correcciones.length}</div><div class="kpi-lbl">No pagable / corregido</div><div style="font-size:11px;color:#94A3B8">Decisiones auditadas</div></div>
       <div class="kpi-box"><div class="kpi-val" style="color:#7E22CE">${_a_otMinsToStr(r.minNomina)}</div><div class="kpi-lbl">En Nómina</div><div style="font-size:11px;color:#94A3B8">${r.nomina.length} movimientos</div></div>
     </div>
     <div class="alert alert-blue">Una entrada anticipada o salida posterior no es OT por sí sola. Primero se compara la duración total; solo el excedente neto puede pasar a Nómina.</div>
     <div class="tabs" style="margin-bottom:14px">
-      ${_a_otTabButton('pendientes', 'Pendientes', r.pendientes.length)}
+      ${_a_otTabButton('pendientes', 'OT pendiente', r.pendientes.length)}
+      ${_a_otTabButton('horarios', 'Horario por revisar', r.horarios.length)}
       ${_a_otTabButton('aprobadas', 'Aprobadas', r.aprobadas.length)}
       ${_a_otTabButton('correcciones', 'No pagable / correcciones', r.correcciones.length)}
       ${_a_otTabButton('nomina', 'Flujo de nómina', r.nomina.length)}
       ${_a_otTabButton('historico', 'Todo', r.records.length)}
     </div>
     <div class="card">
-      <div class="card-title">${_a_otTab === 'pendientes' ? 'Pendientes de decisión' : _a_otTab === 'aprobadas' ? 'Tiempo aprobado' : _a_otTab === 'correcciones' ? 'Casos no pagables o corregidos' : _a_otTab === 'nomina' ? 'Movimientos enviados a Nómina' : 'Histórico completo'}</div>
+      <div class="card-title">${_a_otTab === 'pendientes' ? 'Tiempo extra neto pendiente' : _a_otTab === 'horarios' ? 'Jornadas desplazadas o diferencias de horario' : _a_otTab === 'aprobadas' ? 'Tiempo aprobado' : _a_otTab === 'correcciones' ? 'Casos no pagables o corregidos' : _a_otTab === 'nomina' ? 'Movimientos enviados a Nómina' : 'Histórico completo'}</div>
       <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:1180px"><thead><tr><th>Agente</th><th>Fecha</th><th>Campaña</th><th>Tipo</th><th>OT neto</th><th>Aprobado</th><th>Estado</th><th>Justificación</th><th>Acción</th></tr></thead><tbody>${rows || '<tr><td colspan="9" style="padding:28px;text-align:center;color:#94A3B8">Sin registros en esta vista.</td></tr>'}</tbody></table></div></div>
     </div>`;
 }
@@ -10142,7 +10165,10 @@ async function _n_cargarDatos() {
     // 3. Cargar líneas del periodo activo
     if (_n_periodoActivo) {
       await _n_cargarLineas(_n_periodoActivo);
-      await _n_cargarAjustes(_n_periodoActivo);
+      await Promise.all([
+        _n_cargarAjustes(_n_periodoActivo),
+        _n_cargarOTPendiente(_n_periodoActivo)
+      ]);
     }
 
     return true;
@@ -10203,17 +10229,51 @@ function _n_payrollNav() {
   </div>`;
 }
 
+async function _n_cargarOTPendiente(periodoId) {
+  _n_AGENTES.forEach(a => { a.ot_mins = 0; });
+  const p = _n_PERIODOS.find(x => String(x.id) === String(periodoId));
+  if (!p) return;
+
+  const { data, error } = await _n_sb
+    .from('overtime_records')
+    .select('employee_id, net_overtime_minutes, minutes_extra, status, work_date')
+    .gte('work_date', p.fecha_inicio)
+    .lte('work_date', p.fecha_corte)
+    .in('status', ['pending', 'detected', 'returned', 'escalated_manager', 'escalated_ceo']);
+
+  if (error) {
+    console.warn('[Nómina] No se pudo cargar OT pendiente:', error);
+    return;
+  }
+
+  (data || []).forEach(r => {
+    const mins = _a_otNum(r.net_overtime_minutes ?? r.minutes_extra);
+    if (mins <= 0) return; // Jornadas desplazadas no son OT pendiente.
+    const employee = _n_AGENTES.find(e => e.id === r.employee_id);
+    if (employee) employee.ot_mins += mins;
+  });
+}
+
 async function _n_cargarAjustes(periodoId) {
   if (!periodoId) {
     _n_AJUSTES = [];
     return;
   }
 
-  const { data, error } = await _n_sb
+  const period = _n_PERIODOS.find(p => String(p.id) === String(periodoId));
+  let adjustmentQuery = _n_sb
     .from('payroll_adjustments')
-    .select('*, employees!payroll_adjustments_employee_id_fkey(full_name, campaign_id, supervisor_id)')
-    .eq('payroll_period_id', String(periodoId))
-    .order('work_date', { ascending: false });
+    .select('*, employees!payroll_adjustments_employee_id_fkey(full_name, campaign_id, supervisor_id)');
+
+  if (period) {
+    adjustmentQuery = adjustmentQuery
+      .gte('work_date', period.fecha_inicio)
+      .lte('work_date', period.fecha_corte);
+  } else {
+    adjustmentQuery = adjustmentQuery.eq('payroll_period_id', String(periodoId));
+  }
+
+  const { data, error } = await adjustmentQuery.order('work_date', { ascending: false });
 
   if (error) {
     console.warn('[Nómina] No se pudieron cargar ajustes:', error);
@@ -10222,12 +10282,14 @@ async function _n_cargarAjustes(periodoId) {
   }
 
   const ro = ROLES[currentRole] || {};
-  let rows = (data || []).map(a => ({
-    ...a,
-    employee_name: a.employees?.full_name || a.employee_id,
-    campaign_id: a.campaign_id || a.employees?.campaign_id || '—',
-    supervisor_id: a.supervisor_id || a.employees?.supervisor_id || null
-  }));
+  let rows = (data || [])
+    .filter(a => !a.payroll_period_id || String(a.payroll_period_id) === String(periodoId))
+    .map(a => ({
+      ...a,
+      employee_name: a.employees?.full_name || a.employee_id,
+      campaign_id: a.campaign_id || a.employees?.campaign_id || '—',
+      supervisor_id: a.supervisor_id || a.employees?.supervisor_id || null
+    }));
 
   if (currentRole === 'supervisor') {
     rows = rows.filter(a => a.supervisor_id === ro.id);
@@ -10492,7 +10554,10 @@ function _n_periodoSelector(){
 async function _n_setPeriodo(id){
   _n_periodoActivo=id;
   if(!_n_LINEAS[id]) await _n_cargarLineas(id);
-  await _n_cargarAjustes(id);
+  await Promise.all([
+    _n_cargarAjustes(id),
+    _n_cargarOTPendiente(id)
+  ]);
   _n_render();
 }
 
@@ -11193,15 +11258,20 @@ async function _n_crearPeriodo(){
 }
 
 
-window['_init_asistencia']=function(){
-  _a_cargando=true; _a_render();
-  _a_cargarDatos().then(ok=>{
-    _a_cargando=false; _a_render();
-    if(ok){
-      _a_checkAutoRetardos(); _a_checkAutoFaltas();
-      if(['supervisor','manager','people','head_people'].includes(currentRole)) _a_cargarOTRecords();
-    }
-  });
+window['_init_asistencia']=async function(){
+  _a_cargando = true;
+  _a_render();
+  const ok = await _a_cargarDatos();
+  if (ok && ['supervisor','manager','people','head_people'].includes(currentRole)) {
+    // Carga primero los registros existentes para que los KPIs nazcan correctos.
+    await _a_cargarOTRecords({ sync: false });
+  }
+  _a_cargando = false;
+  _a_render();
+  if (ok) {
+    _a_checkAutoRetardos();
+    _a_checkAutoFaltas();
+  }
 };
 window['_rerender_asistencia']=function(){ if(typeof _a_render==='function')_a_render(); };
 
