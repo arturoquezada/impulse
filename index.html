@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.20';
+const APP_VERSION   = '1.0.21';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -9971,7 +9971,7 @@ async function _a_enviarSolicitudCorreccion(empId, fecha){
     subtype: subtipoMap[punchTipo] || 'Corrección',
     description: motivo || `Solicitud de corrección de ${punchTipo} para ${fecha}`,
     priority: 'normal', sla_hours: 48,
-    due_at: new Date(Date.now() + 48*3600000).toISOString(),
+    due_at: null, // Supabase calcula 48h de SLA sin fines de semana.
     target_employee_id: empId,
     target_date: fecha,
     correction_punch_type: punchTipo,
@@ -10071,7 +10071,7 @@ async function _a_enviarSolicitudCorreccionIncidencia(empId, fecha) {
     priority: 'normal',
     status: 'pending',
     sla_hours: 48,
-    due_at: new Date(Date.now() + 48*3600000).toISOString(),
+    due_at: null, // Supabase calcula 48h de SLA sin fines de semana.
     target_employee_id: empId,
     target_date: fecha
   });
@@ -16070,7 +16070,7 @@ async function _t_crearTicket() {
     priority: 'normal',
     status: 'pending',
     sla_hours: 48,
-    due_at: new Date(Date.now() + 48 * 3600000).toISOString(),
+    due_at: null, // Supabase calcula 48h de SLA sin fines de semana.
     updated_at: now
   });
 
@@ -16549,6 +16549,73 @@ function _t_prioColor(p) {
   return p === 'high' ? '#DC2626' : p === 'medium' ? '#D97706' : '#64748B';
 }
 
+
+const _T_SLA_TIMEZONE = 'America/Mexico_City';
+
+function _t_weekdayCDMX(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: _T_SLA_TIMEZONE,
+    weekday: 'short'
+  }).format(date);
+}
+
+function _t_esFinDeSemana(value) {
+  const weekday = _t_weekdayCDMX(value);
+  return weekday === 'Sat' || weekday === 'Sun';
+}
+
+/*
+ * Calcula minutos de SLA entre dos instantes y excluye por completo
+ * cualquier minuto que caiga en sábado o domingo de Ciudad de México.
+ *
+ * El cálculo usa bloques máximos de una hora para conservar minutos
+ * parciales sin hacer miles de iteraciones por minuto.
+ */
+function _t_minutosSlaEntre(desde, hasta) {
+  let inicio = desde instanceof Date ? new Date(desde) : new Date(desde);
+  let fin = hasta instanceof Date ? new Date(hasta) : new Date(hasta);
+
+  if (Number.isNaN(inicio.getTime()) || Number.isNaN(fin.getTime())) {
+    return 0;
+  }
+
+  let signo = 1;
+
+  if (fin < inicio) {
+    [inicio, fin] = [fin, inicio];
+    signo = -1;
+  }
+
+  let cursor = new Date(inicio);
+  let minutos = 0;
+  const unaHora = 60 * 60 * 1000;
+
+  while (cursor < fin) {
+    const siguiente = new Date(
+      Math.min(fin.getTime(), cursor.getTime() + unaHora)
+    );
+
+    if (!_t_esFinDeSemana(cursor)) {
+      minutos += (siguiente - cursor) / 60000;
+    }
+
+    cursor = siguiente;
+  }
+
+  return Math.round(minutos * signo);
+}
+
+function _t_horasSlaRestantes(t) {
+  if (!t?.due_at) return null;
+
+  return Math.ceil(
+    _t_minutosSlaEntre(new Date(), new Date(t.due_at)) / 60
+  );
+}
+
 function _t_slaInfo(t) {
   if (!t.due_at) {
     return { label:'Sin SLA', color:'#64748B', bg:'#F1F5F9', state:'none' };
@@ -16560,18 +16627,42 @@ function _t_slaInfo(t) {
 
   const now = new Date();
   const due = new Date(t.due_at);
-  const diffMs = due - now;
-  const diffH = Math.ceil(diffMs / 3600000);
+  const diffMin = _t_minutosSlaEntre(now, due);
+  const diffH = Math.ceil(Math.abs(diffMin) / 60);
 
-  if (diffMs < 0) {
-    return { label:`Vencido ${Math.abs(diffH)}h`, color:'#991B1B', bg:'#FEE2E2', state:'overdue' };
+  if (diffMin < 0) {
+    return {
+      label:`Vencido ${diffH}h hábiles`,
+      color:'#991B1B',
+      bg:'#FEE2E2',
+      state:'overdue'
+    };
   }
 
-  if (diffH <= 8) {
-    return { label:`Vence en ${diffH}h`, color:'#92400E', bg:'#FEF3C7', state:'today' };
+  if (_t_esFinDeSemana(now)) {
+    return {
+      label:`Pausado · ${diffH}h hábiles`,
+      color:'#1D4ED8',
+      bg:'#DBEAFE',
+      state:'paused'
+    };
   }
 
-  return { label:`${diffH}h restantes`, color:'#166534', bg:'#DCFCE7', state:'ok' };
+  if (diffMin <= 8 * 60) {
+    return {
+      label:`Vence en ${diffH}h hábiles`,
+      color:'#92400E',
+      bg:'#FEF3C7',
+      state:'today'
+    };
+  }
+
+  return {
+    label:`${diffH}h hábiles restantes`,
+    color:'#166534',
+    bg:'#DCFCE7',
+    state:'ok'
+  };
 }
 
 function _t_setVista(vista) {
@@ -16759,6 +16850,7 @@ function _t_filtrarTickets(lista) {
 
     if (_t_filtros.sla === 'overdue' && sla.state !== 'overdue') return false;
     if (_t_filtros.sla === 'today' && sla.state !== 'today') return false;
+    if (_t_filtros.sla === 'paused' && sla.state !== 'paused') return false;
     if (_t_filtros.sla === 'unassigned' && t.assigned_to) return false;
 
     if (_t_filtros.fecha !== 'all') {
@@ -16985,6 +17077,7 @@ function _t_renderFiltros(baseLista = _t_TICKETS, options = {}) {
           <option value="all" ${_t_filtros.sla === 'all' ? 'selected' : ''}>Todos</option>
           <option value="overdue" ${_t_filtros.sla === 'overdue' ? 'selected' : ''}>Vencidos</option>
           <option value="today" ${_t_filtros.sla === 'today' ? 'selected' : ''}>Por vencer</option>
+          <option value="paused" ${_t_filtros.sla === 'paused' ? 'selected' : ''}>SLA pausado</option>
           <option value="unassigned" ${_t_filtros.sla === 'unassigned' ? 'selected' : ''}>Sin responsable</option>
         </select>
       ` : ''}
@@ -17058,7 +17151,7 @@ function _t_renderKpisTickets(baseLista = _t_TICKETS) {
 
       <div class="kpi-box">
         <div class="kpi-val" style="color:#16A34A">${slaPct}%</div>
-        <div class="kpi-lbl">SLA cumplimiento</div>
+        <div class="kpi-lbl" title="48 horas de SLA; sábado y domingo no cuentan">SLA cumplimiento hábil</div>
       </div>
     </div>
   `;
