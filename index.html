@@ -1616,7 +1616,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.8';
+const APP_VERSION   = '1.0.9';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -15271,6 +15271,7 @@ async function _t_resolverTicket(id) {
         <div style="font-size:10px;color:#166534;margin-top:6px">Las marcas quedarán identificadas como administrativas y ligadas a este ticket.</div>
       </div>
       <div style="font-size:11px;color:#1E40AF;margin-top:9px">Para ausencias se actualizará la excepción y se limpiarán los punches. Si eliges “Sí trabajó”, se quitará la falta y se crearán entrada y salida con el horario indicado.</div>
+      <div style="font-size:11px;color:#7C3AED;margin-top:6px"><strong>Acción People:</strong> si la incidencia deja de ser falta o retardo, cualquier sanción vinculada a esta persona y fecha se anulará automáticamente, conservando el registro para auditoría.</div>
       <div style="font-size:11px;color:#1E40AF;margin-top:6px"><strong>Motivo del supervisor:</strong> ${incidentData?.request_reason || '—'}</div>
     </div>` : esCorreccion ? `<div class="modal-section" style="background:#FFFBEB;border-color:#FDE68A">
       <div class="ms-title" style="color:#92400E">🚩 Revisá antes de aplicar — podés ajustar la hora</div>
@@ -20315,6 +20316,9 @@ let _d_vista = 'historial';
 let _d_detalleId = null;
 let _d_filtroTexto = '';
 let _d_filtroStatus = 'all';
+let _d_filtroFechaPreset = 'all';
+let _d_filtroFechaDesde = '';
+let _d_filtroFechaHasta = '';
 let _d_ATT_INCIDENTS = [];
 let _d_SELECTED_ATT_INCIDENT = null;
 
@@ -21078,6 +21082,16 @@ function _d_casesFiltrados(base) {
     lista = lista.filter(c => c.status === _d_filtroStatus);
   }
 
+  if (_d_filtroFechaDesde || _d_filtroFechaHasta) {
+    lista = lista.filter(c => {
+      const fecha = String(c.incident_date || c.created_at || '').slice(0, 10);
+      if (!fecha) return false;
+      if (_d_filtroFechaDesde && fecha < _d_filtroFechaDesde) return false;
+      if (_d_filtroFechaHasta && fecha > _d_filtroFechaHasta) return false;
+      return true;
+    });
+  }
+
   if (txt) {
     lista = lista.filter(c => {
       const emp = _d_emp(c.employee_id);
@@ -21130,8 +21144,61 @@ function _d_setFiltroTexto(valor) {
   });
 }
 
-function _d_filtrosHTML() {
-  return `
+function _d_setFiltroFechaPreset(preset) {
+  const hoy = _d_todayCdmxYMD();
+  const [anio, mes] = hoy.split('-');
+  let desde = '';
+  let hasta = hoy;
+
+  if (preset === 'hoy') desde = hoy;
+  if (preset === '7d') desde = _d_addDaysYMD(hoy, -6);
+  if (preset === '30d') desde = _d_addDaysYMD(hoy, -29);
+  if (preset === 'mes') desde = `${anio}-${mes}-01`;
+  if (preset === 'anio') desde = `${anio}-01-01`;
+  if (preset === 'all') {
+    desde = '';
+    hasta = '';
+  }
+
+  _d_filtroFechaPreset = preset;
+  _d_filtroFechaDesde = desde;
+  _d_filtroFechaHasta = hasta;
+  _d_render();
+}
+
+function _d_setFiltroFecha(campo, valor) {
+  if (campo === 'desde') _d_filtroFechaDesde = valor || '';
+  if (campo === 'hasta') _d_filtroFechaHasta = valor || '';
+  _d_filtroFechaPreset = 'custom';
+  _d_render();
+}
+
+function _d_labelFiltroFechas() {
+  if (_d_filtroFechaPreset === 'all') return 'Todo el histórico';
+  const desde = _d_filtroFechaDesde ? fmtDateShort(_d_filtroFechaDesde) : 'Inicio';
+  const hasta = _d_filtroFechaHasta ? fmtDateShort(_d_filtroFechaHasta) : 'Hoy';
+  return `${desde} → ${hasta}`;
+}
+
+function _d_filtrosHTML(incluirFechas = false) {
+  const fechas = incluirFechas ? `
+    <div class="date-filter-bar">
+      <span class="df-label">Fecha del incidente</span>
+      <button class="df-preset ${_d_filtroFechaPreset === 'hoy' ? 'active' : ''}" onclick="_d_setFiltroFechaPreset('hoy')">Hoy</button>
+      <button class="df-preset ${_d_filtroFechaPreset === '7d' ? 'active' : ''}" onclick="_d_setFiltroFechaPreset('7d')">7 días</button>
+      <button class="df-preset ${_d_filtroFechaPreset === '30d' ? 'active' : ''}" onclick="_d_setFiltroFechaPreset('30d')">30 días</button>
+      <button class="df-preset ${_d_filtroFechaPreset === 'mes' ? 'active' : ''}" onclick="_d_setFiltroFechaPreset('mes')">Mes actual</button>
+      <button class="df-preset ${_d_filtroFechaPreset === 'anio' ? 'active' : ''}" onclick="_d_setFiltroFechaPreset('anio')">Año</button>
+      <button class="df-preset ${_d_filtroFechaPreset === 'all' ? 'active' : ''}" onclick="_d_setFiltroFechaPreset('all')">Todo</button>
+      <span class="df-sep">|</span>
+      <input type="date" class="df-input" value="${_d_filtroFechaDesde}" onchange="_d_setFiltroFecha('desde', this.value)">
+      <span class="df-sep">a</span>
+      <input type="date" class="df-input" value="${_d_filtroFechaHasta}" onchange="_d_setFiltroFecha('hasta', this.value)">
+      <span class="df-chip">${_d_labelFiltroFechas()}</span>
+    </div>
+  ` : '';
+
+  return `${fechas}
     <div class="date-filter-bar">
       <span class="df-label">Buscar</span>
 
@@ -21256,7 +21323,7 @@ function _d_renderPendientes() {
       <div class="alert alert-amber">
         Manager puede aprobar casos de agentes cuando la cola sea Manager/People. People y Head People pueden revisar todo.
       </div>
-      ${_d_filtrosHTML()}
+      ${_d_filtrosHTML(false)}
       ${_d_caseRows(lista)}
     </div>
   `;
@@ -21270,8 +21337,9 @@ function _d_renderHistorial() {
       <div class="card-title">${currentRole === 'agent' ? 'Mis Acciones People' : 'Historial de Acciones People'}</div>
       ${currentRole === 'agent'
         ? `<div class="alert alert-blue">Aquí puedes revisar tus acciones y dar acuse cuando aplique.</div>`
-        : _d_filtrosHTML()
+        : ''
       }
+      ${_d_filtrosHTML(true)}
       ${_d_caseRows(lista)}
     </div>
   `;
@@ -23866,7 +23934,7 @@ _initImpulse();
 
 /*****************************************************************
  IMPULSE
- Version: 1.0.8
+ Version: 1.0.9
  Build: 2026-07-23
 *****************************************************************/
 
