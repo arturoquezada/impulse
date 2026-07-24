@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.21';
+const APP_VERSION   = '1.0.22';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -13902,7 +13902,12 @@ function _dd4_attachExceptions(rows=[],exceptions=[]){
 }
 
 function _dd4_validAction(a){
-  return !['cancelled','canceled','rejected','rechazada','rechazado'].includes(_dd_norm(a?.status));
+  return ![
+    'voided','anulado','anulada',
+    'cancelled','canceled','cancelado','cancelada',
+    'rejected','rechazada','rechazado',
+    'denied'
+  ].includes(_dd_norm(a?.status));
 }
 
 function _dd4_actionableRows(rows=[]){
@@ -14228,51 +14233,364 @@ function _dd4_operationalIncidentType(row={}){
   return String(row.audit_status||'Incidencia').replaceAll('_',' ');
 }
 
-function _dd4_operationalResultLabel(exception,row={}){
-  if(!exception)return row.audit_status==='falta_injustificada'?'Sin registro administrativo':'Pendiente de revisión';
-  const type=_dd_norm(exception.type);
-  const labels={
-    falta_injustificada:'Falta injustificada',permiso:'Permiso',incapacidad:'Incapacidad',vacaciones:'Vacaciones',
-    falta_justificada:'Ausencia justificada',ausencia_justificada:'Ausencia justificada',retardo_justificado:'Retardo justificado',
-    permuta_horario:'Permuta de horario',permuta_descanso:'Descanso por permuta',descanso:'Descanso',
-    correccion_punch:'Marcaje corregido',horario_corregido:'Horario corregido'
-  };
-  return labels[type]||String(exception.type||'Incidencia registrada').replaceAll('_',' ');
+function _dd4_actionIncidentYmd(action={}){
+  const direct=String(
+    action.incident_date ||
+    action.attendance_incident_date ||
+    ''
+  ).slice(0,10);
+
+  if(/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+
+  const source=String(
+    action.attendance_source_id ||
+    action.source_id ||
+    ''
+  );
+
+  const match=source.match(/(\d{4}-\d{2}-\d{2})/);
+  return match?.[1]||'';
 }
 
-function _dd4_buildOperationalIncidents(rows=[],exceptions=[],directory=[]){
-  const employeeMap=new Map((directory||[]).map(e=>[String(e.id||'').trim().toUpperCase(),e]));
+function _dd4_actionManagementDate(action={}){
+  return action.action_date ||
+    action.issued_at ||
+    action.requested_at ||
+    action.created_at ||
+    action.reviewed_at ||
+    '';
+}
+
+function _dd4_operationalResultLabel(exception,row={},action=null){
+  if(exception){
+    const type=_dd_norm(exception.type);
+    const labels={
+      falta_injustificada:'Falta injustificada',
+      permiso:'Permiso',
+      incapacidad:'Incapacidad',
+      vacaciones:'Vacaciones',
+      falta_justificada:'Ausencia justificada',
+      ausencia_justificada:'Ausencia justificada',
+      retardo_justificado:'Retardo justificado',
+      permuta_horario:'Permuta de horario',
+      permuta_descanso:'Descanso por permuta',
+      descanso:'Descanso',
+      correccion_punch:'Marcaje corregido',
+      horario_corregido:'Horario corregido'
+    };
+    return labels[type] ||
+      String(exception.type||'Incidencia registrada').replaceAll('_',' ');
+  }
+
+  if(action){
+    const status=_dd_norm(row.audit_status);
+
+    if(status==='retardo') return 'Retardo injustificado';
+    if(status==='falta_injustificada') return 'Falta injustificada';
+    if(status==='sin_entrada') return 'Ausencia gestionada';
+    if(status==='sin_salida') return 'Salida pendiente gestionada';
+
+    return 'Incidencia gestionada';
+  }
+
+  return row.audit_status==='falta_injustificada'
+    ? 'Sin registro administrativo'
+    : 'Pendiente de revisión';
+}
+
+function _dd4_buildOperationalIncidents(
+  rows=[],
+  exceptions=[],
+  directory=[],
+  actions=[]
+){
+  const employeeMap=new Map(
+    (directory||[]).map(e=>[
+      String(e.id||'').trim().toUpperCase(),
+      e
+    ])
+  );
+
   const exceptionMap=new Map();
-  (exceptions||[]).filter(e=>!_dd4_isCancelledException(e)).forEach(e=>{
-    const key=_dd4_exceptionKey(e);if(!exceptionMap.has(key))exceptionMap.set(key,[]);exceptionMap.get(key).push(e);
+
+  (exceptions||[])
+    .filter(e=>!_dd4_isCancelledException(e))
+    .forEach(e=>{
+      const key=_dd4_exceptionKey(e);
+      if(!exceptionMap.has(key)) exceptionMap.set(key,[]);
+      exceptionMap.get(key).push(e);
+    });
+
+  const validActions=(actions||[])
+    .filter(_dd4_validAction)
+    .map(a=>({
+      ...a,
+      _employee_id:String(_dd_actionEmployee(a)||'').trim().toUpperCase(),
+      _incident_date:_dd4_actionIncidentYmd(a),
+      _management_date:_dd4_actionManagementDate(a)
+    }))
+    .filter(a=>a._employee_id && a._management_date)
+    .sort((a,b)=>
+      String(a._management_date).localeCompare(String(b._management_date))
+    );
+
+  const actionsByEmployee={};
+
+  validActions.forEach(a=>{
+    (actionsByEmployee[a._employee_id] ||= []).push(a);
   });
-  const incidents=(rows||[]).filter(r=>['falta_injustificada','retardo','sin_entrada','sin_salida'].includes(_dd_norm(r.audit_status))).map(r=>{
-    const key=_dd4_rowKey(r);const all=(exceptionMap.get(key)||[]).slice().sort((a,b)=>String(a.created_at||a.requested_at||'').localeCompare(String(b.created_at||b.requested_at||'')));
+
+  const usedActions=new Set();
+
+  const incidentRows=(rows||[])
+    .filter(r=>[
+      'falta_injustificada',
+      'retardo',
+      'sin_entrada',
+      'sin_salida'
+    ].includes(_dd_norm(r.audit_status)))
+    .slice()
+    .sort((a,b)=>
+      String(a.work_date||'').localeCompare(String(b.work_date||'')) ||
+      String(a.employee_name||'').localeCompare(String(b.employee_name||''))
+    );
+
+  const incidents=incidentRows.map(r=>{
+    const key=_dd4_rowKey(r);
+
+    const all=(exceptionMap.get(key)||[])
+      .slice()
+      .sort((a,b)=>
+        String(a.created_at||a.requested_at||'')
+          .localeCompare(String(b.created_at||b.requested_at||''))
+      );
+
     const manual=all.find(e=>{
-      const notes=_dd_norm([e.notes,e.source,e.created_source,e.origin].filter(Boolean).join(' '));
-      return !(e.is_bot===true||notes.includes('bot')||notes.includes('🤖')||_dd_norm(e.created_by)==='bot');
+      const notes=_dd_norm([
+        e.notes,
+        e.source,
+        e.created_source,
+        e.origin
+      ].filter(Boolean).join(' '));
+
+      return !(
+        e.is_bot===true ||
+        notes.includes('bot') ||
+        notes.includes('🤖') ||
+        _dd_norm(e.created_by)==='bot'
+      );
     })||null;
+
     const bot=all.find(e=>{
-      const notes=_dd_norm([e.notes,e.source,e.created_source,e.origin].filter(Boolean).join(' '));
-      return e.is_bot===true||notes.includes('bot')||notes.includes('🤖')||_dd_norm(e.created_by)==='bot';
+      const notes=_dd_norm([
+        e.notes,
+        e.source,
+        e.created_source,
+        e.origin
+      ].filter(Boolean).join(' '));
+
+      return (
+        e.is_bot===true ||
+        notes.includes('bot') ||
+        notes.includes('🤖') ||
+        _dd_norm(e.created_by)==='bot'
+      );
     })||null;
+
     const final=all.find(_dd4_isFinalException)||all[0]||null;
-    const creatorId=String(manual?.created_by||manual?.requested_by||manual?.creator_id||'').trim().toUpperCase();
-    const creator=employeeMap.get(creatorId)||{};
-    const createdAt=manual?.created_at||manual?.requested_at||'';
-    const days=manual?_dd4_daysBetweenYmd(String(r.work_date||'').slice(0,10),createdAt):null;
+
+    const employeeId=String(r.employee_id||'').trim().toUpperCase();
+    const incidentYmd=String(r.work_date||'').slice(0,10);
+    const employeeActions=actionsByEmployee[employeeId]||[];
+
+    let action=null;
+    let actionDays=null;
+
+    /*
+     * 1. Prioridad absoluta: una People Action vinculada explícitamente
+     *    a la misma persona y fecha mediante attendance_source_id o
+     *    attendance_incident_date.
+     */
+    for(const candidate of employeeActions){
+      const actionKey=candidate.id ||
+        `${candidate._employee_id}|${candidate._management_date}`;
+
+      if(usedActions.has(actionKey)) continue;
+
+      if(candidate._incident_date===incidentYmd){
+        action=candidate;
+        actionDays=_dd4_daysBetweenYmd(
+          incidentYmd,
+          candidate._management_date
+        );
+        usedActions.add(actionKey);
+        break;
+      }
+    }
+
+    /*
+     * 2. Compatibilidad histórica: cuando el caso antiguo no tiene
+     *    attendance_source_id, se vincula con la primera acción del
+     *    agente creada entre el mismo día y siete días después.
+     */
+    if(!action){
+      let best=null;
+      let bestDays=999;
+
+      for(const candidate of employeeActions){
+        const actionKey=candidate.id ||
+          `${candidate._employee_id}|${candidate._management_date}`;
+
+        if(usedActions.has(actionKey)) continue;
+
+        const days=_dd4_daysBetweenYmd(
+          incidentYmd,
+          candidate._management_date
+        );
+
+        if(days===null || days<0 || days>7) continue;
+
+        if(days<bestDays){
+          best=candidate;
+          bestDays=days;
+        }
+      }
+
+      if(best){
+        const actionKey=best.id ||
+          `${best._employee_id}|${best._management_date}`;
+
+        action=best;
+        actionDays=bestDays;
+        usedActions.add(actionKey);
+      }
+    }
+
+    const manualCreatedAt=manual?.created_at||manual?.requested_at||'';
+    const manualDays=manual
+      ? _dd4_daysBetweenYmd(incidentYmd,manualCreatedAt)
+      : null;
+
+    /*
+     * Puede existir registro administrativo y People Action.
+     * Para accountability se toma la primera gestión válida.
+     */
+    const managementCandidates=[];
+
+    if(manual && manualDays!==null){
+      managementCandidates.push({
+        kind:'exception',
+        date:manualCreatedAt,
+        days:manualDays,
+        row:manual
+      });
+    }
+
+    if(action && actionDays!==null){
+      managementCandidates.push({
+        kind:'people_action',
+        date:action._management_date,
+        days:actionDays,
+        row:action
+      });
+    }
+
+    managementCandidates.sort((a,b)=>
+      a.days-b.days ||
+      String(a.date).localeCompare(String(b.date))
+    );
+
+    const management=managementCandidates[0]||null;
+
     let accountability='missing';
-    if(manual&&days===0)accountability='on_time';
-    else if(manual&&days===1)accountability='late';
-    else if(manual&&days!==null&&days>1)accountability='overdue';
-    else if(manual&&days!==null&&days<0)accountability='invalid';
-    return {...r,op_exceptions:all,op_manual_exception:manual,op_bot_exception:bot,op_final_exception:final,
-      op_incident_label:_dd4_operationalIncidentType(r),op_result_label:_dd4_operationalResultLabel(final,r),
-      op_creator_id:creatorId,op_creator_name:manual?.creator_name||creator.full_name||creatorId||'—',
-      op_creator_role:manual?.creator_role||creator.system_role||'—',op_created_at:createdAt,op_days_to_register:days,
-      op_accountability:accountability};
+
+    if(management?.days===0) accountability='on_time';
+    else if(management?.days===1) accountability='late';
+    else if(management?.days!==null && management?.days>1){
+      accountability='overdue';
+    }else if(management?.days!==null && management?.days<0){
+      accountability='invalid';
+    }
+
+    let creatorId='';
+    let creatorName='—';
+    let creatorRole='—';
+
+    if(management?.kind==='people_action'){
+      creatorId=String(
+        action.creator_id ||
+        action.requested_by ||
+        action.issued_by ||
+        action.reviewed_by ||
+        ''
+      ).trim().toUpperCase();
+
+      const creator=employeeMap.get(creatorId)||{};
+
+      creatorName=
+        action.creator_name ||
+        creator.full_name ||
+        creatorId ||
+        '—';
+
+      creatorRole=
+        action.creator_role ||
+        creator.system_role ||
+        '—';
+    }else if(management?.kind==='exception'){
+      creatorId=String(
+        manual?.created_by ||
+        manual?.requested_by ||
+        manual?.creator_id ||
+        ''
+      ).trim().toUpperCase();
+
+      const creator=employeeMap.get(creatorId)||{};
+
+      creatorName=
+        manual?.creator_name ||
+        creator.full_name ||
+        creatorId ||
+        '—';
+
+      creatorRole=
+        manual?.creator_role ||
+        creator.system_role ||
+        '—';
+    }
+
+    return {
+      ...r,
+      op_exceptions:all,
+      op_manual_exception:manual,
+      op_bot_exception:bot,
+      op_final_exception:final,
+
+      op_action:action,
+      op_action_date:action?._management_date||'',
+      op_action_days:actionDays,
+
+      op_management_source:management?.kind||'',
+      op_management_date:management?.date||'',
+      op_management_days:management?.days??null,
+
+      op_incident_label:_dd4_operationalIncidentType(r),
+      op_result_label:_dd4_operationalResultLabel(final,r,action),
+
+      op_creator_id:creatorId,
+      op_creator_name:creatorName,
+      op_creator_role:creatorRole,
+
+      op_created_at:management?.date||'',
+      op_days_to_register:management?.days??null,
+      op_accountability:accountability
+    };
   });
-  return incidents.sort((a,b)=>String(b.work_date||'').localeCompare(String(a.work_date||''))||String(a.employee_name||'').localeCompare(String(b.employee_name||'')));
+
+  return incidents.sort((a,b)=>
+    String(b.work_date||'').localeCompare(String(a.work_date||'')) ||
+    String(a.employee_name||'').localeCompare(String(b.employee_name||''))
+  );
 }
 
 function _dd4_buildOperationalAccountability(incidents=[]){
@@ -14343,7 +14661,12 @@ async function _dd_loadOperationalData(){
   const employees=_dd4_filterEmployees(attendanceUniverse.includedEmployees);
   const curScope=_dd_buildScope([...curRows,...employees.map(e=>({...e,employee_id:e.id}))]);
   const curExceptions=_dd_filterRowsByScope(cur.exceptions,curScope,'exception');
-  const incidents=_dd4_buildOperationalIncidents(curRows,curExceptions,directoryRows);
+  const incidents=_dd4_buildOperationalIncidents(
+    curRows,
+    curExceptions,
+    directoryRows,
+    curBundle.actions||[]
+  );
   const data={mode:'operational',role:currentRole,scope_label:curBundle.scope_label||_dd_operationalScopeLabel(),from,to,prevFrom,prevTo,historyFrom,campaigns,
     supervisorsOptions:Object.entries(supervisorsMap).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)),
     employees,allActiveEmployees:activeDirectoryRows,directoryRows,attendanceUniverse,warningRisk:{all:[],activeLastWarnings:[],byCampaign:{},red:0,yellow:0,green:0},matrixRows:[],payrollTickets:[],
@@ -14696,7 +15019,7 @@ function _dd4_renderOperationalIncidents(d){
   const rows=_dd4_filteredOperationalIncidents(d);const statuses=[...new Set((d.operationalIncidents||[]).map(r=>r.audit_status).filter(Boolean))].sort();
   return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todas las incidencias</option>${statuses.map(x=>`<option value="${_dd_escape(x)}" ${_dd4_UI.attendanceStatus===x?'selected':''}>${_dd_escape(_dd4_operationalIncidentType({audit_status:x}))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} incidencias</span></div>
   <div class="dd4-alert blue">La vista muestra la clasificación operativa y el resultado final, pero oculta notas, documentos y evidencia sensible.</div>
-  <div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Incidencia</th><th>Entrada</th><th>Salida</th><th>Resultado final</th><th>Origen</th><th>Registró liderazgo</th><th>Tiempo de registro</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td>${_dd_escape(r.op_result_label||'—')}</td><td>${r.op_bot_exception?'<span class="dd4-status neutral">Bot</span>':r.op_manual_exception?'<span class="dd4-status ok">Liderazgo</span>':'<span class="dd4-status neutral">Sin registro</span>'}</td><td>${_dd_escape(r.op_creator_name||'—')}</td><td>${_dd4_operationalAccountabilityPill(r.op_accountability)}</td></tr>`).join(''):`<tr><td colspan="11"><div class="dd4-empty">No hay incidencias con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
+  <div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Incidencia</th><th>Entrada</th><th>Salida</th><th>Resultado final</th><th>Origen</th><th>Registró liderazgo</th><th>Tiempo de registro</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td>${_dd_escape(r.op_result_label||'—')}</td><td>${r.op_management_source==='people_action'?'<span class="dd4-status ok">People Action</span>':r.op_bot_exception?'<span class="dd4-status neutral">Bot</span>':r.op_manual_exception?'<span class="dd4-status ok">Liderazgo</span>':'<span class="dd4-status neutral">Sin registro</span>'}</td><td>${_dd_escape(r.op_creator_name||'—')}</td><td>${_dd4_operationalAccountabilityPill(r.op_accountability)}</td></tr>`).join(''):`<tr><td colspan="11"><div class="dd4-empty">No hay incidencias con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
 }
 
 function _dd4_renderOperationalAccountability(d){
