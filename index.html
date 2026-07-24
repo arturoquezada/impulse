@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.11';
+const APP_VERSION   = '1.0.12';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2144,72 +2144,166 @@ function _rt_queue(table, payload) {
   }
 }
 
+function _rt_captureFormState(root) {
+  if (!root) return [];
+
+  return [...root.querySelectorAll('input, select, textarea')].map((el, index) => ({
+    id: el.id || '',
+    name: el.name || '',
+    type: el.type || el.tagName.toLowerCase(),
+    placeholder: el.getAttribute('placeholder') || '',
+    index,
+    value: el.value,
+    checked: !!el.checked,
+    selectionStart: typeof el.selectionStart === 'number' ? el.selectionStart : null,
+    selectionEnd: typeof el.selectionEnd === 'number' ? el.selectionEnd : null
+  }));
+}
+
+function _rt_restoreFormState(root, state = []) {
+  if (!root || !state.length) return;
+
+  const controls = [...root.querySelectorAll('input, select, textarea')];
+
+  state.forEach(saved => {
+    let el = null;
+
+    if (saved.id) {
+      el = root.querySelector(`#${CSS.escape(saved.id)}`);
+    }
+
+    if (!el && saved.name) {
+      el = controls.find(x => x.name === saved.name && (x.type || x.tagName.toLowerCase()) === saved.type);
+    }
+
+    if (!el && saved.placeholder) {
+      el = controls.find(x =>
+        (x.getAttribute('placeholder') || '') === saved.placeholder &&
+        (x.type || x.tagName.toLowerCase()) === saved.type
+      );
+    }
+
+    if (!el) el = controls[saved.index] || null;
+    if (!el) return;
+
+    if (saved.type === 'checkbox' || saved.type === 'radio') {
+      el.checked = saved.checked;
+    } else {
+      el.value = saved.value;
+    }
+
+    // Reaplica búsquedas/filtros visuales que dependen de oninput.
+    if (saved.value && ['search', 'text'].includes(saved.type)) {
+      try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+    }
+  });
+}
+
+function _rt_hasOpenModal() {
+  return [...document.querySelectorAll('.modal-backdrop')].some(el => {
+    const style = window.getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden';
+  });
+}
+
 async function _rt_refreshActiveModule() {
-  const scrollEl = document.getElementById('content');
-  const scrollTop = scrollEl?.scrollTop || 0;
+  const contentBefore = document.getElementById('content');
+  const scrollTop = contentBefore?.scrollTop || 0;
+  const formState = _rt_captureFormState(contentBefore);
 
   switch (activeModule) {
-    case 'asistencia':
-      if (typeof _a_cargarDatos === 'function') {
-        _a_cargando = true; _a_render();
-        const ok = await _a_cargarDatos();
-        _a_cargando = false; _a_render();
-        if (ok && ['supervisor','manager','people','head_people'].includes(currentRole) && typeof _a_cargarOTRecords === 'function') {
-          await _a_cargarOTRecords();
-        }
+    case 'asistencia': {
+      // IMPORTANTE: _a_cargarDatos siempre carga primero el historial del usuario
+      // autenticado. Si el supervisor está viendo el detalle de un agente, debemos
+      // volver a cargar el historial de ESE agente antes de renderizar. De lo
+      // contrario el encabezado conserva al agente, pero la tabla muestra el
+      // horario/historial del supervisor (o aparece vacía).
+      const viewedEmployeeId =
+        _a_drillAgent ||
+        _a_ceoDrillAg ||
+        _a_QDAYS_EMPLEADO_ID ||
+        ROLES[currentRole]?.id ||
+        null;
+
+      const ok = typeof _a_cargarDatos === 'function'
+        ? await _a_cargarDatos()
+        : true;
+
+      if (ok === false) {
+        throw new Error('No se pudieron recargar los datos de Asistencia.');
       }
+
+      const loggedEmployeeId = ROLES[currentRole]?.id || null;
+      if (
+        viewedEmployeeId &&
+        typeof _a_cargarQDAYS === 'function' &&
+        viewedEmployeeId !== loggedEmployeeId
+      ) {
+        await _a_cargarQDAYS(
+          viewedEmployeeId,
+          _a_dateFilter.from,
+          _a_dateFilter.to
+        );
+      }
+
+      if (
+        ['supervisor','manager','people','head_people'].includes(currentRole) &&
+        typeof _a_cargarOTRecords === 'function'
+      ) {
+        await _a_cargarOTRecords();
+      }
+
+      if (typeof _a_render === 'function') _a_render();
       break;
+    }
 
     case 'nomina':
       if (typeof _n_cargarDatos === 'function') {
-        _n_cargando = true; _n_render();
         await _n_cargarDatos();
-        _n_cargando = false; _n_render();
+        if (typeof _n_render === 'function') _n_render();
       }
       break;
 
     case 'tickets':
       if (typeof _t_cargarTickets === 'function') {
-        _t_cargando = true; _t_render();
         await _t_cargarTickets();
-        _t_cargando = false; _t_render();
+        if (typeof _t_render === 'function') _t_render();
       }
       break;
 
     case 'permutas':
       if (typeof _p_cargarDatos === 'function') {
-        _p_cargando = true; _p_render();
         await _p_cargarDatos();
-        _p_cargando = false; _p_render();
+        if (typeof _p_render === 'function') _p_render();
       }
       break;
 
     case 'vacaciones':
       if (typeof _v_cargarDatos === 'function') {
-        _v_cargando = true; _v_render();
         await _v_cargarDatos();
-        _v_cargando = false; _v_render();
+        if (typeof _v_render === 'function') _v_render();
       }
       break;
 
     case 'disciplinario':
       if (typeof _d_cargarDatos === 'function') {
-        _d_cargando = true; _d_render();
         await _d_cargarDatos();
-        _d_cargando = false;
-        if (typeof _d_asegurarVistaPermitida === 'function') _d_asegurarVistaPermitida();
-        _d_render();
+        if (typeof _d_asegurarVistaPermitida === 'function') {
+          _d_asegurarVistaPermitida();
+        }
+        if (typeof _d_render === 'function') _d_render();
       }
       break;
 
     case 'equipo':
       if (typeof _e_cargarEmpleados === 'function') {
-        _e_cargando = true; _e_render();
         await Promise.all([
           _e_cargarEmpleados(),
-          typeof _e_cargarHistory === 'function' ? _e_cargarHistory() : Promise.resolve(true)
+          typeof _e_cargarHistory === 'function'
+            ? _e_cargarHistory()
+            : Promise.resolve(true)
         ]);
-        _e_cargando = false; _e_render();
+        if (typeof _e_render === 'function') _e_render();
       }
       break;
 
@@ -2224,13 +2318,23 @@ async function _rt_refreshActiveModule() {
   }
 
   requestAnimationFrame(() => {
-    const current = document.getElementById('content');
-    if (current) current.scrollTop = scrollTop;
+    const contentAfter = document.getElementById('content');
+    if (!contentAfter) return;
+
+    _rt_restoreFormState(contentAfter, formState);
+    contentAfter.scrollTop = scrollTop;
   });
 }
 
 async function _rt_flush() {
   if (_rt_refreshing) return;
+
+  // No reconstruir la pantalla mientras hay un modal/formulario abierto.
+  // El aviso queda pendiente para que el usuario actualice al terminar.
+  if (_rt_hasOpenModal()) {
+    _rt_showToast('Cierra el formulario para actualizar sin perder cambios.');
+    return;
+  }
 
   const changed = _rt_pendingForActiveModule();
   if (!changed.length) {
@@ -4665,7 +4769,7 @@ async function _a_punchSB(tipo) {
   }
 }
 
-// ── TIEMPO EXTRA + ENTRADAS ANTICIPADAS · v1.0.11 ──────────────────────────
+// ── TIEMPO EXTRA + ENTRADAS ANTICIPADAS · v1.0.12 ──────────────────────────
 let _a_OT_RECORDS = [];
 let _a_OT_PAYROLL = {};
 let _a_vistaEspecial = null;
@@ -9875,7 +9979,7 @@ async function _n_cargarLineas(periodoId) {
 
 
 
-// ── AJUSTES DE ASISTENCIA PARA NÓMINA · v1.0.11 ─────────────────────────────
+// ── AJUSTES DE ASISTENCIA PARA NÓMINA · v1.0.12 ─────────────────────────────
 let _n_AJUSTES = [];
 let _n_view = 'resumen';
 let _n_adjustmentFilter = 'all';
@@ -24082,7 +24186,7 @@ _initImpulse();
 
 /*****************************************************************
  IMPULSE
- Version: 1.0.11
+ Version: 1.0.12
  Build: 2026-07-23
 *****************************************************************/
 
