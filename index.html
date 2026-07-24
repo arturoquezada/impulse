@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.19';
+const APP_VERSION   = '1.0.20';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -21562,7 +21562,17 @@ function _d_levelBadge(level) {
   `;
 }
 
+function _d_voidedComoCancelada() {
+  return ['agent', 'supervisor'].includes(currentRole);
+}
+
 function _d_statusLabel(status) {
+  const normalized = String(status || '').toLowerCase();
+
+  if (normalized === 'voided' && _d_voidedComoCancelada()) {
+    return 'Cancelada';
+  }
+
   const map = {
     pending_review: 'Pendiente',
     approved: 'Aprobado',
@@ -21570,10 +21580,16 @@ function _d_statusLabel(status) {
     cancelled: 'Cancelado',
     voided: 'Anulado'
   };
-  return map[status] || status || '—';
+
+  return map[normalized] || status || '—';
 }
 
 function _d_statusBadge(status) {
+  const normalized = String(status || '').toLowerCase();
+  const displayStatus = normalized === 'voided' && _d_voidedComoCancelada()
+    ? 'cancelled'
+    : normalized;
+
   const cfg = {
     pending_review: ['#FEF3C7', '#92400E'],
     approved: ['#DCFCE7', '#166534'],
@@ -21581,17 +21597,27 @@ function _d_statusBadge(status) {
     cancelled: ['#F1F5F9', '#475569'],
     voided: ['#F3E8FF', '#7E22CE']
   };
-  const [bg, color] = cfg[status] || cfg.cancelled;
-  return `<span class="pill" style="background:${bg};color:${color}"><span class="dot"></span>${_d_statusLabel(status)}</span>`;
+
+  const [bg, color] = cfg[displayStatus] || cfg.cancelled;
+
+  return `<span class="pill" style="background:${bg};color:${color}"><span class="dot"></span>${_d_statusLabel(normalized)}</span>`;
 }
 
-function _d_ackBadge(ack) {
+function _d_ackBadge(ack, caseStatus = null) {
+  if (
+    String(caseStatus || '').toLowerCase() === 'voided' &&
+    _d_voidedComoCancelada()
+  ) {
+    return `<span class="pill" style="background:#F1F5F9;color:#475569"><span class="dot"></span>No requiere</span>`;
+  }
+
   const cfg = {
     pending: ['#FEF3C7', '#92400E', 'Pendiente firma'],
     signed: ['#DCFCE7', '#166534', 'Firmado'],
     refused: ['#FEE2E2', '#991B1B', 'Se negó'],
     not_required: ['#F1F5F9', '#475569', 'No requiere']
   };
+
   const [bg, color, label] = cfg[ack] || cfg.pending;
   return `<span class="pill" style="background:${bg};color:${color}"><span class="dot"></span>${label}</span>`;
 }
@@ -21701,11 +21727,25 @@ function _d_setVista(v) {
 }
 
 function _d_kpisHTML() {
-  const total = _d_CASES.length;
-  const pendientes = _d_CASES.filter(c => c.status === 'pending_review').length;
-  const aprobados = _d_CASES.filter(c => c.status === 'approved').length;
-  const graves = _d_CASES.filter(c => c.is_grave || c.recommended_level === 'termination' || c.issued_level === 'termination').length;
-  const firmaPendiente = _d_CASES.filter(c => c.status === 'approved' && c.employee_ack_status === 'pending').length;
+  // Para agentes y supervisores, una acción anulada se conserva en el
+  // historial como Cancelada, pero no cuenta como acción activa/realizada.
+  const casosContables = (_d_CASES || []).filter(c => !(
+    _d_voidedComoCancelada() &&
+    String(c.status || '').toLowerCase() === 'voided'
+  ));
+
+  const total = casosContables.length;
+  const pendientes = casosContables.filter(c => c.status === 'pending_review').length;
+  const aprobados = casosContables.filter(c => c.status === 'approved').length;
+  const graves = casosContables.filter(c =>
+    c.is_grave ||
+    c.recommended_level === 'termination' ||
+    c.issued_level === 'termination'
+  ).length;
+  const firmaPendiente = casosContables.filter(c =>
+    c.status === 'approved' &&
+    c.employee_ack_status === 'pending'
+  ).length;
 
   return `
     <div class="kgrid kg4">
@@ -22090,7 +22130,7 @@ function _d_filtrosHTML(incluirFechas = false) {
           ['approved', 'Aprobado'],
           ['rejected', 'Rechazado'],
           ['cancelled', 'Cancelado'],
-          ['voided', 'Anulado']
+          ['voided', _d_voidedComoCancelada() ? 'Cancelada' : 'Anulado']
         ].map(([v, l]) => `
           <option
             value="${v}"
@@ -22154,7 +22194,7 @@ function _d_caseRows(lista, opts = {}) {
                     <div class="agent-row-name">${_d_esc(c.reviewed_by ? _d_nombre(c.reviewed_by) : '—')}</div>
                     <div class="agent-row-id">${_d_esc(c.reviewed_at ? _d_fmtDateTime(c.reviewed_at) : 'Sin revisión')}</div>
                   </td>
-                  <td>${_d_ackBadge(c.employee_ack_status)}</td>
+                  <td>${_d_ackBadge(c.employee_ack_status, c.status)}</td>
                   ${showActions ? `
                     <td onclick="event.stopPropagation()">
                       <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -22824,7 +22864,7 @@ function _d_abrirDetalle(id) {
       <div class="kv"><span class="k">Nivel recomendado</span><span class="v">${_d_levelBadge(c.recommended_level)}</span></div>
       <div class="kv"><span class="k">Nivel aplicado</span><span class="v">${c.issued_level ? _d_levelBadge(c.issued_level) : '—'}</span></div>
       <div class="kv"><span class="k">Status</span><span class="v">${_d_statusBadge(c.status)}</span></div>
-      <div class="kv"><span class="k">Acuse</span><span class="v">${_d_ackBadge(c.employee_ack_status)}</span></div>
+      <div class="kv"><span class="k">Acuse</span><span class="v">${_d_ackBadge(c.employee_ack_status, c.status)}</span></div>
       <div class="kv"><span class="k">Vigencia</span><span class="v">${c.active_until ? fmtDate(c.active_from) + ' a ' + fmtDate(c.active_until) : '—'}</span></div>
       <div class="kv"><span class="k">Duración aplicada</span><span class="v">${c.duration_days_applied ? c.duration_days_applied + ' días' : 'Según matriz'}</span></div>
       ${c.duration_adjusted ? `<div class="alert alert-amber" style="margin-top:8px;margin-bottom:0"><b>Duración ajustada por People:</b> ${_d_esc(c.duration_adjustment_reason || 'Sin motivo registrado')}</div>` : ''}
