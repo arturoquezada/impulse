@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.14';
+const APP_VERSION   = '1.0.15';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2474,7 +2474,7 @@ function _buildAppShell() {
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
-    {id:'deepdive', icon:'📊', label:'Deep Dive', roles:['people','head_people']},
+    {id:'deepdive', icon:'📊', label:'Deep Dive', roles:['manager','ceo','people','head_people']},
   ];
 
   const visible = allMods.filter(m => m.roles.includes(currentRole));
@@ -11147,7 +11147,25 @@ let _dd_FILTERS = {
 };
 
 function _dd_canAccess() {
+  return ['manager', 'ceo', 'people', 'head_people'].includes(currentRole);
+}
+
+function _dd_isOperationalAccess() {
+  return ['manager', 'ceo'].includes(currentRole);
+}
+
+function _dd_isFullAccess() {
   return ['people', 'head_people'].includes(currentRole);
+}
+
+function _dd_operationalScopeLabel() {
+  if (currentRole === 'ceo') return 'Alcance global · solo lectura';
+  const ro = ROLES[currentRole] || {};
+  return `Equipos bajo ${ro.name || ro.id || 'Manager'} · solo lectura`;
+}
+
+function _dd_allowedOperationalTabs() {
+  return new Set(['overview', 'attendance', 'incidents', 'campaigns', 'accountability']);
 }
 
 function _dd_parseDate(s) {
@@ -13816,7 +13834,7 @@ function _dd4_isCountableAbsenceException(e){
 
 function _dd4_absenceSourceDetailed(row={},employeeById){
   const notes=_dd_norm([row.notes,row.source,row.created_source,row.origin].filter(Boolean).join(' '));
-  if(notes.includes('bot')||notes.includes('🤖')||_dd_norm(row.created_by)==='bot'){
+  if(row.is_bot===true||notes.includes('bot')||notes.includes('🤖')||_dd_norm(row.created_by)==='bot'){
     return {source:'bot',label:'Bot',creatorId:row.created_by||row.requested_by||'',creatorName:'Bot',creatorRole:'bot'};
   }
   const creatorId=String(row.created_by||row.requested_by||'').trim();
@@ -13996,7 +14014,136 @@ function _dd4_supervisors(rows=[],actions=[],tickets=[]){
   }).sort((a,b)=>({Alto:0,Medio:1,Controlado:2}[a.risk]-({Alto:0,Medio:1,Controlado:2}[b.risk]))||b.missingActions-a.missingActions||b.expectedActions-a.expectedActions);
 }
 
+
+function _dd4_operationalIncidentType(row={}){
+  const s=_dd_norm(row.audit_status);
+  if(s==='falta_injustificada')return 'Falta injustificada';
+  if(s==='retardo')return 'Retardo';
+  if(s==='sin_entrada')return 'Sin entrada';
+  if(s==='sin_salida')return 'Sin salida';
+  return String(row.audit_status||'Incidencia').replaceAll('_',' ');
+}
+
+function _dd4_operationalResultLabel(exception,row={}){
+  if(!exception)return row.audit_status==='falta_injustificada'?'Sin registro administrativo':'Pendiente de revisión';
+  const type=_dd_norm(exception.type);
+  const labels={
+    falta_injustificada:'Falta injustificada',permiso:'Permiso',incapacidad:'Incapacidad',vacaciones:'Vacaciones',
+    falta_justificada:'Ausencia justificada',ausencia_justificada:'Ausencia justificada',retardo_justificado:'Retardo justificado',
+    permuta_horario:'Permuta de horario',permuta_descanso:'Descanso por permuta',descanso:'Descanso',
+    correccion_punch:'Marcaje corregido',horario_corregido:'Horario corregido'
+  };
+  return labels[type]||String(exception.type||'Incidencia registrada').replaceAll('_',' ');
+}
+
+function _dd4_buildOperationalIncidents(rows=[],exceptions=[],directory=[]){
+  const employeeMap=new Map((directory||[]).map(e=>[String(e.id||'').trim().toUpperCase(),e]));
+  const exceptionMap=new Map();
+  (exceptions||[]).filter(e=>!_dd4_isCancelledException(e)).forEach(e=>{
+    const key=_dd4_exceptionKey(e);if(!exceptionMap.has(key))exceptionMap.set(key,[]);exceptionMap.get(key).push(e);
+  });
+  const incidents=(rows||[]).filter(r=>['falta_injustificada','retardo','sin_entrada','sin_salida'].includes(_dd_norm(r.audit_status))).map(r=>{
+    const key=_dd4_rowKey(r);const all=(exceptionMap.get(key)||[]).slice().sort((a,b)=>String(a.created_at||a.requested_at||'').localeCompare(String(b.created_at||b.requested_at||'')));
+    const manual=all.find(e=>{
+      const notes=_dd_norm([e.notes,e.source,e.created_source,e.origin].filter(Boolean).join(' '));
+      return !(e.is_bot===true||notes.includes('bot')||notes.includes('🤖')||_dd_norm(e.created_by)==='bot');
+    })||null;
+    const bot=all.find(e=>{
+      const notes=_dd_norm([e.notes,e.source,e.created_source,e.origin].filter(Boolean).join(' '));
+      return e.is_bot===true||notes.includes('bot')||notes.includes('🤖')||_dd_norm(e.created_by)==='bot';
+    })||null;
+    const final=all.find(_dd4_isFinalException)||all[0]||null;
+    const creatorId=String(manual?.created_by||manual?.requested_by||manual?.creator_id||'').trim().toUpperCase();
+    const creator=employeeMap.get(creatorId)||{};
+    const createdAt=manual?.created_at||manual?.requested_at||'';
+    const days=manual?_dd4_daysBetweenYmd(String(r.work_date||'').slice(0,10),createdAt):null;
+    let accountability='missing';
+    if(manual&&days===0)accountability='on_time';
+    else if(manual&&days===1)accountability='late';
+    else if(manual&&days!==null&&days>1)accountability='overdue';
+    else if(manual&&days!==null&&days<0)accountability='invalid';
+    return {...r,op_exceptions:all,op_manual_exception:manual,op_bot_exception:bot,op_final_exception:final,
+      op_incident_label:_dd4_operationalIncidentType(r),op_result_label:_dd4_operationalResultLabel(final,r),
+      op_creator_id:creatorId,op_creator_name:manual?.creator_name||creator.full_name||creatorId||'—',
+      op_creator_role:manual?.creator_role||creator.system_role||'—',op_created_at:createdAt,op_days_to_register:days,
+      op_accountability:accountability};
+  });
+  return incidents.sort((a,b)=>String(b.work_date||'').localeCompare(String(a.work_date||''))||String(a.employee_name||'').localeCompare(String(b.employee_name||'')));
+}
+
+function _dd4_buildOperationalAccountability(incidents=[]){
+  const map={};
+  (incidents||[]).filter(r=>['falta_injustificada','retardo'].includes(_dd_norm(r.audit_status))).forEach(r=>{
+    const id=r.supervisor_id||'sin_supervisor';
+    if(!map[id])map[id]={supervisor_id:id,supervisor_name:r.supervisor_name||'Sin supervisor',hcSet:new Set(),incidents:0,faltas:0,retardos:0,onTime:0,late:0,overdue:0,missing:0,rows:[]};
+    const x=map[id];x.rows.push(r);x.incidents++;if(r.employee_id)x.hcSet.add(r.employee_id);
+    if(r.audit_status==='falta_injustificada')x.faltas++;else x.retardos++;
+    if(r.op_accountability==='on_time')x.onTime++;
+    else if(r.op_accountability==='late')x.late++;
+    else if(r.op_accountability==='overdue'||r.op_accountability==='invalid')x.overdue++;
+    else x.missing++;
+  });
+  return Object.values(map).map(x=>({...x,hc:x.hcSet.size,coverage:_dd_pct(x.onTime+x.late,x.incidents)})).sort((a,b)=>b.missing-a.missing||b.overdue-a.overdue||a.supervisor_name.localeCompare(b.supervisor_name));
+}
+
+function _dd4_operationalAccountabilityPill(status){
+  if(status==='on_time')return '<span class="dd4-status ok">Mismo día</span>';
+  if(status==='late')return '<span class="dd4-status warn">1 día después</span>';
+  if(status==='overdue')return '<span class="dd4-status bad">Fuera de plazo</span>';
+  if(status==='invalid')return '<span class="dd4-status bad">Fecha inconsistente</span>';
+  return '<span class="dd4-status neutral">Sin registro de liderazgo</span>';
+}
+
+async function _dd_loadOperationalData(){
+  _dd_LOADING=true;_dd_render();
+  const {from,to,prevFrom,prevTo}=_dd_FILTERS;
+  const historyFrom=_dd4_dateAdd(to,-89);
+  const calls=await Promise.all([
+    _a_sb.rpc('deep_dive_operational_bundle',{p_from:from,p_to:to}),
+    _a_sb.rpc('deep_dive_operational_bundle',{p_from:prevFrom,p_to:prevTo}),
+    _a_sb.rpc('deep_dive_operational_bundle',{p_from:historyFrom,p_to:to})
+  ]);
+  const err=calls.map(x=>x.error).find(Boolean);
+  if(err){console.error('Deep Dive operativo:',err);alert('No se pudo cargar la vista operativa de Deep Dive:\n\n'+(err.message||err));_dd_LOADING=false;_dd_render();return;}
+  const curBundle=calls[0].data||{},prevBundle=calls[1].data||{},histBundle=calls[2].data||{};
+  const directoryRows=curBundle.employees||[];
+  const activeDirectoryRows=directoryRows.filter(e=>_dd_norm(e.status)==='active');
+  const employeeById=new Map(directoryRows.map(e=>[String(e.id||'').trim().toUpperCase(),e]));
+  const attendanceUniverse=_dd4_buildAttendanceUniverse(activeDirectoryRows);
+  const prepare=(bundle)=>{
+    const marked=_dd_markLateJustifications(bundle.attendance||[],bundle.exceptions||[]).filter(r=>_dd4_includeAttendanceRow(r,employeeById));
+    const dedupe=_dd4_dedupeAttendance(marked);
+    return {raw:marked,dedupe,rows:_dd4_attachExceptions(dedupe.rows,bundle.exceptions||[]),exceptions:bundle.exceptions||[]};
+  };
+  const cur=prepare(curBundle),prev=prepare(prevBundle),hist=prepare(histBundle);
+  const campaigns=[...new Set(cur.rows.map(r=>r.campaign_id).filter(Boolean))].sort();
+  const supervisorSource=cur.rows.filter(r=>_dd_FILTERS.campaign==='all'||r.campaign_id===_dd_FILTERS.campaign);
+  const supervisorsMap={};supervisorSource.forEach(r=>{if(r.supervisor_id)supervisorsMap[r.supervisor_id]=r.supervisor_name||r.supervisor_id;});
+  if(_dd_FILTERS.supervisor!=='all'&&!supervisorsMap[_dd_FILTERS.supervisor])_dd_FILTERS.supervisor='all';
+  const curRows=_dd_filterAttendanceRows(cur.rows),prevRows=_dd_filterAttendanceRows(prev.rows),historyRows=_dd_filterAttendanceRows(hist.rows);
+  const employees=_dd4_filterEmployees(attendanceUniverse.includedEmployees);
+  const curScope=_dd_buildScope([...curRows,...employees.map(e=>({...e,employee_id:e.id}))]);
+  const curExceptions=_dd_filterRowsByScope(cur.exceptions,curScope,'exception');
+  const incidents=_dd4_buildOperationalIncidents(curRows,curExceptions,directoryRows);
+  const data={mode:'operational',role:currentRole,scope_label:curBundle.scope_label||_dd_operationalScopeLabel(),from,to,prevFrom,prevTo,historyFrom,campaigns,
+    supervisorsOptions:Object.entries(supervisorsMap).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)),
+    employees,allActiveEmployees:activeDirectoryRows,directoryRows,attendanceUniverse,warningRisk:{all:[],activeLastWarnings:[],byCampaign:{},red:0,yellow:0,green:0},matrixRows:[],payrollTickets:[],
+    current:{rawRows:_dd_filterAttendanceRows(cur.raw),rows:curRows,duplicates:cur.dedupe.duplicateGroups,conflicts:cur.dedupe.conflicts,attendance:_dd_attendanceSummary(curRows),expectedActions:{},tickets:{},ticketRows:[],actions:[],actionRowsAll:[],exceptions:curExceptions,absenceSources:_dd4_absenceSourceSummary(curExceptions,employeeById),rotation:{}},
+    previous:{rawRows:_dd_filterAttendanceRows(prev.raw),rows:prevRows,duplicates:prev.dedupe.duplicateGroups,conflicts:prev.dedupe.conflicts,attendance:_dd_attendanceSummary(prevRows),expectedActions:{},tickets:{},ticketRows:[],actions:[],actionRowsAll:[],exceptions:prev.exceptions,absenceSources:_dd4_absenceSourceSummary(prev.exceptions,employeeById),rotation:{}},
+    history90:{rawRows:hist.raw,rows:historyRows,duplicates:hist.dedupe.duplicateGroups,conflicts:hist.dedupe.conflicts},
+    operationalIncidents:incidents};
+  data.operationalAccountability=_dd4_buildOperationalAccountability(incidents);
+  data.supervisors=data.operationalAccountability;
+  data.quality={totalIssues:0,issues:[],auditFaltas:[],finalEx:[],pending:[],cancelled:[],unknown:[],auditWithoutException:[],exceptionWithoutAudit:[],activeWithoutRows:[],unknownEmployees:[],missingSupervisor:[],missingCampaign:[],rawCount:cur.raw.length,cleanCount:curRows.length};
+  data.agents=_dd4_buildAgents(data);
+  data.recurrence=[];
+  _dd_DATA=data;_dd_LOADING=false;
+  if(!_dd_allowedOperationalTabs().has(_dd4_UI.tab))_dd4_UI.tab='overview';
+  _dd_render();
+}
+
 async function _dd_loadData(){
+  if(_dd_isOperationalAccess()) return _dd_loadOperationalData();
   _dd_LOADING=true;_dd_render();
   const {from,to,prevFrom,prevTo}=_dd_FILTERS;
   const toAction=_dd4_dateAdd(to,7),prevToAction=_dd4_dateAdd(prevTo,7),historyFrom=_dd4_dateAdd(to,-89);
@@ -14092,7 +14239,7 @@ async function _dd_loadData(){
   _dd_DATA=data;_dd_LOADING=false;_dd_render();
 }
 
-function _dd4_setTab(tab){_dd4_UI.tab=tab;_dd_render();}
+function _dd4_setTab(tab){if(_dd_isOperationalAccess()&&!_dd_allowedOperationalTabs().has(tab))tab='overview';_dd4_UI.tab=tab;_dd_render();}
 function _dd4_setUI(key,value){_dd4_UI[key]=value;_dd_render();setTimeout(()=>{const el=document.getElementById('dd4-search');if(el&&key==='search'){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);}
 
 function _dd4_kpi(label,value,note,color='#0F172A',onclick=''){
@@ -14203,7 +14350,7 @@ function _dd4_openAbsenceSources(source='all'){
     const supervisorName=audit.supervisor_name||emp.supervisor_name||supervisorEmp.full_name||supervisorId||'Sin supervisor';
     const campaign=audit.campaign_id||emp.campaign_id||'Sin campaña';
     if(supervisorName&&supervisorName!=='Sin supervisor')supervisors.add(supervisorName);
-    return `<tr><td class="dd4-mono">${fmtDateShort(x.exception_date)}</td><td><div class="dd4-strong">${_dd_escape(emp.full_name||audit.employee_name||x.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(x.employee_id||'—')}</div></td><td>${_dd_escape(campaign)}</td><td>${_dd_escape(supervisorName)}</td><td><span class="dd4-status ${x.dd_source==='bot'?'neutral':'ok'}">${_dd_escape(x.dd_source_label)}</span></td><td>${_dd_escape(x.dd_creator_name||'—')}</td><td>${_dd_escape(x.dd_creator_role||'—')}</td><td>${_dd4_statusPill(x.status||'—')}</td><td>${_dd_escape(x.notes||'—')}</td></tr>`;
+    return `<tr><td class="dd4-mono">${fmtDateShort(x.exception_date)}</td><td><div class="dd4-strong">${_dd_escape(emp.full_name||audit.employee_name||x.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(x.employee_id||'—')}</div></td><td>${_dd_escape(campaign)}</td><td>${_dd_escape(supervisorName)}</td><td><span class="dd4-status ${x.dd_source==='bot'?'neutral':'ok'}">${_dd_escape(x.dd_source_label)}</span></td><td>${_dd_escape(x.dd_creator_name||'—')}</td><td>${_dd_escape(x.dd_creator_role||'—')}</td><td>${_dd4_statusPill(x.status||'—')}</td><td>${_dd_isOperationalAccess()?'Oculto por privacidad':_dd_escape(x.notes||'—')}</td></tr>`;
   }).join('');
   const html=`<div class="modal-backdrop" id="dd4-source-modal" onclick="if(event.target===this)this.remove()"><div class="modal" style="width:1280px;max-width:98vw"><div class="modal-hd"><div><h3>Faltas cargadas por ${sourceLabel}</h3><div class="sub">${rows.length} registros · ${uniqueAgents.size} agentes · ${supervisors.size} supervisores asignados</div></div><button class="modal-hd-close" onclick="document.getElementById('dd4-source-modal')?.remove()">×</button></div><div class="modal-body"><div class="dd4-alert blue">Las filas pendientes sí aparecen porque esta vista mide quién cargó la falta. Las canceladas y rechazadas quedan fuera.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor asignado</th><th>Origen</th><th>Cargada por</th><th>Rol creador</th><th>Status</th><th>Notas</th></tr></thead><tbody>${rows.length?rowHtml:`<tr><td colspan="9"><div class="dd4-empty">No hay registros para este origen.</div></td></tr>`}</tbody></table></div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="document.getElementById('dd4-source-modal')?.remove()">Cerrar</button></div></div></div>`;
   document.getElementById('dd4-source-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);
@@ -14211,6 +14358,14 @@ function _dd4_openAbsenceSources(source='all'){
 
 function _dd4_openCampaignDetail(campaign){
   const d=_dd_DATA;if(!d)return;
+  if(_dd_isOperationalAccess()){
+    const rows=(d.current.rows||[]).filter(r=>(r.campaign_id||'Sin campaña')===campaign);
+    const summary=_dd_attendanceSummary(rows);const incidents=(d.operationalIncidents||[]).filter(r=>(r.campaign_id||'Sin campaña')===campaign);
+    const acc=_dd4_buildOperationalAccountability(incidents);
+    const defs=[['Faltas',rows.filter(r=>r.audit_status==='falta_injustificada')],['Retardos',rows.filter(r=>r.audit_status==='retardo')],['Sin entrada',rows.filter(r=>r.audit_status==='sin_entrada')],['Sin salida',rows.filter(r=>r.audit_status==='sin_salida')]];
+    const html=`<div class="modal-backdrop" id="dd4-campaign-modal" onclick="if(event.target===this)this.remove()"><div class="modal" style="width:1220px;max-width:98vw"><div class="modal-hd"><div><h3>Performance · ${_dd_escape(campaign)}</h3><div class="sub">Vista operativa de solo lectura</div></div><button class="modal-hd-close" onclick="document.getElementById('dd4-campaign-modal')?.remove()">×</button></div><div class="modal-body"><div class="dd4-alert blue">Incluye asistencia e incidencias. No muestra Risk List, sanciones, bajas, notas internas ni nómina.</div><div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('HC auditado',summary.hc,'Personas con registros','#2563EB')}${_dd4_kpi('Puntualidad',summary.operationalPunctuality+'%',`${summary.retardo} retardos`,'#0E7490')}${_dd4_kpi('Faltas',summary.falta,`${new Set(rows.filter(r=>r.audit_status==='falta_injustificada').map(r=>r.employee_id)).size} personas`,'#DC2626')}${_dd4_kpi('Sin salida',rows.filter(r=>r.audit_status==='sin_salida').length,'Cierres incompletos','#7C3AED')}</div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Qué falló</div><div class="dd4-panel-copy">Eventos y personas afectadas.</div></div></div><div class="dd4-panel-body"><div class="dd4-reconcile" style="grid-template-columns:repeat(4,1fr)">${defs.map(([label,list])=>`<div class="dd4-reconcile-item"><div class="dd4-reconcile-label">${label}</div><div class="dd4-reconcile-value">${list.length}</div><div class="dd4-reconcile-note">${new Set(list.map(x=>x.employee_id).filter(Boolean)).size} personas.</div></div>`).join('')}</div></div></div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Accountability</div><div class="dd4-panel-copy">Mismo día, un día después, fuera de plazo o sin registro.</div></div></div><div class="dd4-panel-body" style="padding:0">${(()=>{const x={...d,operationalAccountability:acc};return _dd4_renderOperationalAccountability(x)})()}</div></div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Detalle de incidencias</div><div class="dd4-panel-copy">Personas y fechas exactas.</div></div><span class="dd4-chip blue">${incidents.length}</span></div><div class="dd4-panel-body" style="padding:0"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:900px"><thead><tr><th>Fecha</th><th>Agente</th><th>Supervisor</th><th>Incidencia</th><th>Resultado</th><th>Gestión</th></tr></thead><tbody>${incidents.length?incidents.slice(0,100).map(r=>`<tr class="clickable" onclick="document.getElementById('dd4-campaign-modal')?.remove();_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td>${_dd_escape(r.employee_name||r.employee_id)}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${_dd_escape(r.op_result_label||'—')}</td><td>${_dd4_operationalAccountabilityPill(r.op_accountability)}</td></tr>`).join(''):`<tr><td colspan="6"><div class="dd4-empty">Sin incidencias.</div></td></tr>`}</tbody></table></div></div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="document.getElementById('dd4-campaign-modal')?.remove()">Cerrar</button></div></div></div>`;
+    document.getElementById('dd4-campaign-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);return;
+  }
   const rows=(d.current.rows||[]).filter(r=>(r.campaign_id||'Sin campaña')===campaign);
   const summary=_dd_attendanceSummary(rows);
   const actionable=_dd4_actionableRows(rows);
@@ -14235,6 +14390,56 @@ function _dd4_openCampaignDetail(campaign){
     <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Detalle de incidencias</div><div class="dd4-panel-copy">Personas y fechas exactas que forman el resultado.</div></div><span class="dd4-chip blue">${actionable.length}</span></div><div class="dd4-panel-body" style="padding:0"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:950px"><thead><tr><th>Fecha</th><th>Agente</th><th>Supervisor</th><th>Incidencia</th><th>Registro final</th><th>People Action</th></tr></thead><tbody>${actionable.length?actionable.slice(0,100).map(r=>`<tr class="clickable" onclick="document.getElementById('dd4-campaign-modal')?.remove();_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td>${_dd_escape(r.employee_name||r.employee_id)}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${r.dd_has_final_exception?'<span class="dd4-status ok">Encontrado</span>':'<span class="dd4-status warn">Sin registro</span>'}</td><td>${r.dd_action?`<span class="dd4-status ${r.dd_action_status==='on_time'?'ok':'warn'}">${r.dd_action_status==='on_time'?'A tiempo':'Tardía'}</span>`:'<span class="dd4-status bad">Sin acción</span>'}</td></tr>`).join(''):`<tr><td colspan="6"><div class="dd4-empty">Sin faltas ni retardos accionables.</div></td></tr>`}</tbody></table></div></div></div>
   </div><div class="modal-footer"><button class="btn-ghost" onclick="document.getElementById('dd4-campaign-modal')?.remove()">Cerrar</button></div></div></div>`;
   document.getElementById('dd4-campaign-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);
+}
+
+
+function _dd4_renderOperationalOverview(d){
+  const a=d.current.attendance,p=d.previous.attendance,rows=d.current.rows||[],inc=d.operationalIncidents||[],acc=d.operationalAccountability||[];
+  const workRows=rows.filter(r=>!_dd_isNonWorkStatus(r.audit_status));
+  const withEntry=workRows.filter(_dd_hasEntry).length,withoutEntry=workRows.length-withEntry;
+  const withExit=workRows.filter(_dd_hasCheckout).length,withoutExit=workRows.length-withExit;
+  const pending=inc.filter(x=>['missing','overdue'].includes(x.op_accountability)).length;
+  const source=d.current.absenceSources||{bot:0,supervisor:0,botPeople:0,supervisorPeople:0};
+  return `<div class="dd4-alert blue"><b>Vista ${currentRole==='ceo'?'ejecutiva':'operativa'} · solo lectura.</b> Incluye asistencia, incidencias, campañas y accountability. No muestra People Actions, Risk List, nómina, bajas, notas internas ni evidencia sensible.</div>
+  <div class="dd4-grid">
+    ${_dd4_kpi('HC sujeto a asistencia',d.employees.length,`${d.scope_label||_dd_operationalScopeLabel()}`,'#2563EB')}
+    ${_dd4_kpi('Con entrada',withEntry,`${withoutEntry} sin entrada en días laborables`,'#15803D',"_dd4_setTab('attendance')")}
+    ${_dd4_kpi('Con salida',withExit,`${withoutExit} sin salida registrada`,'#0E7490',"_dd4_setTab('attendance')")}
+    ${_dd4_kpi('Retardos',a.retardo,`${_dd_delta(a.retardo,p.retardo).label} vs periodo anterior`,'#D97706',"_dd4_setTab('incidents')")}
+    ${_dd4_kpi('Faltas detectadas',a.falta,`${_dd_delta(a.falta,p.falta).label} vs periodo anterior`,'#DC2626',"_dd4_setTab('incidents')")}
+    ${_dd4_kpi('Sin salida',a.sinSalida||rows.filter(r=>r.audit_status==='sin_salida').length,'Requieren validación operativa','#7C3AED',"_dd4_setTab('incidents')")}
+    ${_dd4_kpi('Incidencias sin gestión',pending,'Sin registro o fuera del plazo acordado','#BE123C',"_dd4_setTab('accountability')")}
+    ${_dd4_kpi('Campañas',d.campaigns.length,`${acc.length} supervisores con incidencias`,'#0891B2',"_dd4_setTab('campaigns')")}
+  </div>
+  <div class="dd4-two">
+    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Entradas vs. salidas</div><div class="dd4-panel-copy">Lectura operativa del periodo seleccionado.</div></div></div><div class="dd4-panel-body"><div class="dd4-reconcile"><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Días laborables</div><div class="dd4-reconcile-value">${workRows.length}</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Con entrada</div><div class="dd4-reconcile-value" style="color:#15803D">${withEntry}</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Con salida</div><div class="dd4-reconcile-value" style="color:#0E7490">${withExit}</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Sin salida</div><div class="dd4-reconcile-value" style="color:#7C3AED">${withoutExit}</div></div></div></div></div>
+    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Faltas registradas · Bot vs liderazgo</div><div class="dd4-panel-copy">Mide quién creó el registro administrativo; no suma las faltas detectadas.</div></div></div><div class="dd4-panel-body"><div class="dd4-reconcile" style="grid-template-columns:repeat(2,1fr)"><div class="dd4-reconcile-item clickable" onclick="_dd4_openAbsenceSources('bot')"><div class="dd4-reconcile-label">Bot</div><div class="dd4-reconcile-value">${source.bot||0}</div><div class="dd4-reconcile-note">${source.botPeople||0} agentes.</div></div><div class="dd4-reconcile-item clickable" onclick="_dd4_openAbsenceSources('supervisor')"><div class="dd4-reconcile-label">Liderazgo</div><div class="dd4-reconcile-value">${source.supervisor||0}</div><div class="dd4-reconcile-note">${source.supervisorPeople||0} agentes.</div></div></div></div></div>
+  </div>
+  ${_dd_renderCampaignTable(rows)}`;
+}
+
+function _dd4_filteredOperationalIncidents(d){
+  const q=_dd_norm(_dd4_UI.search);return(d.operationalIncidents||[]).filter(r=>{
+    if(_dd4_UI.attendanceStatus!=='all'&&r.audit_status!==_dd4_UI.attendanceStatus)return false;
+    if(q&&!_dd_norm([r.employee_name,r.employee_id,r.campaign_id,r.supervisor_name,r.op_incident_label,r.op_result_label,r.op_creator_name,r.work_date].join(' ')).includes(q))return false;
+    return true;
+  });
+}
+
+function _dd4_renderOperationalIncidents(d){
+  const rows=_dd4_filteredOperationalIncidents(d);const statuses=[...new Set((d.operationalIncidents||[]).map(r=>r.audit_status).filter(Boolean))].sort();
+  return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todas las incidencias</option>${statuses.map(x=>`<option value="${_dd_escape(x)}" ${_dd4_UI.attendanceStatus===x?'selected':''}>${_dd_escape(_dd4_operationalIncidentType({audit_status:x}))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} incidencias</span></div>
+  <div class="dd4-alert blue">La vista muestra la clasificación operativa y el resultado final, pero oculta notas, documentos y evidencia sensible.</div>
+  <div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Incidencia</th><th>Entrada</th><th>Salida</th><th>Resultado final</th><th>Origen</th><th>Registró liderazgo</th><th>Tiempo de registro</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td>${_dd_escape(r.op_result_label||'—')}</td><td>${r.op_bot_exception?'<span class="dd4-status neutral">Bot</span>':r.op_manual_exception?'<span class="dd4-status ok">Liderazgo</span>':'<span class="dd4-status neutral">Sin registro</span>'}</td><td>${_dd_escape(r.op_creator_name||'—')}</td><td>${_dd4_operationalAccountabilityPill(r.op_accountability)}</td></tr>`).join(''):`<tr><td colspan="11"><div class="dd4-empty">No hay incidencias con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
+}
+
+function _dd4_renderOperationalAccountability(d){
+  const rows=d.operationalAccountability||[];
+  return `<div class="dd4-alert blue"><b>Regla acordada:</b> registro el mismo día = a tiempo; un día después = tardío; después de un día = fuera de plazo; sin carga manual = sin registro de liderazgo. Una carga del Bot no sustituye la gestión del supervisor.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1150px"><thead><tr><th>Supervisor</th><th class="dd4-center">HC afectado</th><th class="dd4-center">Faltas</th><th class="dd4-center">Retardos</th><th class="dd4-center">Mismo día</th><th class="dd4-center">1 día después</th><th class="dd4-center">Fuera de plazo</th><th class="dd4-center">Sin registro</th><th>Cobertura</th></tr></thead><tbody>${rows.length?rows.map(s=>`<tr><td><div class="dd-primary">${_dd_escape(s.supervisor_name)}</div><div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div></td><td class="dd4-center dd4-mono">${s.hc}</td><td class="dd4-center dd4-mono" style="color:#DC2626">${s.faltas}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.retardos}</td><td class="dd4-center dd4-mono" style="color:#15803D">${s.onTime}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.late}</td><td class="dd4-center dd4-mono" style="color:#B91C1C">${s.overdue}</td><td class="dd4-center dd4-mono" style="color:#BE123C">${s.missing}</td><td><div class="dd4-strong dd4-center">${s.coverage}%</div><div class="dd4-bar ${s.coverage<50?'danger':s.coverage<80?'warn':''}"><span style="width:${Math.min(100,s.coverage)}%"></span></div></td></tr>`).join(''):`<tr><td colspan="9"><div class="dd4-empty">No hay faltas o retardos en el periodo.</div></td></tr>`}</tbody></table></div></div>`;
+}
+
+function _dd4_renderOperationalCampaigns(d){
+  return `<div class="dd4-alert blue">Haz clic en una campaña para revisar entradas, salidas, faltas, retardos y accountability. No se muestran expedientes disciplinarios.</div>${_dd_renderCampaignTable(d.current.rows||[])}`;
 }
 
 function _dd4_renderOverview(d){
@@ -14268,12 +14473,14 @@ function _dd4_renderOverview(d){
 function _dd4_filteredAttendance(d){const q=_dd_norm(_dd4_UI.search);return(d.current.rows||[]).filter(r=>{if(_dd4_UI.attendanceStatus!=='all'&&r.audit_status!==_dd4_UI.attendanceStatus)return false;if(q&&!_dd_norm([r.employee_name,r.employee_id,r.supervisor_name,r.campaign_id,r.audit_status,r.work_date].join(' ')).includes(q))return false;return true;});}
 function _dd4_renderAttendance(d){
   const rows=_dd4_filteredAttendance(d);const statuses=[...new Set((d.current.rows||[]).map(r=>r.audit_status).filter(Boolean))].sort();
+  if(_dd_isOperationalAccess()){return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todos los estados</option>${statuses.map(s=>`<option value="${_dd_escape(s)}" ${_dd4_UI.attendanceStatus===s?'selected':''}>${_dd_escape(s.replaceAll('_',' '))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} filas</span></div><div class="dd4-alert blue">Una fila por persona-fecha. Esta vista es solo lectura y no contiene People Actions ni datos disciplinarios.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1180px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Horario</th><th>Entrada</th><th>Salida</th><th class="dd4-center">Min. tarde</th><th>Estado final</th><th>Incidencia</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td class="dd4-mono">${_dd_timeValue(r,['shift_start'])||'—'}–${_dd_timeValue(r,['shift_end'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${['falta_injustificada','retardo','sin_entrada','sin_salida'].includes(_dd_norm(r.audit_status))?'<span class="dd4-status warn">Revisar</span>':'<span class="dd4-status neutral">No aplica</span>'}</td></tr>`).join(''):`<tr><td colspan="10"><div class="dd4-empty">No hay registros con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;}
   return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todos los estados</option>${statuses.map(s=>`<option value="${_dd_escape(s)}" ${_dd4_UI.attendanceStatus===s?'selected':''}>${_dd_escape(s.replaceAll('_',' '))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} filas únicas</span></div>
   <div class="dd4-alert blue"><b>Regla del explorador:</b> cada renglón representa una sola persona en una sola fecha. Cuando el RPC devuelve duplicados, Deep Dive conserva la fila con mayor evidencia de asistencia y manda el conflicto a Calidad de datos.</div>
   <div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1350px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Estado final</th><th class="dd4-center">Min. tarde</th><th>Entrada</th><th>Salida</th><th>Registro final</th><th>People Action</th><th>Calidad</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td>${r.dd_has_final_exception?'<span class="dd4-status ok">Encontrado</span>':r.audit_status==='falta_injustificada'?'<span class="dd4-status warn">Sin registro</span>':'<span class="dd4-status neutral">No aplica</span>'}</td><td>${_dd4_actionableRows([r]).length?(r.dd_action?`<span class="dd4-status ${r.dd_action_status==='on_time'?'ok':'warn'}">${r.dd_action_status==='on_time'?'A tiempo':'Tardía'}</span>`:'<span class="dd4-status bad">Sin acción</span>'):'<span class="dd4-status neutral">No aplica</span>'}</td><td>${r.dd_duplicate_count>1?`<span class="dd4-status bad">${r.dd_duplicate_count} duplicados</span>`:'<span class="dd4-status ok">OK</span>'}</td></tr>`).join(''):`<tr><td colspan="11"><div class="dd4-empty">No hay registros con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
 }
 
 function _dd4_renderSupervisors(d){
+  if(_dd_isOperationalAccess())return _dd4_renderOperationalAccountability(d);
   const rows=d.supervisors||[];return `<div class="dd4-alert blue">La cobertura ya no compara totales generales. Cada falta o retardo se vincula con máximo una People Action del mismo agente. Mismo día = a tiempo; de 1 a 7 días después = tardía; sin caso vinculable = sin acción.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Supervisor</th><th class="dd4-center">HC</th><th class="dd4-center">Retardos</th><th class="dd4-center">Faltas</th><th class="dd4-center">Faltas sin registro</th><th class="dd4-center">Acciones esperadas</th><th class="dd4-center">A tiempo</th><th class="dd4-center">Tardías</th><th class="dd4-center">Sin acción</th><th>Cobertura</th><th class="dd4-center">Tickets</th><th>Riesgo</th></tr></thead><tbody>${rows.length?rows.map(s=>`<tr class="clickable" onclick="_dd_openSupervisorDetail('${String(s.supervisor_id).replaceAll("'","\\'")}')"><td><div class="dd-name-cell"><div class="dd-avatar">${_dd_initials(s.supervisor_name)}</div><div><div class="dd-primary">${_dd_escape(s.supervisor_name)}</div><div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div></div></div></td><td class="dd4-center dd4-mono">${s.hc}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.retardo}</td><td class="dd4-center dd4-mono" style="color:#DC2626">${s.falta}</td><td class="dd4-center dd4-mono" style="color:${s.missingException?'#BE123C':'#15803D'}">${s.missingException}</td><td class="dd4-center dd4-mono">${s.expectedActions}</td><td class="dd4-center dd4-mono" style="color:#15803D">${s.onTime}</td><td class="dd4-center dd4-mono" style="color:#B45309">${s.lateActions}</td><td class="dd4-center dd4-mono" style="color:#BE123C">${s.missingActions}</td><td><div class="dd4-strong dd4-center">${s.compliance}%</div><div class="dd4-bar ${s.compliance<50?'danger':s.compliance<80?'warn':''}"><span style="width:${Math.min(100,s.compliance)}%"></span></div></td><td class="dd4-center dd4-mono">${s.tickets}</td><td>${_dd4_riskPill(s.risk)}</td></tr>`).join(''):`<tr><td colspan="12"><div class="dd4-empty">Sin supervisores para el filtro seleccionado.</div></td></tr>`}</tbody></table></div></div>`;
 }
 
@@ -14289,6 +14496,12 @@ function _dd4_renderQuality(d){const q=d.quality,detail=_dd4_qualityRows(d);retu
 
 function _dd4_openAgent(id){
   const a=(_dd_DATA?.agents||[]).find(x=>String(x.id).toUpperCase()===String(id).toUpperCase());if(!a)return;
+  if(_dd_isOperationalAccess()){
+    const rows=(_dd_DATA?.history90?.rows||[]).filter(r=>String(r.employee_id||'').toUpperCase()===String(id).toUpperCase()).sort((x,y)=>String(y.work_date||'').localeCompare(String(x.work_date||'')));
+    const incidentRows=rows.filter(r=>['retardo','falta_injustificada','sin_salida','sin_entrada'].includes(_dd_norm(r.audit_status)));
+    const html=`<div class="modal-backdrop" id="dd4-agent-modal" onclick="if(event.target===this)_dd4_closeAgent()"><div class="modal" style="width:1050px;max-width:96vw"><div class="modal-hd"><div><h3>${_dd_escape(a.name)}</h3><div class="sub">Detalle de asistencia · ${_dd_escape(a.id)} · ${_dd_escape(a.campaign)} · ${_dd_escape(a.supervisor)}</div></div><button class="modal-hd-close" onclick="_dd4_closeAgent()">×</button></div><div class="modal-body"><div class="dd4-alert blue">Ficha operativa de solo lectura. No contiene advertencias, People Actions, notas internas ni documentos.</div><div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('Registros',rows.length,'Últimos 90 días','#2563EB')}${_dd4_kpi('Faltas',rows.filter(r=>r.audit_status==='falta_injustificada').length,'Detectadas por auditoría','#DC2626')}${_dd4_kpi('Retardos',rows.filter(r=>r.audit_status==='retardo').length,'En el periodo ampliado','#D97706')}${_dd4_kpi('Sin salida',rows.filter(r=>r.audit_status==='sin_salida').length,'Cierres incompletos','#7C3AED')}</div><div class="modal-section"><div class="ms-title">Historial de asistencia</div><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:900px"><thead><tr><th>Fecha</th><th>Horario</th><th>Entrada</th><th>Salida</th><th class="dd4-center">Min. tarde</th><th>Estado</th></tr></thead><tbody>${rows.length?rows.slice(0,100).map(r=>`<tr><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td class="dd4-mono">${_dd_timeValue(r,['shift_start'])||'—'}–${_dd_timeValue(r,['shift_end'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td>${_dd4_statusPill(r.audit_status)}</td></tr>`).join(''):`<tr><td colspan="6"><div class="dd4-empty">Sin registros de asistencia.</div></td></tr>`}</tbody></table></div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="_dd4_closeAgent()">Cerrar</button></div></div></div>`;
+    document.getElementById('dd4-agent-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);return;
+  }
   const events=[];(a.historyRows||[]).filter(r=>['retardo','falta_injustificada','sin_salida','sin_entrada'].includes(r.audit_status)).forEach(r=>events.push({date:r.work_date,title:_dd_incidentTypeLabel(r.audit_status),note:[r.minutes_late?`${r.minutes_late} min tarde`:'',r.supervisor_name,r.campaign_id].filter(Boolean).join(' · '),type:'attendance'}));
   (_dd_DATA.current.actionRowsAll||[]).filter(x=>String(_dd_actionEmployee(x)||'').toUpperCase()===String(id).toUpperCase()).forEach(x=>events.push({date:String(_dd_actionDate(x)||'').slice(0,10),title:`People Action · ${_dd_actionLevelLabel(_dd_actionLevel(x))}`,note:_dd_actionStatusLabel(x),type:'action'}));
   events.sort((x,y)=>String(y.date).localeCompare(String(x.date)));
@@ -14296,16 +14509,21 @@ function _dd4_openAgent(id){
 }
 function _dd4_closeAgent(){document.getElementById('dd4-agent-modal')?.remove();}
 
-function _dd4_tabContent(d){switch(_dd4_UI.tab){case'attendance':return _dd4_renderAttendance(d);case'supervisors':return _dd4_renderSupervisors(d);case'agents':return _dd4_renderAgents(d,false);case'recurrence':return _dd4_renderAgents(d,true);case'rotation':return _dd4_renderRotation(d);case'quality':return _dd4_renderQuality(d);case'tickets':return `${_dd_renderTicketCommandCenter(d)}${_dd_renderDetalleCorreccionesAsistencia(d.current.ticketRows||[])}${_dd_renderPayrollDeepDive(d.payrollTickets||[])}`;default:return _dd4_renderOverview(d);}}
+function _dd4_tabContent(d){if(_dd_isOperationalAccess()){switch(_dd4_UI.tab){case'attendance':return _dd4_renderAttendance(d);case'incidents':return _dd4_renderOperationalIncidents(d);case'campaigns':return _dd4_renderOperationalCampaigns(d);case'accountability':return _dd4_renderOperationalAccountability(d);default:return _dd4_renderOperationalOverview(d);}}switch(_dd4_UI.tab){case'attendance':return _dd4_renderAttendance(d);case'supervisors':return _dd4_renderSupervisors(d);case'agents':return _dd4_renderAgents(d,false);case'recurrence':return _dd4_renderAgents(d,true);case'rotation':return _dd4_renderRotation(d);case'quality':return _dd4_renderQuality(d);case'tickets':return `${_dd_renderTicketCommandCenter(d)}${_dd_renderDetalleCorreccionesAsistencia(d.current.ticketRows||[])}${_dd_renderPayrollDeepDive(d.payrollTickets||[])}`;default:return _dd4_renderOverview(d);}}
 
 function _dd_render(){
   const c=document.getElementById('content');if(!c)return;
-  if(!_dd_canAccess()){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><div style="font-size:13px;color:#64748B">Este módulo es solo para People / Head People.</div></div>';return;}
-  if(_dd_LOADING){c.innerHTML='<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando Deep Dive de investigación...</div>';return;}
+  if(!_dd_canAccess()){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><div style="font-size:13px;color:#64748B">No tienes permiso para acceder a este módulo.</div></div>';return;}
+  if(_dd_LOADING){c.innerHTML='<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando Deep Dive...</div>';return;}
   const d=_dd_DATA;if(!d){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><button class="btn-primary" onclick="_dd_loadData()">Cargar análisis</button></div>';return;}
-  const trust=Math.max(0,100-Math.min(100,Math.round((d.quality.totalIssues/Math.max(1,d.current.attendance.expectedDays))*100)));
-  const tabs=[['overview','Control Tower'],['attendance','Asistencia'],['supervisors','Supervisores'],['agents','Agentes 360'],['recurrence','Reincidencias'],['rotation','Rotación'],['tickets','Tickets y nómina'],['quality','Calidad de datos']];
-  c.innerHTML=`<div class="dd4-shell"><div class="dd4-toolbar"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}"><span style="color:#94A3B8">→</span><input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}"><button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button><select class="df-input" onchange="_dd_setFilter('campaign',this.value)"><option value="all">Todas las campañas</option>${d.campaigns.map(x=>`<option value="${_dd_escape(x)}" ${_dd_FILTERS.campaign===x?'selected':''}>${_dd_escape(x)}</option>`).join('')}</select><select class="df-input" onchange="_dd_setFilter('supervisor',this.value)"><option value="all">Todos los supervisores</option>${d.supervisorsOptions.map(x=>`<option value="${_dd_escape(x.id)}" ${_dd_FILTERS.supervisor===x.id?'selected':''}>${_dd_escape(x.name)}</option>`).join('')}</select></div><div style="display:flex;gap:8px"><button class="btn-ghost" onclick="_dd_copyExecutiveSummary()">📋 Resumen</button><button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button></div></div><div class="dd4-header"><div class="dd4-header-main"><div><div class="dd-eyebrow">People Intelligence · Investigation Workspace</div><div class="dd4-title">Deep Dive</div><div class="dd4-subtitle">${fmtDateShort(d.from)} al ${fmtDateShort(d.to)} · ${_dd_FILTERS.campaign==='all'?'Todas las campañas':_dd_escape(_dd_FILTERS.campaign)} · ${_dd_FILTERS.supervisor==='all'?'Todos los supervisores':_dd_escape(d.supervisorsOptions.find(x=>x.id===_dd_FILTERS.supervisor)?.name||_dd_FILTERS.supervisor)}<br>Cada número puede rastrearse hasta las personas y registros que lo forman.</div></div><div class="dd4-trust"><div class="dd4-trust-label">Confianza del universo</div><div class="dd4-trust-value">${trust}%</div><div class="dd4-trust-note">${d.quality.totalIssues} alertas visibles · ${d.current.rows.length} filas únicas analizadas</div></div></div></div><div class="dd4-tabs">${tabs.map(([k,l])=>`<button class="dd4-tab ${_dd4_UI.tab===k?'on':''}" onclick="_dd4_setTab('${k}')">${l}</button>`).join('')}</div>${_dd4_tabContent(d)}</div>`;
+  const operational=_dd_isOperationalAccess();
+  if(operational&&!_dd_allowedOperationalTabs().has(_dd4_UI.tab))_dd4_UI.tab='overview';
+  const trust=operational?100:Math.max(0,100-Math.min(100,Math.round((d.quality.totalIssues/Math.max(1,d.current.attendance.expectedDays))*100)));
+  const tabs=operational?[['overview','Control Tower'],['attendance','Asistencia'],['incidents','Incidencias'],['campaigns','Campañas'],['accountability','Accountability']]:[['overview','Control Tower'],['attendance','Asistencia'],['supervisors','Supervisores'],['agents','Agentes 360'],['recurrence','Reincidencias'],['rotation','Rotación'],['tickets','Tickets y nómina'],['quality','Calidad de datos']];
+  const modeLabel=operational?(currentRole==='ceo'?'Vista ejecutiva':'Vista operativa'):'People Intelligence · Investigation Workspace';
+  const subtitleScope=operational?(d.scope_label||_dd_operationalScopeLabel()):'Cada número puede rastrearse hasta las personas y registros que lo forman.';
+  const controlsRight=operational?`<button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button>`:`<button class="btn-ghost" onclick="_dd_copyExecutiveSummary()">📋 Resumen</button><button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button>`;
+  c.innerHTML=`<div class="dd4-shell"><div class="dd4-toolbar"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}"><span style="color:#94A3B8">→</span><input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}"><button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button><select class="df-input" onchange="_dd_setFilter('campaign',this.value)"><option value="all">Todas las campañas</option>${d.campaigns.map(x=>`<option value="${_dd_escape(x)}" ${_dd_FILTERS.campaign===x?'selected':''}>${_dd_escape(x)}</option>`).join('')}</select><select class="df-input" onchange="_dd_setFilter('supervisor',this.value)"><option value="all">Todos los supervisores</option>${d.supervisorsOptions.map(x=>`<option value="${_dd_escape(x.id)}" ${_dd_FILTERS.supervisor===x.id?'selected':''}>${_dd_escape(x.name)}</option>`).join('')}</select></div><div style="display:flex;gap:8px">${controlsRight}</div></div><div class="dd4-header"><div class="dd4-header-main"><div><div class="dd-eyebrow">${modeLabel}</div><div class="dd4-title">Deep Dive</div><div class="dd4-subtitle">${fmtDateShort(d.from)} al ${fmtDateShort(d.to)} · ${_dd_FILTERS.campaign==='all'?'Todas las campañas':_dd_escape(_dd_FILTERS.campaign)} · ${_dd_FILTERS.supervisor==='all'?'Todos los supervisores':_dd_escape(d.supervisorsOptions.find(x=>x.id===_dd_FILTERS.supervisor)?.name||_dd_FILTERS.supervisor)}<br>${_dd_escape(subtitleScope)}</div></div><div class="dd4-trust"><div class="dd4-trust-label">${operational?'Acceso':'Confianza del universo'}</div><div class="dd4-trust-value">${operational?'Solo lectura':trust+'%'}</div><div class="dd4-trust-note">${operational?'Sin información disciplinaria o de nómina':`${d.quality.totalIssues} alertas visibles · ${d.current.rows.length} filas únicas analizadas`}</div></div></div></div><div class="dd4-tabs">${tabs.map(([k,l])=>`<button class="dd4-tab ${_dd4_UI.tab===k?'on':''}" onclick="_dd4_setTab('${k}')">${l}</button>`).join('')}</div>${_dd4_tabContent(d)}</div>`;
 }
 
 window._dd4_setTab=_dd4_setTab;window._dd4_setUI=_dd4_setUI;window._dd4_openAgent=_dd4_openAgent;window._dd4_closeAgent=_dd4_closeAgent;
@@ -24327,7 +24545,7 @@ _initImpulse();
 
 /*****************************************************************
  IMPULSE
- Version: 1.0.14
+ Version: 1.0.15
  Build: 2026-07-23
 *****************************************************************/
 
