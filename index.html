@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.15';
+const APP_VERSION   = '1.0.16';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3055,7 +3055,7 @@ let _a_drillSup=null;
 // ── SUPABASE ────────────────────────────────────────────────
 const _a_SB_URL = "https://kpuqabxmpavxgbzxzlng.supabase.co";
 const _a_SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8";
-const _a_sb = supabase.createClient(_a_SB_URL, _a_SB_KEY);
+const _a_sb = _auth_sb;
 
 // ── STATE ────────────────────────────────────────────────────
 let _a_TEAM    = [];  // equipo del supervisor (hoy)
@@ -4145,7 +4145,7 @@ async function _a_cargarDatos() {
       return (daysOff || []).includes(slug);
     };
 
-    const _a_chunks = (arr, size = 100) => {
+    const _a_chunks = (arr, size = 35) => {
       const out = [];
       for (let i = 0; i < arr.length; i += size) {
         out.push(arr.slice(i, i + size));
@@ -4157,15 +4157,28 @@ async function _a_cargarDatos() {
       const cleanIds = [...new Set((ids || []).filter(Boolean))];
       const out = [];
 
-      for (const chunk of _a_chunks(cleanIds, 100)) {
+      async function fetchSummaryChunk(chunk) {
         const { data, error } = await _a_sb
           .from('attendance_daily_summary')
           .select('*')
           .eq('punch_date', hoy)
           .in('employee_id', chunk);
 
+        // La vista puede ser pesada para equipos grandes. Si PostgREST responde
+        // 500/timeout, dividimos el lote hasta un mínimo seguro en vez de perder
+        // toda la pantalla de Asistencia.
+        if (error && chunk.length > 8) {
+          const mid = Math.ceil(chunk.length / 2);
+          const left = await fetchSummaryChunk(chunk.slice(0, mid));
+          const right = await fetchSummaryChunk(chunk.slice(mid));
+          return [...left, ...right];
+        }
         if (error) throw error;
-        if (data) out.push(...data);
+        return data || [];
+      }
+
+      for (const chunk of _a_chunks(cleanIds, 35)) {
+        out.push(...await fetchSummaryChunk(chunk));
       }
 
       return out;
@@ -4175,7 +4188,7 @@ async function _a_cargarDatos() {
       const cleanIds = [...new Set((ids || []).filter(Boolean))];
       const out = [];
 
-      for (const chunk of _a_chunks(cleanIds, 100)) {
+      for (const chunk of _a_chunks(cleanIds, 35)) {
         const { data, error } = await _a_sb
           .from('attendance_exceptions')
           .select('id, employee_id, exception_date, type, notes, status, shift_start_override, shift_end_override')
@@ -4196,7 +4209,7 @@ async function _a_cargarDatos() {
       const cleanIds = [...new Set((ids || []).filter(Boolean))];
       const out = [];
 
-      for (const chunk of _a_chunks(cleanIds, 100)) {
+      for (const chunk of _a_chunks(cleanIds, 35)) {
         const { data, error } = await _a_sb
           .from('vacation_requests')
           .select('id, employee_id, start_date, end_date, status, approved_by, approved_at')
@@ -9969,7 +9982,7 @@ function _n_calcDiasProyectados(fechaPago){
 // ── SUPABASE ────────────────────────────────────────────────
 const _n_SB_URL = "https://kpuqabxmpavxgbzxzlng.supabase.co";
 const _n_SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8";
-const _n_sb = supabase.createClient(_n_SB_URL, _n_SB_KEY);
+const _n_sb = _auth_sb;
 
 // ── STATE ────────────────────────────────────────────────────
 let _n_PERIODOS      = [];
@@ -14097,15 +14110,24 @@ function _dd4_operationalAccountabilityPill(status){
 async function _dd_loadOperationalData(){
   _dd_LOADING=true;_dd_render();
   const {from,to,prevFrom,prevTo}=_dd_FILTERS;
-  const historyFrom=_dd4_dateAdd(to,-89);
-  const calls=await Promise.all([
-    _a_sb.rpc('deep_dive_operational_bundle',{p_from:from,p_to:to}),
-    _a_sb.rpc('deep_dive_operational_bundle',{p_from:prevFrom,p_to:prevTo}),
-    _a_sb.rpc('deep_dive_operational_bundle',{p_from:historyFrom,p_to:to})
-  ]);
-  const err=calls.map(x=>x.error).find(Boolean);
-  if(err){console.error('Deep Dive operativo:',err);alert('No se pudo cargar la vista operativa de Deep Dive:\n\n'+(err.message||err));_dd_LOADING=false;_dd_render();return;}
-  const curBundle=calls[0].data||{},prevBundle=calls[1].data||{},histBundle=calls[2].data||{};
+
+  // No disparamos tres auditorías pesadas al mismo tiempo. La vista operativa
+  // solo necesita periodo actual y anterior; ambos se cargan de forma secuencial.
+  const curCall=await _a_sb.rpc('deep_dive_operational_bundle',{p_from:from,p_to:to});
+  if(curCall.error){
+    console.error('Deep Dive operativo · periodo actual:',curCall.error);
+    alert('No se pudo cargar la vista operativa de Deep Dive:\n\n'+(curCall.error.message||curCall.error));
+    _dd_LOADING=false;_dd_render();return;
+  }
+
+  const prevCall=await _a_sb.rpc('deep_dive_operational_bundle',{p_from:prevFrom,p_to:prevTo});
+  if(prevCall.error){
+    console.error('Deep Dive operativo · periodo anterior:',prevCall.error);
+    alert('No se pudo cargar la comparación de Deep Dive:\n\n'+(prevCall.error.message||prevCall.error));
+    _dd_LOADING=false;_dd_render();return;
+  }
+
+  const curBundle=curCall.data||{},prevBundle=prevCall.data||{};
   const directoryRows=curBundle.employees||[];
   const activeDirectoryRows=directoryRows.filter(e=>_dd_norm(e.status)==='active');
   const employeeById=new Map(directoryRows.map(e=>[String(e.id||'').trim().toUpperCase(),e]));
@@ -14115,7 +14137,13 @@ async function _dd_loadOperationalData(){
     const dedupe=_dd4_dedupeAttendance(marked);
     return {raw:marked,dedupe,rows:_dd4_attachExceptions(dedupe.rows,bundle.exceptions||[]),exceptions:bundle.exceptions||[]};
   };
-  const cur=prepare(curBundle),prev=prepare(prevBundle),hist=prepare(histBundle);
+  const cur=prepare(curBundle),prev=prepare(prevBundle);
+  // La vista operativa no muestra reincidencia de 90 días. Usamos la unión de
+  // actual + anterior para el detalle de asistencia sin lanzar una tercera RPC.
+  const histRaw=[...prev.raw,...cur.raw];
+  const histDedupe=_dd4_dedupeAttendance(histRaw);
+  const hist={raw:histRaw,dedupe:histDedupe,rows:_dd4_attachExceptions(histDedupe.rows,[...prev.exceptions,...cur.exceptions])};
+  const historyFrom=prevFrom;
   const campaigns=[...new Set(cur.rows.map(r=>r.campaign_id).filter(Boolean))].sort();
   const supervisorSource=cur.rows.filter(r=>_dd_FILTERS.campaign==='all'||r.campaign_id===_dd_FILTERS.campaign);
   const supervisorsMap={};supervisorSource.forEach(r=>{if(r.supervisor_id)supervisorsMap[r.supervisor_id]=r.supervisor_name||r.supervisor_id;});
@@ -14144,13 +14172,33 @@ async function _dd_loadOperationalData(){
 
 async function _dd_loadData(){
   if(_dd_isOperationalAccess()) return _dd_loadOperationalData();
+  _dd4_HISTORY90_READY=false;
+  _dd4_HISTORY90_LOADING=false;
   _dd_LOADING=true;_dd_render();
   const {from,to,prevFrom,prevTo}=_dd_FILTERS;
   const toAction=_dd4_dateAdd(to,7),prevToAction=_dd4_dateAdd(prevTo,7),historyFrom=_dd4_dateAdd(to,-89);
-  const [attCur,attPrev,att90,ticketsCur,ticketsPrev,actionsCur,actionsPrev,excCur,excPrev,exc90,historyCur,historyPrev,employeeDirectory,activeWarningCases,matrixDirectory]=await Promise.all([
-    _a_sb.rpc('attendance_audit_range',{p_from:from,p_to:to}),
-    _a_sb.rpc('attendance_audit_range',{p_from:prevFrom,p_to:prevTo}),
-    _a_sb.rpc('attendance_audit_range',{p_from:historyFrom,p_to:to}),
+
+  // attendance_audit_range es la consulta más pesada. Se ejecuta de forma
+  // secuencial para evitar que tres auditorías compitan entre sí y agoten el
+  // statement_timeout del proyecto.
+  const attCur=await _a_sb.rpc('attendance_audit_range',{p_from:from,p_to:to});
+  if(attCur.error){
+    console.error('Deep Dive · auditoría actual:',attCur.error);
+    alert('No se pudo cargar Deep Dive:\n\n'+attCur.error.message);
+    _dd_LOADING=false;_dd_render();return;
+  }
+  const attPrev=await _a_sb.rpc('attendance_audit_range',{p_from:prevFrom,p_to:prevTo});
+  if(attPrev.error){
+    console.error('Deep Dive · auditoría anterior:',attPrev.error);
+    alert('No se pudo cargar la comparación de Deep Dive:\n\n'+attPrev.error.message);
+    _dd_LOADING=false;_dd_render();return;
+  }
+
+  // El histórico de 90 días se carga bajo demanda al abrir Agentes 360 o
+  // Reincidencias. Para la carga inicial usamos actual + anterior.
+  const att90={data:[...(attPrev.data||[]),...(attCur.data||[])],error:null,_partial:true};
+
+  const [ticketsCur,ticketsPrev,actionsCur,actionsPrev,excCur,excPrev,exc90,historyCur,historyPrev,employeeDirectory,activeWarningCases,matrixDirectory]=await Promise.all([
     _a_sb.from('hr_tickets').select('*').gte('created_at',from+'T00:00:00').lte('created_at',to+'T23:59:59'),
     _a_sb.from('hr_tickets').select('*').gte('created_at',prevFrom+'T00:00:00').lte('created_at',prevTo+'T23:59:59'),
     _a_sb.from('people_action_cases').select('*').gte('created_at',from+'T00:00:00').lte('created_at',toAction+'T23:59:59'),
@@ -14164,8 +14212,8 @@ async function _dd_loadData(){
     _a_sb.from('people_action_cases').select('*').eq('status','approved'),
     _a_sb.from('people_action_matrix').select('id,matrix_no,rule_title,infraction_type,default_level,sanction_duration_days,sanction_duration_text')
   ]);
-  const required=[attCur,attPrev,ticketsCur,ticketsPrev,actionsCur,actionsPrev];const errors=required.map(x=>x.error).filter(Boolean);
-  [att90,excCur,excPrev,exc90,historyCur,historyPrev,employeeDirectory,activeWarningCases,matrixDirectory].forEach(x=>{if(x?.error)console.warn('Deep Dive V4 fuente complementaria:',x.error);});
+  const required=[ticketsCur,ticketsPrev,actionsCur,actionsPrev];const errors=required.map(x=>x.error).filter(Boolean);
+  [excCur,excPrev,exc90,historyCur,historyPrev,employeeDirectory,activeWarningCases,matrixDirectory].forEach(x=>{if(x?.error)console.warn('Deep Dive V4 fuente complementaria:',x.error);});
   if(errors.length){console.error('Deep Dive V4 errors:',errors);alert('No se pudo cargar Deep Dive:\n\n'+errors.map(e=>e.message).join('\n'));_dd_LOADING=false;_dd_render();return;}
 
   // Directorio completo: es la fuente para decidir quién sí está sujeto a asistencia.
@@ -14233,13 +14281,40 @@ async function _dd_loadData(){
   const data={from,to,prevFrom,prevTo,historyFrom,campaigns,supervisors:[],supervisorsOptions:Object.entries(supervisorsMap).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)),employees,allActiveEmployees,directoryRows,attendanceUniverse,warningRisk,matrixRows:matrixDirectory?.data||[],
     current:{rawRows:_dd_filterAttendanceRows(curRawMarked),rows:curRows,duplicates:curD.duplicateGroups.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),conflicts:curD.conflicts.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),attendance:_dd_attendanceSummary(curRows),expectedActions:_dd_expectedActions(curRows),tickets:_dd_ticketSummary(curTickets,from,to),ticketRows:curTickets,actions:curActions,actionRowsAll:curActionsAll,exceptions:curExceptions,absenceSources:_dd4_absenceSourceSummary(curExceptions,employeeById),rotation:_dd4_rotationSummary(rotationHistoryCur,allActiveEmployees)},
     previous:{rawRows:_dd_filterAttendanceRows(prevRawMarked),rows:prevRows,duplicates:prevD.duplicateGroups,conflicts:prevD.conflicts,attendance:_dd_attendanceSummary(prevRows),expectedActions:_dd_expectedActions(prevRows),tickets:_dd_ticketSummary(prevTickets,prevFrom,prevTo),ticketRows:prevTickets,actions:prevActions,actionRowsAll:prevActionsAll,exceptions:prevExceptions,absenceSources:_dd4_absenceSourceSummary(prevExceptions,employeeById),rotation:_dd4_rotationSummary(rotationHistoryPrev,allActiveEmployees)},
-    history90:{rawRows:histRawMarked,rows:historyRows,duplicates:histD.duplicateGroups,conflicts:histD.conflicts},payrollTickets:[]};
+    history90:{rawRows:histRawMarked,rows:historyRows,duplicates:histD.duplicateGroups,conflicts:histD.conflicts},historyExceptions:exc90?.data||[],payrollTickets:[]};
   data.supervisors=_dd4_supervisors(curRows,curActionsAll,curTickets);data.actionCompliance=_dd4_matchActions(curRows,curActionsAll);data.quality=_dd4_buildQuality(data);data.agents=_dd4_buildAgents(data);data.recurrence=data.agents.filter(a=>a.incidents90>=2);data.narrative=_dd_generateNarrative(data);data.recommendations=_dd_generateRecommendations(data);
   try{const{data:payrollRows,error}=await _a_sb.rpc('payroll_ticket_deepdive',{p_from:from,p_to:to});if(error)console.warn('No se pudo cargar Deep Dive Nómina:',error);else data.payrollTickets=_dd_filterRowsByScope(payrollRows||[],curScope,'payroll');}catch(e){console.warn('Error cargando Deep Dive Nómina:',e);}
   _dd_DATA=data;_dd_LOADING=false;_dd_render();
 }
 
-function _dd4_setTab(tab){if(_dd_isOperationalAccess()&&!_dd_allowedOperationalTabs().has(tab))tab='overview';_dd4_UI.tab=tab;_dd_render();}
+let _dd4_HISTORY90_LOADING=false;
+let _dd4_HISTORY90_READY=false;
+async function _dd4_ensureHistory90(){
+  if(_dd_isOperationalAccess()||_dd4_HISTORY90_READY||_dd4_HISTORY90_LOADING||!_dd_DATA)return;
+  _dd4_HISTORY90_LOADING=true;
+  try{
+    const from=_dd_DATA.historyFrom||_dd4_dateAdd(_dd_DATA.to,-89);
+    const to=_dd_DATA.to;
+    const res=await _a_sb.rpc('attendance_audit_range',{p_from:from,p_to:to});
+    if(res.error)throw res.error;
+    const employeeById=new Map((_dd_DATA.directoryRows||[]).map(e=>[String(e.id||'').trim().toUpperCase(),e]));
+    const marked=_dd_markLateJustifications(res.data||[],_dd_DATA.historyExceptions||[]).filter(r=>_dd4_includeAttendanceRow(r,employeeById));
+    const dedupe=_dd4_dedupeAttendance(marked);
+    _dd_DATA.history90={rawRows:marked,rows:_dd_filterAttendanceRows(_dd4_attachExceptions(dedupe.rows,_dd_DATA.historyExceptions||[])),duplicates:dedupe.duplicateGroups,conflicts:dedupe.conflicts};
+    _dd_DATA.agents=_dd4_buildAgents(_dd_DATA);
+    _dd_DATA.recurrence=(_dd_DATA.agents||[]).filter(a=>a.incidents90>=2);
+    _dd4_HISTORY90_READY=true;
+    if(['agents','recurrence'].includes(_dd4_UI.tab))_dd_render();
+  }catch(err){
+    console.warn('Deep Dive · histórico 90 días no disponible:',err);
+    if(typeof _rt_showToast==='function')_rt_showToast('El detalle de 90 días no pudo cargarse; el resto de Deep Dive sigue disponible.');
+  }finally{_dd4_HISTORY90_LOADING=false;}
+}
+function _dd4_setTab(tab){
+  if(_dd_isOperationalAccess()&&!_dd_allowedOperationalTabs().has(tab))tab='overview';
+  _dd4_UI.tab=tab;_dd_render();
+  if(['agents','recurrence'].includes(tab))_dd4_ensureHistory90();
+}
 function _dd4_setUI(key,value){_dd4_UI[key]=value;_dd_render();setTimeout(()=>{const el=document.getElementById('dd4-search');if(el&&key==='search'){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);}
 
 function _dd4_kpi(label,value,note,color='#0F172A',onclick=''){
@@ -14554,7 +14629,7 @@ window._dd_exportIncidentCSV = _dd_exportIncidentCSV;
 // ══ TICKETS HR ══════════════════════════════════════════════════════
 const _t_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _t_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
-const _t_sb = supabase.createClient(_t_SB_URL, _t_SB_KEY);
+const _t_sb = _auth_sb;
 
 let _t_TICKETS = [];
 let _t_EMPLEADOS = [];
@@ -17421,7 +17496,7 @@ async function _t_cancelarTicket(id) {
 // ══ PERMUTAS ════════════════════════════════════════════════════════
 const _p_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _p_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
-const _p_sb = supabase.createClient(_p_SB_URL, _p_SB_KEY);
+const _p_sb = _auth_sb;
 
 let _p_SWAPS = [];
 let _p_PARTIAL_SWAPS = [];
@@ -19654,7 +19729,7 @@ async function _p_cancelar(id) {
 // ══ VACACIONES ══════════════════════════════════════════════════════
 const _v_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _v_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
-const _v_sb = supabase.createClient(_v_SB_URL, _v_SB_KEY);
+const _v_sb = _auth_sb;
 
 let _v_AGENTES = [];
 let _v_SOLICITUDES = [];
@@ -20907,7 +20982,7 @@ async function _v_cancelar(id) {
 
 const _d_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _d_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
-const _d_sb = supabase.createClient(_d_SB_URL, _d_SB_KEY);
+const _d_sb = _auth_sb;
 
 let _d_CASES = [];
 let _d_MATRIX = [];
@@ -22829,7 +22904,7 @@ async function _d_cancelarCaso(id) {
 // ══ EQUIPO ═══════════════════════════════════════════════════════════
 const _e_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _e_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
-const _e_sb = supabase.createClient(_e_SB_URL, _e_SB_KEY);
+const _e_sb = _auth_sb;
 
 let _e_EMPLEADOS = [];
 let _e_cargando = false;
