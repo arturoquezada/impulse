@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.22';
+const APP_VERSION   = '1.0.23';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3750,21 +3750,36 @@ async function _a_revisarCambioDescanso(id, approve) {
     if (!confirm('¿Seguro que quieres aprobar y aplicar este cambio de descanso en Asistencia?')) return;
   }
 
-  const { error } = await _a_sb.rpc('review_day_off_override', {
-    p_request_id: id,
-    p_approve: approve,
-    p_reason: reason
-  });
+  const payload = {
+    request_id: id,
+    approve: Boolean(approve),
+    reason: reason || null
+  };
+
+  const { data, error } = await _a_sb.rpc(
+    'review_day_off_override_v2',
+    { p_payload: payload }
+  );
 
   if (error) {
-    console.error('Error completo al revisar cambio de descanso:', error);
+    console.error('[Impulse Descansos] Error review_day_off_override_v2', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      requestId: id,
+      approve
+    });
+
+    const detail = [
+      error.message,
+      error.details,
+      error.hint
+    ].filter(Boolean).join('\n\n');
 
     alert(
       'No se pudo revisar el cambio:\n\n' +
-      (error.message || 'Error desconocido') +
-      (error.details ? '\n\nDetalle: ' + error.details : '') +
-      (error.hint ? '\n\nHint: ' + error.hint : '') +
-      (error.code ? '\n\nCódigo: ' + error.code : '')
+      (detail || 'Error desconocido')
     );
 
     return;
@@ -3775,13 +3790,28 @@ async function _a_revisarCambioDescanso(id, approve) {
 
   await _a_cargarDatos();
 
-  const empId = _a_QDAYS_EMPLEADO_ID || _a_drillAgent?.id || ROLES[currentRole].id;
+  const empId =
+    data?.employee_id ||
+    _a_QDAYS_EMPLEADO_ID ||
+    _a_drillAgent?.id ||
+    ROLES[currentRole].id;
+
   if (empId) {
-    await _a_cargarQDAYS(empId, _a_dateFilter.from, _a_dateFilter.to);
+    await _a_cargarQDAYS(
+      empId,
+      _a_dateFilter.from,
+      _a_dateFilter.to
+    );
   }
 
   _a_cargando = false;
   _a_render();
+
+  if (approve) {
+    alert('Cambio de descanso aprobado y aplicado correctamente.');
+  } else {
+    alert('Cambio de descanso rechazado.');
+  }
 }
 
 
