@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.29';
+const APP_VERSION   = '1.0.30';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -22869,16 +22869,353 @@ function _d_followupBucket(t) {
   return 'people';
 }
 
+
+function _d_roleUX() {
+  if (currentRole === 'supervisor') {
+    return {
+      pageTitle: 'Acciones que requieren tu atención',
+      pageSubtitle:
+        'Revisa las incidencias de tu equipo, decide si corresponde una acción y documenta los hechos.',
+      boardTitle: 'Qué necesitas atender',
+      boardSubtitle:
+        'Cada incidencia necesita una decisión. Impulse te muestra qué pasó y te guía para resolverlo.',
+      tabLabel: 'Requieren tu atención',
+      primaryVerb: 'Revisar incidencia',
+      emptyTitle: 'No tienes incidencias por atender',
+      emptyText:
+        'Tu equipo no tiene acciones pendientes dentro de tu responsabilidad.',
+      heroIcon: '✓',
+      heroLabel: 'Tu objetivo',
+      heroText:
+        'Revisar cada incidencia dentro del plazo y dejar una decisión documentada.'
+    };
+  }
+
+  if (currentRole === 'manager') {
+    return {
+      pageTitle: 'Incidencias de mis equipos',
+      pageSubtitle:
+        'Da seguimiento a tus supervisores y prepara las regularizaciones que requieren intervención.',
+      boardTitle: 'Necesitan tu intervención',
+      boardSubtitle:
+        'Aquí aparecen los casos que el Supervisor ya no puede cerrar y que debes preparar para People.',
+      tabLabel: 'Necesitan mi intervención',
+      primaryVerb: 'Revisar y preparar',
+      emptyTitle: 'No tienes regularizaciones pendientes',
+      emptyText:
+        'No hay casos de 2 a 7 días que requieran tu intervención.',
+      heroIcon: '→',
+      heroLabel: 'Tu objetivo',
+      heroText:
+        'Validar el caso, revisar el contexto y preparar un expediente completo para People.'
+    };
+  }
+
+  if (['people', 'head_people'].includes(currentRole)) {
+    return {
+      pageTitle: 'Decisiones de People',
+      pageSubtitle:
+        'Revisa regularizaciones, excepciones críticas y acciones que requieren autorización.',
+      boardTitle: 'Casos que requieren decisión',
+      boardSubtitle:
+        'Confirma la evidencia, el nivel y la vigencia antes de emitir o cerrar cada acción.',
+      tabLabel: 'Por decidir',
+      primaryVerb: 'Tomar decisión',
+      emptyTitle: 'No hay decisiones pendientes',
+      emptyText:
+        'No existen regularizaciones, excepciones o casos escalados que requieran People.',
+      heroIcon: '⚖',
+      heroLabel: 'Tu objetivo',
+      heroText:
+        'Tomar una decisión consistente, documentada y alineada con la matriz.'
+    };
+  }
+
+  return {
+    pageTitle: 'Control de Acciones People',
+    pageSubtitle:
+      'Vista ejecutiva de incidencias, regularizaciones y cumplimiento del proceso.',
+    boardTitle: 'Seguimiento del proceso',
+    boardSubtitle:
+      'Consulta el estado y el responsable actual de cada incidencia.',
+    tabLabel: 'Seguimiento',
+    primaryVerb: 'Ver caso',
+    emptyTitle: 'Sin casos abiertos',
+    emptyText: 'No hay incidencias abiertas en esta vista.',
+    heroIcon: '◉',
+    heroLabel: 'Vista ejecutiva',
+    heroText:
+      'Consulta el avance y los puntos donde el proceso requiere atención.'
+  };
+}
+
+function _d_followupInstruction(t) {
+  const days = _d_followupDays(t);
+
+  if (currentRole === 'supervisor') {
+    if (days <= 0) {
+      return {
+        title: 'Revísala hoy',
+        text:
+          'Confirma si la incidencia es válida y decide si corresponde Acción People, corrección o cierre sin acción.',
+        tone: 'blue'
+      };
+    }
+
+    if (days === 1) {
+      return {
+        title: 'Atiéndela hoy',
+        text:
+          'La incidencia venció ayer. Todavía puedes resolverla, pero quedará registrada como tardía.',
+        tone: 'amber'
+      };
+    }
+
+    return {
+      title: 'Agrega contexto para tu Manager',
+      text:
+        'Tu ventana para emitir terminó. Explica qué ocurrió, la evidencia disponible y por qué no se atendió.',
+      tone: 'red'
+    };
+  }
+
+  if (currentRole === 'manager') {
+    if (days >= 2 && days <= 7) {
+      return {
+        title: 'Prepara la regularización',
+        text:
+          'Valida la incidencia, revisa el contexto del Supervisor y envía un expediente completo a People.',
+        tone: 'amber'
+      };
+    }
+
+    if (days > 7) {
+      return {
+        title: 'Da seguimiento con People',
+        text:
+          'La ventana del Manager terminó. Puedes consultar y aportar información, pero People debe decidir.',
+        tone: 'red'
+      };
+    }
+
+    return {
+      title: 'Monitorea al Supervisor',
+      text:
+        'La incidencia todavía pertenece al Supervisor. Verifica que la atienda dentro del plazo.',
+      tone: 'blue'
+    };
+  }
+
+  if (['people', 'head_people'].includes(currentRole)) {
+    if (days > 7) {
+      return {
+        title: 'Decide una excepción crítica',
+        text:
+          'Revisa por qué se excedió el plazo, valida la evidencia y define si procede una emisión excepcional.',
+        tone: 'red'
+      };
+    }
+
+    if (String(t?.status || '').toLowerCase() === 'people_review') {
+      return {
+        title: 'Revisa el expediente preparado',
+        text:
+          'Confirma el nivel, la evidencia y la vigencia antes de aprobar, ajustar o rechazar.',
+        tone: 'amber'
+      };
+    }
+
+    return {
+      title: 'Toma una decisión',
+      text:
+        'Revisa el caso y define la resolución correcta conforme a la matriz.',
+      tone: 'blue'
+    };
+  }
+
+  return {
+    title: 'Consulta el seguimiento',
+    text: 'Revisa el estado y la persona responsable de la siguiente acción.',
+    tone: 'blue'
+  };
+}
+
+function _d_instructionCard(t) {
+  const instruction = _d_followupInstruction(t);
+
+  const colors = {
+    blue: ['#EFF6FF', '#1D4ED8', '#BFDBFE'],
+    amber: ['#FFFBEB', '#92400E', '#FDE68A'],
+    red: ['#FEF2F2', '#991B1B', '#FECACA']
+  };
+
+  const [bg, color, border] =
+    colors[instruction.tone] || colors.blue;
+
+  return `
+    <div
+      style="
+        min-width:220px;
+        max-width:330px;
+        padding:10px 12px;
+        border-radius:10px;
+        background:${bg};
+        border:1px solid ${border};
+        color:${color};
+      "
+    >
+      <div style="font-size:12px;font-weight:900">
+        ${_d_esc(instruction.title)}
+      </div>
+      <div style="font-size:11px;line-height:1.45;margin-top:3px">
+        ${_d_esc(instruction.text)}
+      </div>
+    </div>
+  `;
+}
+
+function _d_followupProgress(t) {
+  const days = _d_followupDays(t);
+  const status = String(t?.status || '').toLowerCase();
+
+  let current = 1;
+
+  if (days >= 2 || status === 'regularization') current = 2;
+  if (status === 'people_review' || days > 7) current = 3;
+  if (status === 'case_created') current = 4;
+
+  const steps = [
+    ['Incidencia detectada', 1],
+    ['Revisión de liderazgo', 2],
+    ['Decisión de People', 3],
+    ['Acción emitida', 4]
+  ];
+
+  return `
+    <div
+      style="
+        display:grid;
+        grid-template-columns:repeat(4,minmax(100px,1fr));
+        gap:8px;
+        margin:14px 0;
+      "
+    >
+      ${steps.map(([label, number]) => {
+        const done = number < current;
+        const active = number === current;
+
+        return `
+          <div
+            style="
+              padding:9px 8px;
+              border-radius:10px;
+              border:1px solid ${
+                active ? '#93C5FD' : done ? '#BBF7D0' : '#E2E8F0'
+              };
+              background:${
+                active ? '#EFF6FF' : done ? '#F0FDF4' : '#F8FAFC'
+              };
+              text-align:center;
+            "
+          >
+            <div
+              style="
+                font-size:10px;
+                font-weight:900;
+                color:${
+                  active ? '#1D4ED8' : done ? '#15803D' : '#94A3B8'
+                };
+              "
+            >
+              ${done ? '✓' : active ? '●' : '○'} Paso ${number}
+            </div>
+            <div
+              style="
+                font-size:10px;
+                font-weight:800;
+                margin-top:3px;
+                color:#334155;
+              "
+            >
+              ${label}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function _d_modalGuidance(t) {
+  const days = _d_followupDays(t);
+
+  if (currentRole === 'supervisor') {
+    return {
+      title:
+        days <= 0
+          ? 'Revisar incidencia'
+          : 'Resolver incidencia tardía',
+      intro:
+        days <= 0
+          ? 'Confirma qué ocurrió y deja una decisión antes de terminar el día.'
+          : 'Todavía puedes resolverla, pero el retraso quedará registrado.',
+      matrixLabel: '¿Qué criterio de la matriz corresponde?',
+      factsLabel: 'Describe objetivamente qué ocurrió',
+      reasonLabel: '¿Por qué no se atendió dentro del plazo?',
+      submit:
+        days <= 0
+          ? 'Confirmar decisión'
+          : 'Emitir como tardía'
+    };
+  }
+
+  if (currentRole === 'manager') {
+    return {
+      title: 'Preparar regularización',
+      intro:
+        'Tu función es validar el caso y preparar un expediente completo. People tomará la decisión final.',
+      matrixLabel: 'Nivel y criterio que propones',
+      factsLabel: 'Hechos validados por el Manager',
+      reasonLabel: 'Motivo de la regularización fuera de tiempo',
+      submit: 'Preparar y enviar a People'
+    };
+  }
+
+  if (['people', 'head_people'].includes(currentRole)) {
+    return {
+      title:
+        days > 7
+          ? 'Resolver excepción crítica'
+          : 'Tomar decisión de People',
+      intro:
+        'Confirma la evidencia, el nivel y la vigencia antes de emitir o cerrar el expediente.',
+      matrixLabel: 'Criterio y nivel final',
+      factsLabel: 'Hechos confirmados para la resolución',
+      reasonLabel: 'Justificación de la emisión excepcional',
+      submit: 'Confirmar decisión de People'
+    };
+  }
+
+  return {
+    title: 'Revisar caso',
+    intro: 'Consulta la información del expediente.',
+    matrixLabel: 'Criterio',
+    factsLabel: 'Hechos',
+    reasonLabel: 'Motivo',
+    submit: 'Confirmar'
+  };
+}
+
 function _d_followupStatusLabel(t) {
   const bucket = _d_followupBucket(t);
 
   const labels = {
-    today: 'Pendiente de hoy',
-    late: 'Tardía · 1 día',
-    regularization: `Por regularizar · ${_d_followupDays(t)} días`,
-    people: `Revisión People · ${_d_followupDays(t)} días`,
-    resolved: 'Acción creada',
-    not_applicable: 'No aplicable',
+    today: 'Para revisar hoy',
+    late: 'Vencida · 1 día',
+    regularization: `Necesita intervención · ${_d_followupDays(t)} días`,
+    people: `Esperando decisión de People · ${_d_followupDays(t)} días`,
+    resolved: 'Acción procesada',
+    not_applicable: 'Cerrado sin acción',
     cancelled: 'Cancelada'
   };
 
@@ -22936,9 +23273,9 @@ function _d_followupOwnerLabel(t) {
 function _d_followupAccountabilityPreview(t) {
   const days = _d_followupDays(t);
 
-  if (days <= 0) return 'A tiempo';
-  if (days === 1) return 'Tardía';
-  if (days <= 7) return 'Omisión regularizable';
+  if (days <= 0) return 'Dentro del plazo';
+  if (days === 1) return 'Atención tardía';
+  if (days <= 7) return 'Requiere regularización';
   return 'Omisión crítica';
 }
 
@@ -23013,12 +23350,22 @@ function _d_followupActionLabel(t) {
   const days = _d_followupDays(t);
 
   if (currentRole === 'supervisor') {
-    return days <= 0 ? 'Revisar' : 'Emitir tarde';
+    return days <= 0
+      ? 'Revisar incidencia'
+      : 'Resolver como tardía';
   }
 
-  if (currentRole === 'manager') return 'Regularizar';
+  if (currentRole === 'manager') {
+    return 'Revisar y preparar';
+  }
 
-  return days > 7 ? 'Revisar excepción' : 'Resolver';
+  if (['people','head_people'].includes(currentRole)) {
+    return days > 7
+      ? 'Resolver excepción'
+      : 'Tomar decisión';
+  }
+
+  return 'Ver caso';
 }
 
 function _d_followupOpenCount() {
@@ -23218,83 +23565,370 @@ function _d_renderFollowupBoard() {
     return `
       <div class="card">
         <div class="alert alert-amber">
-          Esta bandeja no está disponible para tu rol.
+          Esta vista no está disponible para tu rol.
         </div>
       </div>
     `;
   }
 
+  const ux = _d_roleUX();
   const open = _d_openFollowups();
-  const today = open.filter(t => _d_followupBucket(t) === 'today').length;
-  const late = open.filter(t => _d_followupBucket(t) === 'late').length;
+
+  const today = open.filter(
+    t => _d_followupBucket(t) === 'today'
+  ).length;
+
+  const late = open.filter(
+    t => _d_followupBucket(t) === 'late'
+  ).length;
+
   const regularization = open.filter(
     t => _d_followupBucket(t) === 'regularization'
   ).length;
-  const people = open.filter(t => _d_followupBucket(t) === 'people').length;
+
+  const people = open.filter(
+    t => _d_followupBucket(t) === 'people'
+  ).length;
+
   const rows = _d_followupFilteredRows();
 
-  return `
-    <div class="kgrid kg4">
-      <div class="kbox">
-        <div class="klabel">Pendientes de hoy</div>
-        <div class="kval" style="color:#2563EB">${today}</div>
-      </div>
+  let rolePrimaryCount = open.length;
+  let rolePrimaryLabel = 'Casos abiertos';
+  let roleSecondaryCount = 0;
+  let roleSecondaryLabel = 'En seguimiento';
 
-      <div class="kbox warn">
-        <div class="klabel">Tardías</div>
-        <div class="kval">${late}</div>
-        <div class="kdelta">1 día después</div>
-      </div>
+  if (currentRole === 'supervisor') {
+    rolePrimaryCount = today + late;
+    rolePrimaryLabel = 'Necesitan tu decisión';
+    roleSecondaryCount = open.filter(
+      t => _d_followupDays(t) >= 2
+    ).length;
+    roleSecondaryLabel = 'Esperando contexto';
+  } else if (currentRole === 'manager') {
+    rolePrimaryCount = regularization;
+    rolePrimaryLabel = 'Necesitan tu intervención';
+    roleSecondaryCount = people;
+    roleSecondaryLabel = 'En revisión de People';
+  } else if (['people','head_people'].includes(currentRole)) {
+    rolePrimaryCount = people;
+    rolePrimaryLabel = 'Necesitan decisión';
+    roleSecondaryCount = regularization;
+    roleSecondaryLabel = 'Preparadas por Manager';
+  }
 
-      <div class="kbox" style="border-color:#FED7AA">
-        <div class="klabel">Por regularizar</div>
-        <div class="kval" style="color:#C2410C">${regularization}</div>
-        <div class="kdelta">Manager · 2 a 7 días</div>
-      </div>
+  const filterOptions = currentRole === 'supervisor'
+    ? [
+        ['open', `Todas abiertas (${open.length})`],
+        ['today', `Para revisar hoy (${today})`],
+        ['late', `Vencidas (${late})`],
+        ['regularization', 'Esperando al Manager'],
+        ['resolved', 'Ya atendidas']
+      ]
+    : currentRole === 'manager'
+      ? [
+          ['regularization', `Necesitan mi intervención (${regularization})`],
+          ['open', `Todo mi alcance (${open.length})`],
+          ['today', `Con Supervisor (${today})`],
+          ['late', `Vencidas con Supervisor (${late})`],
+          ['people', `En People (${people})`],
+          ['resolved', 'Resueltas']
+        ]
+      : [
+          ['people', `Por decidir (${people})`],
+          ['regularization', `Preparación Manager (${regularization})`],
+          ['open', `Todas abiertas (${open.length})`],
+          ['resolved', 'Resueltas']
+        ];
 
-      <div class="kbox danger">
-        <div class="klabel">Revisión People</div>
-        <div class="kval">${people}</div>
-        <div class="kdelta">Más de 7 días / escaladas</div>
-      </div>
-    </div>
+  const columnHeader = currentRole === 'supervisor'
+    ? `
+      <th>Colaborador e incidencia</th>
+      <th>Fecha y plazo</th>
+      <th>Qué debes hacer</th>
+      <th>Estado</th>
+      <th>Acción</th>
+    `
+    : currentRole === 'manager'
+      ? `
+        <th>Colaborador e incidencia</th>
+        <th>Supervisor responsable</th>
+        <th>Contexto recibido</th>
+        <th>Qué debes hacer</th>
+        <th>Estado</th>
+        <th>Acción</th>
+      `
+      : `
+        <th>Colaborador e incidencia</th>
+        <th>Responsables del proceso</th>
+        <th>Antigüedad</th>
+        <th>Qué debes decidir</th>
+        <th>Estado</th>
+        <th>Acción</th>
+      `;
 
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
-        <div>
-          <div class="card-title" style="margin-bottom:4px">
-            Bandeja de incidencias y omisiones
+  const rowHTML = rows.map(t => {
+    const incident = `
+      <div class="agent-row-name">
+        ${_d_esc(t.employee_name || t.employee_id)}
+      </div>
+      <div class="agent-row-id">
+        ${_d_esc(t.employee_id)} ·
+        ${_d_esc(t.campaign_id || 'Sin campaña')}
+      </div>
+      <div
+        style="
+          font-size:12px;
+          font-weight:800;
+          color:#0F172A;
+          margin-top:7px
+        "
+      >
+        ${_d_esc(_d_followupIncidentLabel(t))}
+      </div>
+    `;
+
+    if (currentRole === 'supervisor') {
+      return `
+        <tr>
+          <td>${incident}</td>
+
+          <td>
+            <div style="font-family:'DM Mono',monospace;font-weight:800">
+              ${fmtDateShort(t.incident_date)}
+            </div>
+            <div style="font-size:11px;color:#64748B;margin-top:5px">
+              ${
+                _d_followupDays(t) === 0
+                  ? 'Debes decidir hoy'
+                  : `${_d_followupDays(t)} día(s) desde la incidencia`
+              }
+            </div>
+          </td>
+
+          <td>${_d_instructionCard(t)}</td>
+          <td>${_d_followupStatusBadge(t)}</td>
+          <td>${_d_renderFollowupActions(t)}</td>
+        </tr>
+      `;
+    }
+
+    if (currentRole === 'manager') {
+      return `
+        <tr>
+          <td>${incident}</td>
+
+          <td>
+            <div class="agent-row-name">
+              ${_d_esc(
+                t.supervisor_name ||
+                t.supervisor_id ||
+                'Sin supervisor'
+              )}
+            </div>
+            <div class="agent-row-id">
+              ${_d_esc(t.supervisor_id || '—')}
+            </div>
+          </td>
+
+          <td style="max-width:300px;white-space:normal">
+            ${
+              t.supervisor_context
+                ? `
+                  <div style="font-size:12px;color:#334155;line-height:1.5">
+                    ${_d_esc(t.supervisor_context)}
+                  </div>
+                `
+                : `
+                  <span style="font-size:11px;color:#94A3B8">
+                    El Supervisor todavía no ha agregado contexto.
+                  </span>
+                `
+            }
+          </td>
+
+          <td>${_d_instructionCard(t)}</td>
+          <td>${_d_followupStatusBadge(t)}</td>
+          <td>${_d_renderFollowupActions(t)}</td>
+        </tr>
+      `;
+    }
+
+    return `
+      <tr>
+        <td>${incident}</td>
+
+        <td>
+          <div style="font-size:12px;font-weight:800;color:#0F172A">
+            Supervisor:
+            ${_d_esc(
+              t.supervisor_name ||
+              t.supervisor_id ||
+              '—'
+            )}
           </div>
-          <div style="font-size:12px;color:#64748B;max-width:760px;line-height:1.55">
-            ${_d_followupRoleExplanation()}
+          <div style="font-size:11px;color:#64748B;margin-top:4px">
+            Manager:
+            ${_d_esc(
+              t.manager_name ||
+              t.manager_id ||
+              '—'
+            )}
+          </div>
+        </td>
+
+        <td>
+          <div style="font-size:18px;font-weight:900;color:#991B1B">
+            ${_d_followupDays(t)} días
+          </div>
+          <div style="font-size:11px;color:#64748B;margin-top:3px">
+            Desde ${fmtDateShort(t.incident_date)}
+          </div>
+        </td>
+
+        <td>${_d_instructionCard(t)}</td>
+        <td>${_d_followupStatusBadge(t)}</td>
+        <td>${_d_renderFollowupActions(t)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div
+      class="card"
+      style="
+        background:linear-gradient(135deg,#0F172A,#1E3A5F);
+        color:white;
+        border:none;
+        overflow:hidden;
+      "
+    >
+      <div
+        style="
+          display:flex;
+          justify-content:space-between;
+          gap:18px;
+          align-items:center;
+          flex-wrap:wrap;
+        "
+      >
+        <div style="display:flex;gap:14px;align-items:center">
+          <div
+            style="
+              width:48px;
+              height:48px;
+              border-radius:14px;
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              background:rgba(255,255,255,.13);
+              font-size:23px;
+              font-weight:900;
+            "
+          >
+            ${ux.heroIcon}
+          </div>
+
+          <div>
+            <div
+              style="
+                font-size:11px;
+                font-weight:900;
+                letter-spacing:.8px;
+                text-transform:uppercase;
+                color:#BAE6FD;
+              "
+            >
+              ${ux.heroLabel}
+            </div>
+            <div
+              style="
+                font-size:15px;
+                font-weight:800;
+                line-height:1.45;
+                margin-top:3px;
+                max-width:720px;
+              "
+            >
+              ${ux.heroText}
+            </div>
           </div>
         </div>
 
         <button
           class="btn-ghost"
+          style="
+            background:rgba(255,255,255,.12);
+            border-color:rgba(255,255,255,.24);
+            color:white;
+          "
           onclick="_d_reloadFollowups()"
         >
-          ↻ Actualizar
+          ↻ Actualizar información
         </button>
       </div>
+    </div>
 
-      <div class="alert alert-blue" style="margin-top:14px">
-        Impulse detecta y recuerda la incidencia, pero no crea la sanción
-        por sí solo. El owner debe revisar, seleccionar la matriz y
-        documentar los hechos.
+    <div class="kgrid kg4">
+      <div class="kbox">
+        <div class="klabel">${rolePrimaryLabel}</div>
+        <div class="kval" style="color:#2563EB">
+          ${rolePrimaryCount}
+        </div>
+        <div class="kdelta">Tu prioridad actual</div>
+      </div>
+
+      <div class="kbox warn">
+        <div class="klabel">${roleSecondaryLabel}</div>
+        <div class="kval">${roleSecondaryCount}</div>
+        <div class="kdelta">Seguimiento del proceso</div>
+      </div>
+
+      <div class="kbox" style="border-color:#FDE68A">
+        <div class="klabel">Vencidas</div>
+        <div class="kval" style="color:#92400E">${late}</div>
+        <div class="kdelta">Un día después</div>
+      </div>
+
+      <div class="kbox danger">
+        <div class="klabel">Casos críticos</div>
+        <div class="kval">${people}</div>
+        <div class="kdelta">Revisión o decisión de People</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div
+        style="
+          display:flex;
+          justify-content:space-between;
+          gap:12px;
+          align-items:flex-start;
+          flex-wrap:wrap;
+        "
+      >
+        <div>
+          <div class="card-title" style="margin-bottom:4px">
+            ${ux.boardTitle}
+          </div>
+          <div
+            style="
+              font-size:12px;
+              color:#64748B;
+              max-width:780px;
+              line-height:1.55;
+            "
+          >
+            ${ux.boardSubtitle}
+          </div>
+        </div>
       </div>
 
       <div class="date-filter-bar">
-        ${[
-          ['open', `Abiertas (${open.length})`],
-          ['today', `Hoy (${today})`],
-          ['late', `Tardías (${late})`],
-          ['regularization', `Regularizar (${regularization})`],
-          ['people', `People (${people})`],
-          ['resolved', 'Resueltas']
-        ].map(([value, label]) => `
+        ${filterOptions.map(([value, label]) => `
           <button
-            class="df-preset ${_d_followupFilter === value ? 'active' : ''}"
+            class="df-preset ${
+              _d_followupFilter === value ? 'active' : ''
+            }"
             onclick="_d_setFollowupFilter('${value}')"
           >
             ${label}
@@ -23304,99 +23938,54 @@ function _d_renderFollowupBoard() {
 
       <div class="tbl-wrap">
         <div style="overflow-x:auto">
-          <table style="min-width:1280px">
+          <table
+            style="
+              min-width:${
+                currentRole === 'supervisor'
+                  ? '1040px'
+                  : '1260px'
+              }
+            "
+          >
             <thead>
-              <tr>
-                <th>Colaborador</th>
-                <th>Incidencia</th>
-                <th>Fecha</th>
-                <th>Supervisor responsable</th>
-                <th>Owner actual</th>
-                <th>Accountability</th>
-                <th>Estado</th>
-                <th>Contexto</th>
-                <th>Acción</th>
-              </tr>
+              <tr>${columnHeader}</tr>
             </thead>
 
             <tbody>
-              ${rows.length ? rows.map(t => `
-                <tr>
-                  <td>
-                    <div class="agent-row-name">
-                      ${_d_esc(t.employee_name || t.employee_id)}
-                    </div>
-                    <div class="agent-row-id">
-                      ${_d_esc(t.employee_id)} ·
-                      ${_d_esc(t.campaign_id || 'Sin campaña')}
-                    </div>
-                  </td>
-
-                  <td>
-                    <div style="font-weight:800;color:#0F172A">
-                      ${_d_esc(_d_followupIncidentLabel(t))}
-                    </div>
-                    <div style="font-size:11px;color:#64748B;margin-top:3px">
-                      ${_d_esc(t.attendance_status || '')}
-                    </div>
-                  </td>
-
-                  <td style="font-family:'DM Mono',monospace">
-                    ${fmtDateShort(t.incident_date)}
-                  </td>
-
-                  <td>
-                    <div class="agent-row-name">
-                      ${_d_esc(
-                        t.supervisor_name ||
-                        t.supervisor_id ||
-                        'Sin supervisor'
-                      )}
-                    </div>
-                    <div class="agent-row-id">
-                      ${_d_esc(t.supervisor_id || '—')}
-                    </div>
-                  </td>
-
-                  <td>
-                    <div style="font-weight:700;color:#0F172A">
-                      ${_d_esc(_d_followupOwnerLabel(t))}
-                    </div>
-                    <div style="font-size:11px;color:#64748B">
-                      ${_d_esc(t.current_owner_role || 'people')}
-                    </div>
-                  </td>
-
-                  <td>
-                    <div style="font-weight:800">
-                      ${_d_esc(_d_followupAccountabilityPreview(t))}
-                    </div>
-                    <div style="font-size:11px;color:#64748B;margin-top:3px">
-                      ${_d_followupDays(t) === 0
-                        ? 'Vence hoy'
-                        : `${_d_followupDays(t)} día(s) desde la incidencia`
-                      }
-                    </div>
-                  </td>
-
-                  <td>${_d_followupStatusBadge(t)}</td>
-
-                  <td style="max-width:280px;white-space:normal">
-                    ${t.supervisor_context
-                      ? `<div style="font-size:12px;color:#334155;line-height:1.45">${_d_esc(t.supervisor_context)}</div>`
-                      : '<span style="font-size:11px;color:#94A3B8">Sin contexto adicional</span>'
-                    }
-                  </td>
-
-                  <td>${_d_renderFollowupActions(t)}</td>
-                </tr>
-              `).join('') : `
-                <tr>
-                  <td colspan="9" style="text-align:center;color:#94A3B8;padding:28px">
-                    No hay casos en esta vista.
-                  </td>
-                </tr>
-              `}
+              ${
+                rows.length
+                  ? rowHTML
+                  : `
+                    <tr>
+                      <td
+                        colspan="6"
+                        style="
+                          text-align:center;
+                          padding:42px 20px;
+                        "
+                      >
+                        <div
+                          style="
+                            font-size:16px;
+                            font-weight:900;
+                            color:#0F172A;
+                          "
+                        >
+                          ${ux.emptyTitle}
+                        </div>
+                        <div
+                          style="
+                            font-size:12px;
+                            color:#64748B;
+                            margin-top:6px;
+                          "
+                        >
+                          ${ux.emptyText}
+                        </div>
+                      </td>
+                    </tr>
+                  `
+              }
             </tbody>
           </table>
         </div>
@@ -23467,23 +24056,27 @@ function _d_openFollowupCase(id) {
     return;
   }
 
-  const title = days <= 0
-    ? 'Revisar incidencia de hoy'
-    : days === 1
-      ? 'Emitir Acción People tardía'
-      : days <= 7
-        ? 'Regularizar Acción People'
-        : 'Revisión excepcional de People';
+  const guidance = _d_modalGuidance(t);
 
-  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalTitle').textContent =
+    guidance.title;
   document.getElementById('modalSub').textContent =
     `${t.employee_name || t.employee_id} · ` +
     `${fmtDateShort(t.incident_date)} · ` +
     _d_followupIncidentLabel(t);
 
   document.getElementById('modalBody').innerHTML = `
+    <div
+      class="alert alert-blue"
+      style="font-size:12px;line-height:1.55"
+    >
+      <b>${_d_esc(guidance.intro)}</b>
+    </div>
+
+    ${_d_followupProgress(t)}
+
     <div class="modal-section">
-      <div class="ms-title">Incidencia detectada</div>
+      <div class="ms-title">1. Confirma la incidencia</div>
 
       <div class="kv">
         <span class="k">Colaborador</span>
@@ -23522,14 +24115,14 @@ function _d_openFollowupCase(id) {
     </div>
 
     <div class="form-row">
-      <label>Criterio de matriz</label>
+      <label>2. ${_d_esc(guidance.matrixLabel)}</label>
       <select id="d-followup-matrix">
         ${options}
       </select>
     </div>
 
     <div class="form-row">
-      <label>Descripción objetiva de los hechos</label>
+      <label>3. ${_d_esc(guidance.factsLabel)}</label>
       <textarea id="d-followup-facts" rows="5">${_d_esc(
         t.facts_suggestion ||
         `El colaborador presentó ${_d_followupIncidentLabel(t).toLowerCase()} el ${t.incident_date}.`
@@ -23537,7 +24130,7 @@ function _d_openFollowupCase(id) {
     </div>
 
     <div class="form-row">
-      <label>Evidencia / link (opcional)</label>
+      <label>Evidencia que respalda la decisión (opcional)</label>
       <input
         type="url"
         id="d-followup-evidence"
@@ -23548,7 +24141,7 @@ function _d_openFollowupCase(id) {
     ${days > 0 ? `
       <div class="form-row">
         <label>
-          Motivo de la emisión fuera de tiempo
+          4. ${_d_esc(guidance.reasonLabel)}
           <span style="color:#EF4444">*</span>
         </label>
         <textarea
@@ -23567,7 +24160,7 @@ function _d_openFollowupCase(id) {
       id="d-followup-create-btn"
       onclick="_d_resolveFollowupCase('${_d_esc(t.id)}')"
     >
-      ${days <= 0 ? 'Emitir / enviar a revisión' : 'Confirmar regularización'}
+      ${_d_esc(guidance.submit)}
     </button>
   `;
 
@@ -23700,13 +24293,20 @@ async function _d_resolveFollowupCase(id) {
 
   if (data?.case_status === 'pending_review') {
     alert(
-      'Caso creado y enviado a revisión de People. ' +
-      'El retraso quedó registrado.'
+      currentRole === 'manager'
+        ? 'Expediente preparado y enviado a People.\n\n' +
+          'People tomará la decisión final. El retraso y el Supervisor ' +
+          'responsable quedaron registrados.'
+        : 'Caso enviado a revisión de People.\n\n' +
+          'La acción todavía no está emitida.'
     );
   } else {
     alert(
-      'Acción People emitida correctamente. ' +
-      'El accountability conserva la fecha y los días de retraso.'
+      currentRole === 'supervisor'
+        ? 'Decisión registrada correctamente.\n\n' +
+          'La incidencia quedó atendida y conservará su fecha real.'
+        : 'Decisión de People registrada correctamente.\n\n' +
+          'La acción conservará la fecha real de emisión y su trazabilidad.'
     );
   }
 }
@@ -23930,24 +24530,45 @@ async function _d_submitFollowupSimple(id, action, fieldId) {
 
 function _d_tabsDisponibles() {
   const tabs = [];
+  const ux = _d_roleUX();
 
   if (_d_canViewFollowups()) {
     const openCount = _d_followupOpenCount();
+
     tabs.push([
       'bandeja',
-      openCount ? `Bandeja (${openCount})` : 'Bandeja'
+      openCount
+        ? `${ux.tabLabel} (${openCount})`
+        : ux.tabLabel
     ]);
   }
 
   if (_d_canCreateCase()) {
-    tabs.push(['nuevo', 'Nuevo caso']);
+    tabs.push([
+      'nuevo',
+      currentRole === 'supervisor'
+        ? 'Registrar otro caso'
+        : 'Nuevo caso'
+    ]);
   }
 
   if (_d_canReviewCases()) {
-    tabs.push(['pendientes', 'Pendientes']);
+    tabs.push([
+      'pendientes',
+      ['people','head_people'].includes(currentRole)
+        ? 'Aprobaciones'
+        : 'En revisión'
+    ]);
   }
 
-  tabs.push(['historial', currentRole === 'agent' ? 'Mis acciones' : 'Historial']);
+  tabs.push([
+    'historial',
+    currentRole === 'agent'
+      ? 'Mis acciones'
+      : ['people','head_people'].includes(currentRole)
+        ? 'Todas las acciones'
+        : 'Historial'
+  ]);
 
   if (_d_canViewMatrix()) {
     tabs.push(['matriz', 'Matriz']);
@@ -25075,14 +25696,60 @@ function _d_render() {
     body = _d_renderHistorial();
   }
 
+  const ux = _d_roleUX();
+
   c.innerHTML = `
     ${roleSwitcher()}
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+    <div
+      style="
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-start;
+        gap:12px;
+        flex-wrap:wrap;
+        margin-bottom:14px
+      "
+    >
       <div>
-        <div style="font-size:22px;font-weight:900;letter-spacing:-.4px;color:#0F172A">Acciones People</div>
-        <div style="font-size:12px;color:#64748B;margin-top:3px">Gestión de acciones, incidencias pendientes, regularizaciones, accountability y acuse.</div>
+        <div
+          style="
+            font-size:22px;
+            font-weight:900;
+            letter-spacing:-.4px;
+            color:#0F172A
+          "
+        >
+          ${ux.pageTitle}
+        </div>
+        <div
+          style="
+            font-size:12px;
+            color:#64748B;
+            margin-top:4px;
+            max-width:760px;
+            line-height:1.5
+          "
+        >
+          ${ux.pageSubtitle}
+        </div>
       </div>
-      ${_d_canCreateCase() ? `<button class="btn-primary" onclick="_d_setVista('nuevo')">+ Nuevo caso</button>` : ''}
+
+      ${
+        _d_canCreateCase()
+          ? `
+            <button
+              class="btn-primary"
+              onclick="_d_setVista('nuevo')"
+            >
+              + ${
+                currentRole === 'supervisor'
+                  ? 'Registrar caso'
+                  : 'Nuevo caso'
+              }
+            </button>
+          `
+          : ''
+      }
     </div>
     ${_d_tabs()}
     ${body}
@@ -27108,6 +27775,14 @@ window['_init_disciplinario']=function(){
     _d_vista = currentRole === 'agent'
       ? 'historial'
       : 'bandeja';
+
+    if (currentRole === 'manager') {
+      _d_followupFilter = 'regularization';
+    } else if (['people','head_people'].includes(currentRole)) {
+      _d_followupFilter = 'people';
+    } else {
+      _d_followupFilter = 'open';
+    }
 
     _d_followupInitialized = true;
   }
