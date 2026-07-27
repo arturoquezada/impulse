@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.25';
+const APP_VERSION   = '1.0.26';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3070,6 +3070,8 @@ function _a_fmtHoraCorta(h) {
 function _a_horarioDiaTxt(d) {
   if (!d) return '—';
 
+  if (d.no_evaluable) return 'No evaluable';
+
   if (d.esVacacion) return 'Vacaciones';
 
   if (d.esDescanso && !d.horario_es_permuta) {
@@ -3823,7 +3825,7 @@ async function _a_cargarQDAYS(empId, from, to) {
   const [empRes, summaryRes, notesRes, excepRes, vacRes, punchCorrectionRes] = await Promise.all([
     _a_sb
       .from('employees')
-      .select('days_off, shift_start, shift_end')
+      .select('days_off, shift_start, shift_end, hire_date')
       .eq('id', empId)
       .maybeSingle(),
 
@@ -3874,12 +3876,92 @@ async function _a_cargarQDAYS(empId, from, to) {
   const vacaciones = vacRes.data || [];
   const punchCorrections = punchCorrectionRes.data || [];
 
+  /*
+   * Periodo evaluable de Asistencia:
+   * - La fuente confiable comienza el 15-jun-2026.
+   * - Para cada persona, nunca se evalúan días previos a hire_date.
+   */
+  const attendanceDataStart = '2026-06-15';
+  const employeeHireDate = String(
+    empRes.data?.hire_date || ''
+  ).slice(0, 10);
+
+  const evaluableFrom = [
+    attendanceDataStart,
+    /^\d{4}-\d{2}-\d{2}$/.test(employeeHireDate)
+      ? employeeHireDate
+      : null
+  ].filter(Boolean).sort().pop();
+
   const dias = [];
   let cur = new Date(from + 'T12:00:00');
   const end = new Date(to + 'T12:00:00');
 
   while (cur <= end) {
     const fecha = ymd(cur);
+
+    if (fecha < evaluableFrom) {
+      const reason = fecha < attendanceDataStart
+        ? 'Sin fuente confiable de asistencia antes del 15 de junio de 2026'
+        : `Fecha anterior al ingreso del colaborador (${employeeHireDate})`;
+
+      dias.push({
+        fecha,
+        no_evaluable: true,
+        evaluable_from: evaluableFrom,
+        evaluation_reason: reason,
+
+        horario_inicio: null,
+        horario_fin: null,
+        horario_es_permuta: false,
+        shift_start_override: null,
+        shift_end_override: null,
+
+        weekend: false,
+        esDescanso: false,
+        esVacacion: false,
+        vacation_request_id: null,
+
+        tiempoExtraMin: 0,
+        entrada_at: null,
+        salida_at: null,
+        segundos_trabajados: 0,
+        segundos_tarde: 0,
+        minutes_late: 0,
+        tolerance_minutes: 0,
+        no_show_minutes: 0,
+
+        attendance_status: 'not_evaluable',
+        is_late: false,
+        is_within_tolerance: false,
+        counts_for_discipline: false,
+        policy_id: null,
+        policy_name: 'No evaluable',
+
+        es_retardo: false,
+        estatus: 'No evaluable',
+        tipo_falta: null,
+        estado_falta: null,
+
+        motivo_falta: reason,
+        motivo_retardo: null,
+        retardo_justificacion_status: null,
+        retardo_justificacion_id: null,
+        retardo_justificacion_notes: null,
+
+        time_in_for_calculation: null,
+        early_arrival_minutes: 0,
+        early_grace_minutes: 0,
+        approved_ot_minutes: 0,
+        pre_shift_ot_minutes: 0,
+        unapproved_early_minutes: 0,
+        punch_corrected: false,
+        punch_correction_reason: null
+      });
+
+      cur.setDate(cur.getDate() + 1);
+      continue;
+    }
 
     const s = summary.find(x => x.punch_date === fecha);
     const n = notesData.find(x => x.punch_date === fecha);
@@ -7927,6 +8009,18 @@ function _a_esRetardoDia(d, agenteCtx = _a_agenteContextoQDAYS()) {
 }
 
 function _a_statusBadge(d) {
+  if (d?.no_evaluable) {
+    return `
+      <span
+        class="pill"
+        style="background:#F1F5F9;color:#475569;border:1px solid #CBD5E1"
+        title="${_d_esc(d.evaluation_reason || 'Fecha fuera del periodo evaluable')}"
+      >
+        <span class="dot"></span>No evaluable
+      </span>
+    `;
+  }
+
   const tipo = String(d.tipo_falta || '').trim().toLowerCase();
   const estado = String(d.estado_falta || '').trim().toLowerCase();
 
@@ -8115,8 +8209,10 @@ function _a_quincenaTable(){
   const todos = _a_filteredDays();
   const agenteCtx = _a_agenteContextoQDAYS();
 
-  // KPIs: excluir descansos y vacaciones
-  const validos = todos.filter(d => !d.esDescanso && !d.esVacacion);
+  // KPIs: excluir descansos, vacaciones y fechas no evaluables.
+  const validos = todos.filter(
+    d => !d.esDescanso && !d.esVacacion && !d.no_evaluable
+  );
 
   const tw = validos.reduce((s,d) => s + (d.segundos_trabajados || 0), 0);
   const tl = validos.reduce((s,d) => s + (d.segundos_tarde || 0), 0);
@@ -8141,7 +8237,15 @@ function _a_quincenaTable(){
     const statusDia = _a_statusDiaConTolerancia(d, agenteCtx);
     const lateMin = _a_lateMinDia(d);
 
-    rows += `<tr onclick="_a_openDayModal(${_a_QDAYS.filter(x=>!x.weekend).indexOf(d)})" style="cursor:pointer">
+    const rowIndex = _a_QDAYS
+      .filter(x => !x.weekend)
+      .indexOf(d);
+
+    const rowInteraction = d.no_evaluable
+      ? 'style="cursor:default;background:#F8FAFC"'
+      : `onclick="_a_openDayModal(${rowIndex})" style="cursor:pointer"`;
+
+    rows += `<tr ${rowInteraction}>
   <td>${fmtDate(d.fecha)}</td>
 
   <td style="font-family:'DM Mono',monospace;color:${d.horario_es_permuta ? '#0E7490' : '#334155'};font-weight:${d.horario_es_permuta ? '800' : '600'}">
@@ -14544,12 +14648,32 @@ function _dd4_buildOperationalIncidents(
   const usedActions=new Set();
 
   const incidentRows=(rows||[])
-    .filter(r=>[
-      'falta_injustificada',
-      'retardo',
-      'sin_entrada',
-      'sin_salida'
-    ].includes(_dd_norm(r.audit_status)))
+    .filter(r=>{
+      if(![
+        'falta_injustificada',
+        'retardo',
+        'sin_entrada',
+        'sin_salida'
+      ].includes(_dd_norm(r.audit_status))){
+        return false;
+      }
+
+      const employeeId=String(r.employee_id||'')
+        .trim()
+        .toUpperCase();
+
+      const employee=employeeMap.get(employeeId)||{};
+      const hireDate=String(employee.hire_date||'').slice(0,10);
+
+      const evaluableFrom=[
+        '2026-06-15',
+        /^\d{4}-\d{2}-\d{2}$/.test(hireDate)
+          ? hireDate
+          : null
+      ].filter(Boolean).sort().pop();
+
+      return String(r.work_date||'').slice(0,10) >= evaluableFrom;
+    })
     .slice()
     .sort((a,b)=>
       String(a.work_date||'').localeCompare(String(b.work_date||'')) ||
