@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.28';
+const APP_VERSION   = '1.0.29';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -4240,6 +4240,33 @@ async function _a_cargarDatos(options = {}) {
       return e?.system_role === 'agent' || (!e?.system_role && e?.supervisor_id);
     };
 
+    const _a_descendantIds = (employees, leaderId) => {
+      const result = new Set();
+      let frontier = [String(leaderId || '')].filter(Boolean);
+
+      while (frontier.length) {
+        const parents = new Set(frontier);
+        const next = [];
+
+        (employees || []).forEach(emp => {
+          const supervisorId = String(emp?.supervisor_id || '');
+
+          if (
+            supervisorId &&
+            parents.has(supervisorId) &&
+            !result.has(String(emp.id))
+          ) {
+            result.add(String(emp.id));
+            next.push(String(emp.id));
+          }
+        });
+
+        frontier = next;
+      }
+
+      return result;
+    };
+
     const _a_isPermutaTrabajoLocal = (tipo) => {
       return typeof _a_esPermutaTrabajo === 'function'
         ? _a_esPermutaTrabajo(tipo)
@@ -4637,9 +4664,27 @@ async function _a_cargarDatos(options = {}) {
       const { data: emps, error: empsErr } = await empQuery;
       if (empsErr) throw empsErr;
 
+      const rawEmployees = emps || [];
+
+      let scopedEmployees = rawEmployees;
+
+      if (currentRole === 'manager') {
+        const descendantIds = _a_descendantIds(
+          rawEmployees,
+          ro.id
+        );
+
+        scopedEmployees = rawEmployees.filter(e =>
+          descendantIds.has(String(e.id))
+        );
+      }
+
       const empList = currentRole === 'supervisor'
-        ? (emps || []).filter(e => _a_isAgentLike(e))
-        : (emps || []).filter(e => e.supervisor_id !== null && _a_isAgentLike(e));
+        ? scopedEmployees.filter(e => _a_isAgentLike(e))
+        : scopedEmployees.filter(e =>
+            e.supervisor_id !== null &&
+            _a_isAgentLike(e)
+          );
 
       const empIds = empList.map(e => e.id);
 
@@ -4663,7 +4708,17 @@ async function _a_cargarDatos(options = {}) {
 
       if (allErr) throw allErr;
 
-      const allEmployees = allEmps || [];
+      const rawAllEmployees = allEmps || [];
+
+      const allEmployees = currentRole === 'manager'
+        ? rawAllEmployees.filter(e =>
+            _a_descendantIds(
+              rawAllEmployees,
+              ro.id
+            ).has(String(e.id))
+          )
+        : rawAllEmployees;
+
       const allIds = allEmployees.map(e => e.id);
 
       const [todayAll, exceptionsAll, vacationsAll] = await Promise.all([
@@ -4755,12 +4810,12 @@ async function _a_cargarDatos(options = {}) {
         };
       });
 
-      // Supervisores con asistencia de hoy
-      const PUESTOS_SUP = ['Operations Supervisor', 'Trainer'];
-
+      // Supervisores con asistencia de hoy.
+      // No depender del nombre del puesto: el rol del sistema es la fuente.
       const sups = allEmployees.filter(e =>
-        e.system_role === 'supervisor' &&
-        PUESTOS_SUP.includes(e.position_title)
+        String(e.system_role || '')
+          .trim()
+          .toLowerCase() === 'supervisor'
       );
 
       _a_SUPS_REAL = sups.map(e => {
@@ -7980,7 +8035,9 @@ function _a_toleranciaLabel(a = {}) {
 
 function _a_agenteContextoQDAYS() {
   return _a_TEAM.find(x => x.id === _a_QDAYS_EMPLEADO_ID)
+    || _a_SUPS_REAL.find(x => x.id === _a_QDAYS_EMPLEADO_ID)
     || _a_TEAM.find(x => x.id === ROLES[currentRole]?.id)
+    || _a_SUPS_REAL.find(x => x.id === ROLES[currentRole]?.id)
     || {
       id: _a_QDAYS_EMPLEADO_ID || ROLES[currentRole]?.id,
       camp: ROLES[currentRole]?.camp || '',
@@ -8774,19 +8831,44 @@ let _a_CAMP_DATA=[];
 // ─────────────────────────────────────────────
 // VISTA PEOPLE
 // ─────────────────────────────────────────────
+function _a_managerScopeIdsForUI(managerId) {
+  const all = _a_TEAM_ALL || [];
+  const result = new Set();
+  let frontier = [String(managerId || '')].filter(Boolean);
+
+  while (frontier.length) {
+    const parents = new Set(frontier);
+    const next = [];
+
+    all.forEach(emp => {
+      const supervisorId = String(emp?.supervisor_id || '');
+      const employeeId = String(emp?.id || '');
+
+      if (
+        employeeId &&
+        supervisorId &&
+        parents.has(supervisorId) &&
+        !result.has(employeeId)
+      ) {
+        result.add(employeeId);
+        next.push(employeeId);
+      }
+    });
+
+    frontier = next;
+  }
+
+  return result;
+}
+
 function _a_renderManager(){
-  const ro = ROLES[currentRole];
-  // Supervisores cuyos reportes directos incluyen al manager actual,
-  // O que tienen al manager como supervisor directo en la BD.
-  // Usamos _a_SUPS_REAL que sí se construye para todos los roles.
-  // Para manager: sus supervisores son los que tienen supervisor_id = ro.id
-  // O los que están en su equipo según allEmps (usamos _a_TEAM_ALL como fallback)
-  const misSupsIds = (_a_TEAM_ALL||[])
-    .filter(e => e.supervisor_id === ro.id && e.system_role === 'supervisor')
-    .map(e => e.id);
-  const misSups = misSupsIds.length > 0
-    ? _a_SUPS_REAL.filter(s => misSupsIds.includes(s.id))
-    : _a_SUPS_REAL; // fallback: muestra todos si no encuentra directos
+  const ro = ROLES[currentRole] || {};
+  const scopeIds = _a_managerScopeIdsForUI(ro.id);
+
+  const misSups = _a_SUPS_REAL.filter(s =>
+    scopeIds.has(String(s.id))
+  );
+
   return _a_renderPeople(misSups);
 }
 
@@ -8806,7 +8888,35 @@ function _a_renderPeople(supsOverride) {
   sups.forEach(s=>{
     const pct=Math.round((s.onTime/s.agents)*100);
     supRows+=`<tr onclick="_a_drillToSup('${s.id}')">
-      <td><div class="agent-row-name">${s.name}</div><div class="agent-row-id">${s.id}</div></td>
+      <td>
+        <div class="agent-row-name">${s.name}</div>
+        <div class="agent-row-id">${s.id}</div>
+
+        <div
+          style="
+            display:flex;
+            gap:6px;
+            flex-wrap:wrap;
+            margin-top:7px
+          "
+        >
+          <button
+            class="btn-ghost"
+            style="padding:5px 8px;font-size:10px"
+            onclick="event.stopPropagation();_a_drillToEmployee('${s.id}')"
+          >
+            Ver asistencia
+          </button>
+
+          <button
+            class="btn-ghost"
+            style="padding:5px 8px;font-size:10px"
+            onclick="event.stopPropagation();_a_drillToSup('${s.id}')"
+          >
+            Ver equipo
+          </button>
+        </div>
+      </td>
       <td><span class="pill pill-gray">${s.camp}</span></td>
       <td style="font-family:'DM Mono',monospace">${s.agents}</td>
       <td style="font-family:'DM Mono',monospace;color:#16A34A">${s.onTime}</td>
@@ -9783,7 +9893,59 @@ function _a_renderHeadPeople(){
 // DRILL — agente desde supervisor
 // ─────────────────────────────────────────────
 function _a_renderAgentDetail(agentId){
-  const a = _a_TEAM.find(x => x.id === agentId) || _a_TEAM[0];
+  const employeeRaw = (_a_TEAM_ALL || []).find(
+    e => String(e.id) === String(agentId)
+  );
+
+  const supervisorRow = _a_SUPS_REAL.find(
+    s => String(s.id) === String(agentId)
+  );
+
+  const teamRow = _a_TEAM.find(
+    x => String(x.id) === String(agentId)
+  );
+
+  const a = teamRow || supervisorRow || (
+    employeeRaw
+      ? {
+          id: employeeRaw.id,
+          name: employeeRaw.full_name || employeeRaw.id,
+          camp: employeeRaw.campaign_id || '—',
+          campaign_id: employeeRaw.campaign_id || null,
+          position_title: employeeRaw.position_title || null,
+          system_role: employeeRaw.system_role || null,
+          shift: employeeRaw.shift_start
+            ? String(employeeRaw.shift_start).slice(0, 5)
+            : '—',
+          shiftEnd: employeeRaw.shift_end
+            ? String(employeeRaw.shift_end).slice(0, 5)
+            : '—',
+          status: 'sin_punch',
+          lateMin: 0,
+          entrada: null,
+          salida: null,
+          falta: null
+        }
+      : null
+  );
+
+  if (!a) {
+    return `
+      <div class="card">
+        <div class="alert alert-red">
+          No se encontró al colaborador dentro del alcance del Manager.
+        </div>
+      </div>
+    `;
+  }
+
+  const isSupervisor =
+    String(
+      employeeRaw?.system_role ||
+      a.system_role ||
+      ''
+    ).toLowerCase() === 'supervisor';
+
   const {rows, tw, tl, tr, te, pct} = _a_quincenaTable();
 
   const toleranciaMin = _a_toleranciaRetardoMin(a);
@@ -9806,7 +9968,18 @@ function _a_renderAgentDetail(agentId){
     ${_a_agentBadge(statusFinal, a.falta, lateMin, a)}
   </div>
 
-  <div class="readonly-notice">👁️ <strong>Vista supervisor · Solo lectura.</strong> No puedes marcar entrada/salida.</div>
+  <div class="readonly-notice">
+    👁️
+    <span>
+      <strong>
+        ${isSupervisor
+          ? 'Asistencia del Supervisor'
+          : 'Asistencia del colaborador'}
+      </strong>
+      · Puedes revisar el historial y solicitar correcciones.
+      No puedes marcar entrada o salida en su nombre.
+    </span>
+  </div>
 
 ${_a_renderCambioDescansoBox()}
 
@@ -10055,11 +10228,25 @@ async function _a_marcarSalida(){
   p.salida = fmtTimeCDMX(serverNow, { hour12:false });
   _a_render();
 }
+async function _a_drillToEmployee(id){
+  _a_drillAgent = id;
+  _a_drillSup = null;
+
+  _a_cargando = true;
+  _a_render();
+
+  await _a_cargarQDAYS(
+    id,
+    _a_dateFilter.from,
+    _a_dateFilter.to
+  );
+
+  _a_cargando = false;
+  _a_render();
+}
+
 async function _a_drillToAgent(id){
-  _a_drillAgent=id;_a_drillSup=null;
-  _a_cargando=true;_a_render();
-  await _a_cargarQDAYS(id, _a_dateFilter.from, _a_dateFilter.to);
-  _a_cargando=false;_a_render();
+  return _a_drillToEmployee(id);
 }
 async function _a_ceoDrillToAgent(id){
   _a_ceoDrillAg=id;
@@ -22548,8 +22735,41 @@ function _d_empleadosSolicitables() {
   }
 
   if (currentRole === 'manager') {
-    // Manager puede levantar a agentes y supervisores. El SQL manda esos casos a People si aplica.
-    return emps.filter(e => ['agent','supervisor'].includes(e.system_role));
+    const scope = new Set();
+    let frontier = [String(ro.id || '')].filter(Boolean);
+
+    while (frontier.length) {
+      const parents = new Set(frontier);
+      const next = [];
+
+      emps.forEach(emp => {
+        const employeeId = String(emp.id || '');
+        const supervisorId = String(emp.supervisor_id || '');
+
+        if (
+          employeeId &&
+          supervisorId &&
+          parents.has(supervisorId) &&
+          !scope.has(employeeId)
+        ) {
+          scope.add(employeeId);
+          next.push(employeeId);
+        }
+      });
+
+      frontier = next;
+    }
+
+    return emps.filter(e => {
+      const role = String(e.system_role || '')
+        .trim()
+        .toLowerCase();
+
+      return (
+        scope.has(String(e.id)) &&
+        ['agent','supervisor'].includes(role)
+      );
+    });
   }
 
   if (['people','head_people'].includes(currentRole)) {
@@ -23411,7 +23631,7 @@ async function _d_resolveFollowupCase(id) {
   }
 
   const { data, error } = await _d_sb.rpc(
-    'resolve_people_action_followup_v2',
+    'resolve_people_action_followup_v3',
     {
       p_payload: {
         followup_id: id,
@@ -23434,6 +23654,7 @@ async function _d_resolveFollowupCase(id) {
 
     console.error(
       '[Impulse People Followups] Error creando acción:',
+      JSON.stringify(issue, null, 2),
       issue
     );
 
