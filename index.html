@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.26';
+const APP_VERSION   = '1.0.27';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2196,8 +2196,26 @@ async function _rt_stop() {
   }
 }
 
+let _rt_followupBatchCount = 0;
+let _rt_followupBatchTimer = null;
+
 function _rt_queue(table, payload) {
-  console.log(`[Impulse Realtime] ${payload?.eventType || 'CHANGE'} ${table}`, payload);
+  if (table === 'people_action_followups') {
+    _rt_followupBatchCount += 1;
+    clearTimeout(_rt_followupBatchTimer);
+
+    _rt_followupBatchTimer = setTimeout(() => {
+      console.debug(
+        `[Impulse Realtime] people_action_followups · ${_rt_followupBatchCount} cambio(s) agrupado(s)`
+      );
+      _rt_followupBatchCount = 0;
+    }, 500);
+  } else {
+    console.log(
+      `[Impulse Realtime] ${payload?.eventType || 'CHANGE'} ${table}`,
+      payload
+    );
+  }
 
   if (table === 'app_config') {
     if (typeof _checkVersion === 'function') _checkVersion();
@@ -21934,31 +21952,107 @@ let _d_FOLLOWUPS = [];
 let _d_followupFilter = 'open';
 let _d_followupInitialized = false;
 
-async function _d_cargarDatos() {
+let _d_followupLastSyncAt = 0;
+let _d_followupSyncPromise = null;
+const _d_FOLLOWUP_SYNC_TTL_MS = 60_000;
+
+async function _d_syncFollowups({ force = false } = {}) {
+  if (![
+    'supervisor',
+    'manager',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole)) {
+    return { ok: true, skipped: true };
+  }
+
+  const now = Date.now();
+
+  if (
+    !force &&
+    _d_followupLastSyncAt &&
+    now - _d_followupLastSyncAt < _d_FOLLOWUP_SYNC_TTL_MS
+  ) {
+    return { ok: true, skipped: true };
+  }
+
+  if (_d_followupSyncPromise) {
+    return _d_followupSyncPromise;
+  }
+
+  _d_followupSyncPromise = (async () => {
+    const { data, error } = await _d_sb.rpc(
+      'sync_people_action_followups_for_ui',
+      { p_days_back: 30 }
+    );
+
+    if (error) {
+      console.error(
+        '[Impulse People Followups] Error sincronizando bandeja:',
+        error
+      );
+
+      throw error;
+    }
+
+    _d_followupLastSyncAt = Date.now();
+
+    console.debug(
+      '[Impulse People Followups] Sincronización completa:',
+      data
+    );
+
+    return data || { ok: true };
+  })();
+
   try {
-    const { data: matrix, error: matrixErr } = await _d_sb
-      .from('people_action_matrix')
-      .select('*')
-      .order('matrix_no', { ascending: true });
+    return await _d_followupSyncPromise;
+  } finally {
+    _d_followupSyncPromise = null;
+  }
+}
 
-    if (matrixErr) throw matrixErr;
+async function _d_cargarDatos({
+  syncFollowups = true,
+  forceSync = false
+} = {}) {
+  try {
+    if (
+      syncFollowups &&
+      ['supervisor','manager','people','head_people','ceo']
+        .includes(currentRole)
+    ) {
+      await _d_syncFollowups({ force: forceSync });
+    }
 
-    const { data: cases, error: eCases } = await _d_sb
-      .from('people_action_cases')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const [
+      matrixResult,
+      casesResult,
+      employeesResult
+    ] = await Promise.all([
+      _d_sb
+        .from('people_action_matrix')
+        .select('*')
+        .order('matrix_no', { ascending: true }),
 
-    if (eCases) throw eCases;
+      _d_sb
+        .from('people_action_cases')
+        .select('*')
+        .order('created_at', { ascending: false }),
 
-    const { data: emps, error: eEmp } = await _d_sb
-      .from('employees')
-      .select(
-        'id,full_name,campaign_id,supervisor_id,system_role,status'
-      )
-      .eq('status', 'active')
-      .order('full_name', { ascending: true });
+      _d_sb
+        .from('employees')
+        .select(
+          'id,full_name,campaign_id,supervisor_id,system_role,status'
+        )
+        .eq('status', 'active')
+        .order('full_name', { ascending: true })
+    ]);
 
-    if (eEmp) throw eEmp;
+    if (matrixResult.error) throw matrixResult.error;
+    if (casesResult.error) throw casesResult.error;
+    if (employeesResult.error) throw employeesResult.error;
 
     let followups = [];
 
@@ -21974,9 +22068,9 @@ async function _d_cargarDatos() {
       followups = data || [];
     }
 
-    _d_MATRIX = matrix || [];
-    _d_CASES = cases || [];
-    _d_EMPLEADOS = emps || [];
+    _d_MATRIX = matrixResult.data || [];
+    _d_CASES = casesResult.data || [];
+    _d_EMPLEADOS = employeesResult.data || [];
     _d_FOLLOWUPS = followups;
 
     _d_updateFollowupSidebarBadge();
@@ -21988,7 +22082,14 @@ async function _d_cargarDatos() {
     document.getElementById('content').innerHTML = `
       <div class="card">
         <div class="alert alert-red">
-          No se pudo cargar Acciones People: ${_d_esc(e.message || e)}
+          No se pudo cargar Acciones People:
+          ${_d_esc(
+            [
+              e?.message,
+              e?.details,
+              e?.hint
+            ].filter(Boolean).join(' · ') || e
+          )}
         </div>
       </div>
     `;
@@ -23010,7 +23111,10 @@ async function _d_reloadFollowups() {
   _d_cargando = true;
   _d_render();
 
-  await _d_cargarDatos();
+  await _d_cargarDatos({
+    syncFollowups: true,
+    forceSync: true
+  });
 
   _d_cargando = false;
   _d_render();
@@ -23201,7 +23305,7 @@ async function _d_resolveFollowupCase(id) {
   }
 
   const { data, error } = await _d_sb.rpc(
-    'resolve_people_action_followup',
+    'resolve_people_action_followup_v2',
     {
       p_payload: {
         followup_id: id,
@@ -23214,24 +23318,34 @@ async function _d_resolveFollowupCase(id) {
     }
   );
 
-  if (error) {
+  const businessError =
+    !error && data && data.ok === false
+      ? data
+      : null;
+
+  if (error || businessError) {
+    const issue = businessError || error;
+
     console.error(
       '[Impulse People Followups] Error creando acción:',
-      error
+      issue
     );
 
     alert(
       'No se pudo procesar la incidencia:\n\n' +
       [
-        error.message,
-        error.details,
-        error.hint
+        issue.message,
+        issue.detail || issue.details,
+        issue.hint,
+        issue.sqlstate
+          ? `Código técnico: ${issue.sqlstate}`
+          : null
       ].filter(Boolean).join('\n\n')
     );
 
     if (btn) {
       btn.disabled = false;
-      btn.textContent = 'Confirmar';
+      btn.textContent = 'Confirmar regularización';
     }
 
     return;
@@ -23242,7 +23356,7 @@ async function _d_resolveFollowupCase(id) {
   _d_cargando = true;
   _d_render();
 
-  await _d_cargarDatos();
+  await _d_cargarDatos({ syncFollowups: false });
 
   _d_cargando = false;
   _d_render();
@@ -23419,8 +23533,8 @@ async function _d_submitFollowupSimple(id, action, fieldId) {
     return;
   }
 
-  const { error } = await _d_sb.rpc(
-    'resolve_people_action_followup',
+  const { data, error } = await _d_sb.rpc(
+    'resolve_people_action_followup_v2',
     {
       p_payload: {
         followup_id: id,
@@ -23430,18 +23544,28 @@ async function _d_submitFollowupSimple(id, action, fieldId) {
     }
   );
 
-  if (error) {
+  const businessError =
+    !error && data && data.ok === false
+      ? data
+      : null;
+
+  if (error || businessError) {
+    const issue = businessError || error;
+
     console.error(
       '[Impulse People Followups] Error resolviendo seguimiento:',
-      error
+      issue
     );
 
     alert(
       'No se pudo actualizar el caso:\n\n' +
       [
-        error.message,
-        error.details,
-        error.hint
+        issue.message,
+        issue.detail || issue.details,
+        issue.hint,
+        issue.sqlstate
+          ? `Código técnico: ${issue.sqlstate}`
+          : null
       ].filter(Boolean).join('\n\n')
     );
 
@@ -23453,7 +23577,7 @@ async function _d_submitFollowupSimple(id, action, fieldId) {
   _d_cargando = true;
   _d_render();
 
-  await _d_cargarDatos();
+  await _d_cargarDatos({ syncFollowups: false });
 
   _d_cargando = false;
   _d_render();
