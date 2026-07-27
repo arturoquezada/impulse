@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.24';
+const APP_VERSION   = '1.0.25';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2096,6 +2096,7 @@ const _RT_TABLE_MODULES = {
   hr_tickets: ['tickets','equipo','deepdive'],
   hr_ticket_payroll_reviews: ['tickets','deepdive'],
   people_action_cases: ['disciplinario','equipo','deepdive'],
+  people_action_followups: ['disciplinario','asistencia','deepdive'],
   people_action_matrix: ['disciplinario','deepdive'],
   swaps: ['permutas','asistencia','deepdive'],
   partial_shift_swaps: ['permutas','asistencia','deepdive'],
@@ -7548,6 +7549,113 @@ async function _a_cancelTrainingGeneration(groupId){
 }
 
 
+
+let _a_PEOPLE_ACTION_FOLLOWUP_SUMMARY = null;
+
+async function _a_loadPeopleActionFollowupSummary() {
+  if (![
+    'supervisor',
+    'manager',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole)) {
+    _a_PEOPLE_ACTION_FOLLOWUP_SUMMARY = null;
+    return;
+  }
+
+  const { data, error } = await _a_sb.rpc(
+    'get_people_action_followup_summary'
+  );
+
+  if (error) {
+    console.warn(
+      '[Impulse Asistencia] No se pudo cargar el resumen de Acciones People:',
+      error
+    );
+
+    _a_PEOPLE_ACTION_FOLLOWUP_SUMMARY = null;
+    return;
+  }
+
+  _a_PEOPLE_ACTION_FOLLOWUP_SUMMARY = data || null;
+
+  if (typeof _d_updateFollowupSidebarBadge === 'function') {
+    _d_updateFollowupSidebarBadge(
+      Number(data?.total_open || 0)
+    );
+  }
+}
+
+function _a_openPeopleActionFollowups() {
+  switchModule('disciplinario');
+
+  setTimeout(() => {
+    if (typeof _d_setVista === 'function') {
+      _d_setVista('bandeja');
+    }
+  }, 50);
+}
+
+function _a_injectPeopleActionFollowupBanner() {
+  if (_a_vistaEspecial || _a_drillAgent) return;
+
+  const summary = _a_PEOPLE_ACTION_FOLLOWUP_SUMMARY;
+  const total = Number(summary?.total_open || 0);
+
+  if (!total) return;
+
+  const c = document.getElementById('content');
+
+  if (
+    !c ||
+    document.getElementById('peopleActionFollowupBanner')
+  ) {
+    return;
+  }
+
+  let message = `Tienes ${total} incidencia(s) pendiente(s) de revisión.`;
+
+  if (currentRole === 'manager') {
+    const regularization = Number(summary?.regularization || 0);
+
+    message = regularization
+      ? `Tienes ${regularization} caso(s) por regularizar y ${total} abierto(s) en tu alcance.`
+      : `Tienes ${total} incidencia(s) abierta(s) en los equipos bajo tu alcance.`;
+  }
+
+  if (['people','head_people','ceo'].includes(currentRole)) {
+    const people = Number(summary?.people_review || 0);
+
+    message = people
+      ? `Hay ${people} caso(s) que requieren revisión de People y ${total} abierto(s) en total.`
+      : `Hay ${total} incidencia(s) abierta(s) en el control de Acciones People.`;
+  }
+
+  c.insertAdjacentHTML('afterbegin', `
+    <div
+      id="peopleActionFollowupBanner"
+      class="alert alert-amber"
+      style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"
+    >
+      <div>
+        <b>Acciones People pendientes</b>
+        <div style="font-size:12px;margin-top:3px">
+          ${_d_esc(message)}
+        </div>
+      </div>
+
+      <button
+        class="btn-primary"
+        onclick="_a_openPeopleActionFollowups()"
+      >
+        Ir a la bandeja
+      </button>
+    </div>
+  `);
+}
+
+
 function _a_injectTrainingSchedulesLauncher(){
   if(!_a_canManageTrainingSchedules()) return;
   if(_a_vistaEspecial) return;
@@ -7654,6 +7762,7 @@ function _a_render(){
   _a_injectTrainingSchedulesLauncher();
   _a_injectAuditLauncher();
   _a_injectPendientesExcepciones();
+  _a_injectPeopleActionFollowupBanner();
 }
 
 function updateSidebarUser(){
@@ -11402,6 +11511,10 @@ window['_init_asistencia']=async function(){
   ) {
     // Solo consulta registros existentes; no recalcula ni modifica.
     await _a_cargarOTRecords({ sync: false });
+  }
+
+  if (ok) {
+    await _a_loadPeopleActionFollowupSummary();
   }
 
   _a_cargando = false;
@@ -21693,33 +21806,61 @@ let _d_filtroFechaHasta = '';
 let _d_ATT_INCIDENTS = [];
 let _d_SELECTED_ATT_INCIDENT = null;
 
+let _d_FOLLOWUPS = [];
+let _d_followupFilter = 'open';
+let _d_followupInitialized = false;
+
 async function _d_cargarDatos() {
   try {
     const { data: matrix, error: matrixErr } = await _d_sb
-  .from('people_action_matrix')
-  .select('*')
-  .order('matrix_no', { ascending: true });
-  if (matrixErr) throw matrixErr;
+      .from('people_action_matrix')
+      .select('*')
+      .order('matrix_no', { ascending: true });
+
+    if (matrixErr) throw matrixErr;
 
     const { data: cases, error: eCases } = await _d_sb
       .from('people_action_cases')
       .select('*')
       .order('created_at', { ascending: false });
+
     if (eCases) throw eCases;
 
     const { data: emps, error: eEmp } = await _d_sb
       .from('employees')
-      .select('id,full_name,campaign_id,supervisor_id,system_role,status')
+      .select(
+        'id,full_name,campaign_id,supervisor_id,system_role,status'
+      )
       .eq('status', 'active')
       .order('full_name', { ascending: true });
+
     if (eEmp) throw eEmp;
+
+    let followups = [];
+
+    if (
+      ['supervisor','manager','people','head_people','ceo']
+        .includes(currentRole)
+    ) {
+      const { data, error } = await _d_sb.rpc(
+        'list_people_action_followups'
+      );
+
+      if (error) throw error;
+      followups = data || [];
+    }
 
     _d_MATRIX = matrix || [];
     _d_CASES = cases || [];
     _d_EMPLEADOS = emps || [];
+    _d_FOLLOWUPS = followups;
+
+    _d_updateFollowupSidebarBadge();
+
     return true;
   } catch (e) {
     console.error('Error cargando Acciones People:', e);
+
     document.getElementById('content').innerHTML = `
       <div class="card">
         <div class="alert alert-red">
@@ -21727,6 +21868,7 @@ async function _d_cargarDatos() {
         </div>
       </div>
     `;
+
     return false;
   }
 }
@@ -22132,8 +22274,24 @@ function _d_queueBadge(q) {
 }
 
 function _d_rutaBadge(c) {
+  const accountability = String(
+    c?.leadership_accountability || ''
+  ).toLowerCase();
+
+  if (accountability === 'late') {
+    return `<span class="pill" style="background:#FEF3C7;color:#92400E"><span class="dot"></span>Emitida tarde</span>`;
+  }
+
+  if (accountability === 'regularized') {
+    return `<span class="pill" style="background:#FFEDD5;color:#9A3412"><span class="dot"></span>Regularizada</span>`;
+  }
+
+  if (accountability === 'critical') {
+    return `<span class="pill" style="background:#FEE2E2;color:#991B1B"><span class="dot"></span>Excepción People</span>`;
+  }
+
   if (c?.auto_issued || c?.approval_required === false) {
-    return `<span class="pill pill-green"><span class="dot"></span>Emisión automática</span>`;
+    return `<span class="pill pill-green"><span class="dot"></span>Emisión directa</span>`;
   }
 
   return _d_queueBadge(c?.review_queue);
@@ -22176,8 +22334,1025 @@ function _d_empleadosSolicitables() {
   return [];
 }
 
+
+function _d_canViewFollowups() {
+  return [
+    'supervisor',
+    'manager',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole);
+}
+
+function _d_followupIsResolved(t) {
+  return [
+    'case_created',
+    'not_applicable',
+    'cancelled'
+  ].includes(String(t?.status || '').toLowerCase());
+}
+
+function _d_openFollowups() {
+  return (_d_FOLLOWUPS || []).filter(t => !_d_followupIsResolved(t));
+}
+
+function _d_followupDays(t) {
+  const value = Number(t?.days_late);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function _d_followupBucket(t) {
+  const status = String(t?.status || '').toLowerCase();
+
+  if (status === 'case_created') return 'resolved';
+  if (status === 'not_applicable') return 'not_applicable';
+  if (status === 'cancelled') return 'cancelled';
+
+  const days = _d_followupDays(t);
+
+  if (days <= 0) return 'today';
+  if (days === 1) return 'late';
+  if (days <= 7 && status !== 'people_review') return 'regularization';
+  return 'people';
+}
+
+function _d_followupStatusLabel(t) {
+  const bucket = _d_followupBucket(t);
+
+  const labels = {
+    today: 'Pendiente de hoy',
+    late: 'Tardía · 1 día',
+    regularization: `Por regularizar · ${_d_followupDays(t)} días`,
+    people: `Revisión People · ${_d_followupDays(t)} días`,
+    resolved: 'Acción creada',
+    not_applicable: 'No aplicable',
+    cancelled: 'Cancelada'
+  };
+
+  return labels[bucket] || 'Pendiente';
+}
+
+function _d_followupStatusBadge(t) {
+  const bucket = _d_followupBucket(t);
+
+  const cfg = {
+    today: ['#DBEAFE', '#1D4ED8'],
+    late: ['#FEF3C7', '#92400E'],
+    regularization: ['#FFEDD5', '#9A3412'],
+    people: ['#FEE2E2', '#991B1B'],
+    resolved: ['#DCFCE7', '#166534'],
+    not_applicable: ['#F1F5F9', '#475569'],
+    cancelled: ['#F1F5F9', '#64748B']
+  };
+
+  const [bg, color] = cfg[bucket] || cfg.today;
+
+  return `
+    <span class="pill" style="background:${bg};color:${color}">
+      <span class="dot"></span>${_d_followupStatusLabel(t)}
+    </span>
+  `;
+}
+
+function _d_followupIncidentLabel(t) {
+  if (t?.incident_type === 'late') {
+    return `Retardo injustificado${
+      Number(t.minutes_late || 0)
+        ? ` · ${Number(t.minutes_late)} min`
+        : ''
+    }`;
+  }
+
+  return 'Ausentismo injustificado';
+}
+
+function _d_followupOwnerLabel(t) {
+  const role = String(t?.current_owner_role || '').toLowerCase();
+
+  if (role === 'supervisor') {
+    return t.supervisor_name || t.supervisor_id || 'Supervisor';
+  }
+
+  if (role === 'manager') {
+    return t.manager_name || t.manager_id || 'Manager';
+  }
+
+  return 'People';
+}
+
+function _d_followupAccountabilityPreview(t) {
+  const days = _d_followupDays(t);
+
+  if (days <= 0) return 'A tiempo';
+  if (days === 1) return 'Tardía';
+  if (days <= 7) return 'Omisión regularizable';
+  return 'Omisión crítica';
+}
+
+function _d_followupCanCreate(t) {
+  if (!t || _d_followupIsResolved(t)) return false;
+
+  const days = _d_followupDays(t);
+  const ro = ROLES[currentRole] || {};
+
+  if (currentRole === 'supervisor') {
+    return (
+      String(t.supervisor_id || '') === String(ro.id || '') &&
+      days <= 1
+    );
+  }
+
+  if (currentRole === 'manager') {
+    return (
+      (
+        String(t.manager_id || '') === String(ro.id || '') ||
+        String(t.supervisor_id || '') === String(ro.id || '')
+      ) &&
+      days >= 2 &&
+      days <= 7
+    );
+  }
+
+  return ['people','head_people'].includes(currentRole);
+}
+
+function _d_followupCanCloseNotApplicable(t) {
+  return _d_followupCanCreate(t);
+}
+
+function _d_followupCanAddContext(t) {
+  if (!t || _d_followupIsResolved(t)) return false;
+
+  const ro = ROLES[currentRole] || {};
+
+  return (
+    currentRole === 'supervisor' &&
+    String(t.supervisor_id || '') === String(ro.id || '') &&
+    _d_followupDays(t) >= 2
+  );
+}
+
+function _d_followupCanEscalate(t) {
+  if (!t || _d_followupIsResolved(t)) return false;
+
+  const ro = ROLES[currentRole] || {};
+
+  return (
+    currentRole === 'manager' &&
+    (
+      String(t.manager_id || '') === String(ro.id || '') ||
+      String(t.supervisor_id || '') === String(ro.id || '')
+    ) &&
+    _d_followupDays(t) >= 2 &&
+    _d_followupDays(t) <= 7
+  );
+}
+
+function _d_followupActionLabel(t) {
+  const days = _d_followupDays(t);
+
+  if (currentRole === 'supervisor') {
+    return days <= 0 ? 'Revisar' : 'Emitir tarde';
+  }
+
+  if (currentRole === 'manager') return 'Regularizar';
+
+  return days > 7 ? 'Revisar excepción' : 'Resolver';
+}
+
+function _d_followupOpenCount() {
+  return _d_openFollowups().length;
+}
+
+function _d_updateFollowupSidebarBadge(countOverride = null) {
+  const count = countOverride === null
+    ? _d_followupOpenCount()
+    : Number(countOverride || 0);
+
+  const item = document.querySelector(
+    '.sb-item[data-mod="disciplinario"]'
+  );
+
+  if (!item) return;
+
+  let badge = item.querySelector('.d-followup-sidebar-badge');
+
+  if (!count) {
+    badge?.remove();
+    return;
+  }
+
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.className = 'd-followup-sidebar-badge';
+    badge.style.cssText = [
+      'margin-left:auto',
+      'min-width:20px',
+      'height:20px',
+      'padding:0 6px',
+      'display:inline-flex',
+      'align-items:center',
+      'justify-content:center',
+      'border-radius:999px',
+      'background:#EF4444',
+      'color:white',
+      'font-size:10px',
+      'font-weight:900'
+    ].join(';');
+
+    item.appendChild(badge);
+  }
+
+  badge.textContent = String(count);
+}
+
+function _d_setFollowupFilter(value) {
+  _d_followupFilter = value;
+  _d_render();
+}
+
+function _d_followupFilteredRows() {
+  const rows = [...(_d_FOLLOWUPS || [])];
+
+  if (_d_followupFilter === 'resolved') {
+    return rows.filter(_d_followupIsResolved);
+  }
+
+  if (_d_followupFilter === 'today') {
+    return rows.filter(t => _d_followupBucket(t) === 'today');
+  }
+
+  if (_d_followupFilter === 'late') {
+    return rows.filter(t => _d_followupBucket(t) === 'late');
+  }
+
+  if (_d_followupFilter === 'regularization') {
+    return rows.filter(t => _d_followupBucket(t) === 'regularization');
+  }
+
+  if (_d_followupFilter === 'people') {
+    return rows.filter(t => _d_followupBucket(t) === 'people');
+  }
+
+  return rows.filter(t => !_d_followupIsResolved(t));
+}
+
+function _d_followupRoleExplanation() {
+  if (currentRole === 'supervisor') {
+    return `
+      Revisa las incidencias de tu equipo. Puedes emitirlas hoy o un día
+      después; desde el segundo día solo podrás agregar contexto y el
+      Manager tomará ownership.
+    `;
+  }
+
+  if (currentRole === 'manager') {
+    return `
+      Aquí aparecen las omisiones de tus supervisores. Entre 2 y 7 días
+      puedes regularizar, cerrar como no aplicable o escalar a People.
+    `;
+  }
+
+  if (['people','head_people'].includes(currentRole)) {
+    return `
+      Control global de omisiones. People resuelve casos mayores a siete
+      días, excepciones y niveles que requieren validación.
+    `;
+  }
+
+  return `
+    Vista ejecutiva de incidencias pendientes, regularizaciones y
+    omisiones. Esta vista es de solo lectura.
+  `;
+}
+
+function _d_renderFollowupActions(t) {
+  const actions = [];
+
+  if (_d_followupCanCreate(t)) {
+    actions.push(`
+      <button
+        class="btn-primary"
+        onclick="_d_openFollowupCase('${_d_esc(t.id)}')"
+      >
+        ${_d_followupActionLabel(t)}
+      </button>
+    `);
+  }
+
+  if (_d_followupCanCloseNotApplicable(t)) {
+    actions.push(`
+      <button
+        class="btn-ghost"
+        onclick="_d_openFollowupNotApplicable('${_d_esc(t.id)}')"
+      >
+        No corresponde
+      </button>
+    `);
+  }
+
+  if (_d_followupCanAddContext(t)) {
+    actions.push(`
+      <button
+        class="btn-ghost"
+        onclick="_d_openFollowupContext('${_d_esc(t.id)}')"
+      >
+        Agregar contexto
+      </button>
+    `);
+  }
+
+  if (_d_followupCanEscalate(t)) {
+    actions.push(`
+      <button
+        class="btn-ghost"
+        onclick="_d_openFollowupEscalate('${_d_esc(t.id)}')"
+      >
+        Escalar a People
+      </button>
+    `);
+  }
+
+  if (t.people_action_case_id) {
+    actions.push(`
+      <button
+        class="btn-ghost"
+        onclick="_d_abrirDetalle('${_d_esc(t.people_action_case_id)}')"
+      >
+        Ver acción
+      </button>
+    `);
+  }
+
+  return actions.length
+    ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${actions.join('')}</div>`
+    : '<span style="font-size:11px;color:#94A3B8">Solo seguimiento</span>';
+}
+
+function _d_renderFollowupBoard() {
+  if (!_d_canViewFollowups()) {
+    return `
+      <div class="card">
+        <div class="alert alert-amber">
+          Esta bandeja no está disponible para tu rol.
+        </div>
+      </div>
+    `;
+  }
+
+  const open = _d_openFollowups();
+  const today = open.filter(t => _d_followupBucket(t) === 'today').length;
+  const late = open.filter(t => _d_followupBucket(t) === 'late').length;
+  const regularization = open.filter(
+    t => _d_followupBucket(t) === 'regularization'
+  ).length;
+  const people = open.filter(t => _d_followupBucket(t) === 'people').length;
+  const rows = _d_followupFilteredRows();
+
+  return `
+    <div class="kgrid kg4">
+      <div class="kbox">
+        <div class="klabel">Pendientes de hoy</div>
+        <div class="kval" style="color:#2563EB">${today}</div>
+      </div>
+
+      <div class="kbox warn">
+        <div class="klabel">Tardías</div>
+        <div class="kval">${late}</div>
+        <div class="kdelta">1 día después</div>
+      </div>
+
+      <div class="kbox" style="border-color:#FED7AA">
+        <div class="klabel">Por regularizar</div>
+        <div class="kval" style="color:#C2410C">${regularization}</div>
+        <div class="kdelta">Manager · 2 a 7 días</div>
+      </div>
+
+      <div class="kbox danger">
+        <div class="klabel">Revisión People</div>
+        <div class="kval">${people}</div>
+        <div class="kdelta">Más de 7 días / escaladas</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">
+            Bandeja de incidencias y omisiones
+          </div>
+          <div style="font-size:12px;color:#64748B;max-width:760px;line-height:1.55">
+            ${_d_followupRoleExplanation()}
+          </div>
+        </div>
+
+        <button
+          class="btn-ghost"
+          onclick="_d_reloadFollowups()"
+        >
+          ↻ Actualizar
+        </button>
+      </div>
+
+      <div class="alert alert-blue" style="margin-top:14px">
+        Impulse detecta y recuerda la incidencia, pero no crea la sanción
+        por sí solo. El owner debe revisar, seleccionar la matriz y
+        documentar los hechos.
+      </div>
+
+      <div class="date-filter-bar">
+        ${[
+          ['open', `Abiertas (${open.length})`],
+          ['today', `Hoy (${today})`],
+          ['late', `Tardías (${late})`],
+          ['regularization', `Regularizar (${regularization})`],
+          ['people', `People (${people})`],
+          ['resolved', 'Resueltas']
+        ].map(([value, label]) => `
+          <button
+            class="df-preset ${_d_followupFilter === value ? 'active' : ''}"
+            onclick="_d_setFollowupFilter('${value}')"
+          >
+            ${label}
+          </button>
+        `).join('')}
+      </div>
+
+      <div class="tbl-wrap">
+        <div style="overflow-x:auto">
+          <table style="min-width:1280px">
+            <thead>
+              <tr>
+                <th>Colaborador</th>
+                <th>Incidencia</th>
+                <th>Fecha</th>
+                <th>Supervisor responsable</th>
+                <th>Owner actual</th>
+                <th>Accountability</th>
+                <th>Estado</th>
+                <th>Contexto</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${rows.length ? rows.map(t => `
+                <tr>
+                  <td>
+                    <div class="agent-row-name">
+                      ${_d_esc(t.employee_name || t.employee_id)}
+                    </div>
+                    <div class="agent-row-id">
+                      ${_d_esc(t.employee_id)} ·
+                      ${_d_esc(t.campaign_id || 'Sin campaña')}
+                    </div>
+                  </td>
+
+                  <td>
+                    <div style="font-weight:800;color:#0F172A">
+                      ${_d_esc(_d_followupIncidentLabel(t))}
+                    </div>
+                    <div style="font-size:11px;color:#64748B;margin-top:3px">
+                      ${_d_esc(t.attendance_status || '')}
+                    </div>
+                  </td>
+
+                  <td style="font-family:'DM Mono',monospace">
+                    ${fmtDateShort(t.incident_date)}
+                  </td>
+
+                  <td>
+                    <div class="agent-row-name">
+                      ${_d_esc(
+                        t.supervisor_name ||
+                        t.supervisor_id ||
+                        'Sin supervisor'
+                      )}
+                    </div>
+                    <div class="agent-row-id">
+                      ${_d_esc(t.supervisor_id || '—')}
+                    </div>
+                  </td>
+
+                  <td>
+                    <div style="font-weight:700;color:#0F172A">
+                      ${_d_esc(_d_followupOwnerLabel(t))}
+                    </div>
+                    <div style="font-size:11px;color:#64748B">
+                      ${_d_esc(t.current_owner_role || 'people')}
+                    </div>
+                  </td>
+
+                  <td>
+                    <div style="font-weight:800">
+                      ${_d_esc(_d_followupAccountabilityPreview(t))}
+                    </div>
+                    <div style="font-size:11px;color:#64748B;margin-top:3px">
+                      ${_d_followupDays(t) === 0
+                        ? 'Vence hoy'
+                        : `${_d_followupDays(t)} día(s) desde la incidencia`
+                      }
+                    </div>
+                  </td>
+
+                  <td>${_d_followupStatusBadge(t)}</td>
+
+                  <td style="max-width:280px;white-space:normal">
+                    ${t.supervisor_context
+                      ? `<div style="font-size:12px;color:#334155;line-height:1.45">${_d_esc(t.supervisor_context)}</div>`
+                      : '<span style="font-size:11px;color:#94A3B8">Sin contexto adicional</span>'
+                    }
+                  </td>
+
+                  <td>${_d_renderFollowupActions(t)}</td>
+                </tr>
+              `).join('') : `
+                <tr>
+                  <td colspan="9" style="text-align:center;color:#94A3B8;padding:28px">
+                    No hay casos en esta vista.
+                  </td>
+                </tr>
+              `}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function _d_reloadFollowups() {
+  _d_cargando = true;
+  _d_render();
+
+  await _d_cargarDatos();
+
+  _d_cargando = false;
+  _d_render();
+}
+
+function _d_followupById(id) {
+  return (_d_FOLLOWUPS || []).find(t => String(t.id) === String(id));
+}
+
+function _d_followupMatrixOptions(t) {
+  return (_d_MATRIX || [])
+    .filter(m =>
+      m.is_active !== false &&
+      _d_attendanceLinkType(m) === t.incident_type
+    )
+    .map(m => `
+      <option value="${_d_esc(m.id)}">
+        #${_d_esc(m.matrix_no)} ·
+        ${_d_esc(m.rule_title || m.infraction_type || 'Criterio')}
+        · ${_d_esc(_d_levelLabel(m.default_level))}
+      </option>
+    `)
+    .join('');
+}
+
+function _d_openFollowupCase(id) {
+  const t = _d_followupById(id);
+
+  if (!t || !_d_followupCanCreate(t)) {
+    alert('Este caso ya no está disponible para tu rol.');
+    return;
+  }
+
+  const days = _d_followupDays(t);
+  const options = _d_followupMatrixOptions(t);
+
+  if (!options) {
+    alert(
+      'No existe una regla activa de matriz vinculada a esta incidencia.'
+    );
+    return;
+  }
+
+  const title = days <= 0
+    ? 'Revisar incidencia de hoy'
+    : days === 1
+      ? 'Emitir Acción People tardía'
+      : days <= 7
+        ? 'Regularizar Acción People'
+        : 'Revisión excepcional de People';
+
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalSub').textContent =
+    `${t.employee_name || t.employee_id} · ` +
+    `${fmtDateShort(t.incident_date)} · ` +
+    _d_followupIncidentLabel(t);
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section">
+      <div class="ms-title">Incidencia detectada</div>
+
+      <div class="kv">
+        <span class="k">Colaborador</span>
+        <span class="v">
+          ${_d_esc(t.employee_name || t.employee_id)}
+        </span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Fecha de hechos</span>
+        <span class="v">${fmtDateShort(t.incident_date)}</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Incidencia</span>
+        <span class="v">${_d_esc(_d_followupIncidentLabel(t))}</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Supervisor responsable</span>
+        <span class="v">
+          ${_d_esc(t.supervisor_name || t.supervisor_id || '—')}
+        </span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Clasificación</span>
+        <span class="v">${_d_followupStatusBadge(t)}</span>
+      </div>
+    </div>
+
+    <div class="alert ${days > 1 ? 'alert-red' : days === 1 ? 'alert-amber' : 'alert-blue'}">
+      La acción conservará la fecha real de los hechos y la fecha real de
+      emisión. Su vigencia comenzará cuando sea emitida; el retraso no se
+      eliminará del accountability.
+    </div>
+
+    <div class="form-row">
+      <label>Criterio de matriz</label>
+      <select id="d-followup-matrix">
+        ${options}
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>Descripción objetiva de los hechos</label>
+      <textarea id="d-followup-facts" rows="5">${_d_esc(
+        t.facts_suggestion ||
+        `El colaborador presentó ${_d_followupIncidentLabel(t).toLowerCase()} el ${t.incident_date}.`
+      )}</textarea>
+    </div>
+
+    <div class="form-row">
+      <label>Evidencia / link (opcional)</label>
+      <input
+        type="url"
+        id="d-followup-evidence"
+        placeholder="Link de interacción, Drive, captura, etc."
+      >
+    </div>
+
+    ${days > 0 ? `
+      <div class="form-row">
+        <label>
+          Motivo de la emisión fuera de tiempo
+          <span style="color:#EF4444">*</span>
+        </label>
+        <textarea
+          id="d-followup-late-reason"
+          rows="3"
+          placeholder="Explica por qué no se gestionó dentro del plazo original."
+        ></textarea>
+      </div>
+    ` : ''}
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button
+      class="btn-primary"
+      id="d-followup-create-btn"
+      onclick="_d_resolveFollowupCase('${_d_esc(t.id)}')"
+    >
+      ${days <= 0 ? 'Emitir / enviar a revisión' : 'Confirmar regularización'}
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+async function _d_resolveFollowupCase(id) {
+  const t = _d_followupById(id);
+  if (!t) return;
+
+  const matrixId =
+    document.getElementById('d-followup-matrix')?.value || '';
+
+  const facts =
+    document.getElementById('d-followup-facts')?.value?.trim() || '';
+
+  const evidence =
+    document.getElementById('d-followup-evidence')?.value?.trim() || null;
+
+  const lateReason =
+    document.getElementById('d-followup-late-reason')
+      ?.value?.trim() || null;
+
+  if (!matrixId) {
+    alert('Selecciona un criterio de la matriz.');
+    return;
+  }
+
+  if (!facts) {
+    alert('Describe los hechos de forma objetiva.');
+    return;
+  }
+
+  if (_d_followupDays(t) > 0 && !lateReason) {
+    alert('El motivo de la emisión fuera de tiempo es obligatorio.');
+    return;
+  }
+
+  const btn = document.getElementById('d-followup-create-btn');
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Procesando...';
+  }
+
+  const { data, error } = await _d_sb.rpc(
+    'resolve_people_action_followup',
+    {
+      p_payload: {
+        followup_id: id,
+        action: 'create_case',
+        matrix_id: matrixId,
+        facts,
+        evidence_url: evidence,
+        late_reason: lateReason
+      }
+    }
+  );
+
+  if (error) {
+    console.error(
+      '[Impulse People Followups] Error creando acción:',
+      error
+    );
+
+    alert(
+      'No se pudo procesar la incidencia:\n\n' +
+      [
+        error.message,
+        error.details,
+        error.hint
+      ].filter(Boolean).join('\n\n')
+    );
+
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Confirmar';
+    }
+
+    return;
+  }
+
+  closeModal();
+
+  _d_cargando = true;
+  _d_render();
+
+  await _d_cargarDatos();
+
+  _d_cargando = false;
+  _d_render();
+
+  if (data?.case_status === 'pending_review') {
+    alert(
+      'Caso creado y enviado a revisión de People. ' +
+      'El retraso quedó registrado.'
+    );
+  } else {
+    alert(
+      'Acción People emitida correctamente. ' +
+      'El accountability conserva la fecha y los días de retraso.'
+    );
+  }
+}
+
+function _d_openFollowupNotApplicable(id) {
+  const t = _d_followupById(id);
+
+  if (!t || !_d_followupCanCloseNotApplicable(t)) {
+    alert('No tienes permisos para cerrar este caso.');
+    return;
+  }
+
+  document.getElementById('modalTitle').textContent =
+    'Cerrar como no aplicable';
+
+  document.getElementById('modalSub').textContent =
+    `${t.employee_name || t.employee_id} · ` +
+    `${fmtDateShort(t.incident_date)}`;
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="alert alert-amber">
+      Utiliza esta opción únicamente cuando la incidencia fue corregida,
+      justificada o se comprobó que no correspondía una Acción People.
+    </div>
+
+    <div class="form-row">
+      <label>
+        Motivo de cierre
+        <span style="color:#EF4444">*</span>
+      </label>
+
+      <textarea
+        id="d-followup-resolution-reason"
+        rows="4"
+        placeholder="Ej. Horario corregido, incapacidad aprobada, permiso validado..."
+      ></textarea>
+    </div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button
+      class="btn-primary"
+      onclick="_d_submitFollowupSimple(
+        '${_d_esc(t.id)}',
+        'not_applicable',
+        'd-followup-resolution-reason'
+      )"
+    >
+      Confirmar cierre
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+function _d_openFollowupContext(id) {
+  const t = _d_followupById(id);
+
+  if (!t || !_d_followupCanAddContext(t)) {
+    alert('Este caso ya no permite cierre por Supervisor.');
+    return;
+  }
+
+  document.getElementById('modalTitle').textContent =
+    'Agregar contexto del Supervisor';
+
+  document.getElementById('modalSub').textContent =
+    `${t.employee_name || t.employee_id} · ` +
+    `${fmtDateShort(t.incident_date)}`;
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="alert alert-blue">
+      El Manager conserva el ownership de la regularización. Tu contexto
+      quedará disponible para que pueda tomar la decisión.
+    </div>
+
+    <div class="form-row">
+      <label>
+        Contexto / explicación
+        <span style="color:#EF4444">*</span>
+      </label>
+
+      <textarea
+        id="d-followup-context"
+        rows="5"
+        placeholder="Describe lo ocurrido, la evidencia disponible y por qué no se gestionó dentro del plazo."
+      >${_d_esc(t.supervisor_context || '')}</textarea>
+    </div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button
+      class="btn-primary"
+      onclick="_d_submitFollowupSimple(
+        '${_d_esc(t.id)}',
+        'add_context',
+        'd-followup-context'
+      )"
+    >
+      Guardar contexto
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+function _d_openFollowupEscalate(id) {
+  const t = _d_followupById(id);
+
+  if (!t || !_d_followupCanEscalate(t)) {
+    alert('No tienes permisos para escalar este caso.');
+    return;
+  }
+
+  document.getElementById('modalTitle').textContent =
+    'Escalar caso a People';
+
+  document.getElementById('modalSub').textContent =
+    `${t.employee_name || t.employee_id} · ` +
+    `${fmtDateShort(t.incident_date)}`;
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="form-row">
+      <label>
+        Motivo del escalamiento
+        <span style="color:#EF4444">*</span>
+      </label>
+
+      <textarea
+        id="d-followup-escalation-reason"
+        rows="4"
+        placeholder="Explica por qué el caso requiere revisión de People."
+      ></textarea>
+    </div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+    <button
+      class="btn-primary"
+      onclick="_d_submitFollowupSimple(
+        '${_d_esc(t.id)}',
+        'escalate',
+        'd-followup-escalation-reason'
+      )"
+    >
+      Escalar
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
+async function _d_submitFollowupSimple(id, action, fieldId) {
+  const reason = document.getElementById(fieldId)?.value?.trim() || '';
+
+  if (!reason) {
+    alert('Debes capturar el motivo o contexto.');
+    return;
+  }
+
+  const { error } = await _d_sb.rpc(
+    'resolve_people_action_followup',
+    {
+      p_payload: {
+        followup_id: id,
+        action,
+        reason
+      }
+    }
+  );
+
+  if (error) {
+    console.error(
+      '[Impulse People Followups] Error resolviendo seguimiento:',
+      error
+    );
+
+    alert(
+      'No se pudo actualizar el caso:\n\n' +
+      [
+        error.message,
+        error.details,
+        error.hint
+      ].filter(Boolean).join('\n\n')
+    );
+
+    return;
+  }
+
+  closeModal();
+
+  _d_cargando = true;
+  _d_render();
+
+  await _d_cargarDatos();
+
+  _d_cargando = false;
+  _d_render();
+
+  const messages = {
+    not_applicable: 'Caso cerrado como no aplicable.',
+    add_context: 'Contexto guardado para el Manager.',
+    escalate: 'Caso escalado a People.'
+  };
+
+  alert(messages[action] || 'Caso actualizado.');
+}
+
 function _d_tabsDisponibles() {
   const tabs = [];
+
+  if (_d_canViewFollowups()) {
+    const openCount = _d_followupOpenCount();
+    tabs.push([
+      'bandeja',
+      openCount ? `Bandeja (${openCount})` : 'Bandeja'
+    ]);
+  }
 
   if (_d_canCreateCase()) {
     tabs.push(['nuevo', 'Nuevo caso']);
@@ -23228,12 +24403,30 @@ function _d_renderReportes() {
   const porCamp = _d_group(_d_CASES, c => _d_emp(c.employee_id)?.campaign_id || 'Sin campaña');
   const porSolicitante = _d_group(_d_CASES, c => _d_nombre(c.requested_by));
 
+  const porAccountability = _d_group(
+    _d_FOLLOWUPS,
+    t => _d_followupStatusLabel(t)
+  );
+
+  const porSupervisorOmisiones = _d_group(
+    (_d_FOLLOWUPS || []).filter(t =>
+      ['regularization','people']
+        .includes(_d_followupBucket(t))
+    ),
+    t => t.supervisor_name || t.supervisor_id || 'Sin supervisor'
+  );
+
   return `
     ${_d_kpisHTML()}
     ${_d_reportTable('Por status', porStatus)}
     ${_d_reportTable('Por nivel', porNivel)}
     ${_d_reportTable('Por campaña', porCamp)}
     ${_d_reportTable('Por solicitante', porSolicitante)}
+    ${_d_reportTable('Accountability de incidencias', porAccountability)}
+    ${_d_reportTable(
+      'Omisiones abiertas por supervisor',
+      porSupervisorOmisiones
+    )}
   `;
 }
 
@@ -23281,7 +24474,11 @@ function _d_render() {
   _d_asegurarVistaPermitida();
 
   let body = '';
-  if (_d_vista === 'nuevo') {
+  if (_d_vista === 'bandeja') {
+    body = _d_canViewFollowups()
+      ? _d_renderFollowupBoard()
+      : _d_renderHistorial();
+  } else if (_d_vista === 'nuevo') {
     body = _d_canCreateCase() ? _d_renderNuevo() : _d_renderHistorial();
   } else if (_d_vista === 'pendientes') {
     body = _d_canReviewCases() ? _d_renderPendientes() : _d_renderHistorial();
@@ -23298,7 +24495,7 @@ function _d_render() {
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px">
       <div>
         <div style="font-size:22px;font-weight:900;letter-spacing:-.4px;color:#0F172A">Acciones People</div>
-        <div style="font-size:12px;color:#64748B;margin-top:3px">Gestión de acciones correctivas conforme a matriz, revisión y acuse.</div>
+        <div style="font-size:12px;color:#64748B;margin-top:3px">Gestión de acciones, incidencias pendientes, regularizaciones, accountability y acuse.</div>
       </div>
       ${_d_canCreateCase() ? `<button class="btn-primary" onclick="_d_setVista('nuevo')">+ Nuevo caso</button>` : ''}
     </div>
@@ -25322,9 +26519,23 @@ window['_init_vacaciones']=function(){
 window['_rerender_vacaciones']=function(){ if(typeof _v_render==='function')_v_render(); };
 
 window['_init_disciplinario']=function(){
+  if (!_d_followupInitialized) {
+    _d_vista = currentRole === 'agent'
+      ? 'historial'
+      : 'bandeja';
+
+    _d_followupInitialized = true;
+  }
+
   _d_asegurarVistaPermitida();
-  _d_cargando=true; _d_render();
-  _d_cargarDatos().then(ok=>{ _d_cargando=false; _d_asegurarVistaPermitida(); _d_render(); });
+  _d_cargando = true;
+  _d_render();
+
+  _d_cargarDatos().then(ok => {
+    _d_cargando = false;
+    _d_asegurarVistaPermitida();
+    _d_render();
+  });
 };
 window['_rerender_disciplinario']=function(){ if(typeof _d_render==='function')_d_render(); };
 
