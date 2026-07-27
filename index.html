@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.35';
+const APP_VERSION   = '1.0.36';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3840,7 +3840,15 @@ let _a_CAMP_REAL  = {};  // { campaign_id: {total,onTime,late,absent} }
 let _a_PUNCHES_HOY  = [];  // ya no se usa (feed eliminado)
 
 async function _a_cargarQDAYS(empId, from, to) {
-  const [empRes, summaryRes, notesRes, excepRes, vacRes, punchCorrectionRes] = await Promise.all([
+  const [
+    empRes,
+    summaryRes,
+    notesRes,
+    excepRes,
+    vacRes,
+    punchCorrectionRes,
+    assignmentHistoryRes
+  ] = await Promise.all([
     _a_sb
       .from('employees')
       .select('days_off, shift_start, shift_end, hire_date')
@@ -3884,7 +3892,17 @@ async function _a_cargarQDAYS(empId, from, to) {
       .eq('employee_id', empId)
       .eq('status', 'approved')
       .gte('work_date', from)
-      .lte('work_date', to)
+      .lte('work_date', to),
+
+    _a_sb
+      .from('employee_assignment_history')
+      .select(
+        'id,valid_from,valid_until,shift_start,shift_end,days_off,work_days,supervisor_id,supervisor_name,campaign_id,position_title,system_role'
+      )
+      .eq('employee_id', empId)
+      .lte('valid_from', to)
+      .or(`valid_until.is.null,valid_until.gte.${from}`)
+      .order('valid_from', { ascending: true })
   ]);
 
   const daysOff = empRes.data?.days_off || [];
@@ -3893,6 +3911,16 @@ async function _a_cargarQDAYS(empId, from, to) {
   const excep = excepRes.data || [];
   const vacaciones = vacRes.data || [];
   const punchCorrections = punchCorrectionRes.data || [];
+  const assignmentHistory = assignmentHistoryRes.data || [];
+
+  const assignmentForDate = date =>
+    assignmentHistory.find(row =>
+      String(row.valid_from || '').slice(0, 10) <= date &&
+      (
+        !row.valid_until ||
+        String(row.valid_until).slice(0, 10) >= date
+      )
+    ) || null;
 
   /*
    * Periodo evaluable de Asistencia:
@@ -3983,6 +4011,7 @@ async function _a_cargarQDAYS(empId, from, to) {
 
     const s = summary.find(x => x.punch_date === fecha);
     const n = notesData.find(x => x.punch_date === fecha);
+    const assignment = assignmentForDate(fecha);
 
     // Todas las excepciones válidas del día.
     // Incluye pending y approved, pero excluye rejected/cancelled.
@@ -4022,7 +4051,14 @@ async function _a_cargarQDAYS(empId, from, to) {
       v.start_date <= fecha && v.end_date >= fecha
     );
 
-    const descansoBase = _a_esDescansoFecha(daysOff, fecha);
+    const daysOffForDate = Array.isArray(assignment?.days_off)
+      ? assignment.days_off
+      : daysOff;
+
+    const descansoBase = _a_esDescansoFecha(
+      daysOffForDate,
+      fecha
+    );
 
     // Si hay permuta_trabajo, aunque sea su descanso normal, ese día debe trabajar.
     // Si hay permuta_descanso, aunque sea día laboral normal, ese día descansa.
@@ -4098,16 +4134,26 @@ async function _a_cargarQDAYS(empId, from, to) {
 
     const horarioInicio = exPermutaHorario?.shift_start_override
       || s?.shift_start
+      || assignment?.shift_start
       || empRes.data?.shift_start
       || null;
 
     const horarioFin = exPermutaHorario?.shift_end_override
       || s?.shift_end
+      || assignment?.shift_end
       || empRes.data?.shift_end
       || null;
 
     dias.push({
       fecha,
+
+      assignment_history_id: assignment?.id || null,
+      assignment_supervisor_id:
+        assignment?.supervisor_id || null,
+      assignment_supervisor_name:
+        assignment?.supervisor_name || null,
+      assignment_campaign_id:
+        assignment?.campaign_id || null,
 
       horario_inicio: horarioInicio,
       horario_fin: horarioFin,
@@ -26409,6 +26455,7 @@ const _e_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIs
 const _e_sb = _auth_sb;
 
 let _e_EMPLEADOS = [];
+let _e_ASSIGNMENT_HISTORY = [];
 let _e_cargando = false;
 let _e_perfilAbierto = null;
 let _e_busqueda = '';
@@ -26423,6 +26470,273 @@ async function _e_cargarEmpleados() {
     _e_EMPLEADOS = data || [];
     return true;
   } catch(e) { console.error('Error empleados:', e); return false; }
+}
+
+async function _e_cargarAssignmentHistory() {
+  try {
+    const { data, error } = await _e_sb
+      .from('employee_assignment_history')
+      .select(
+        'id,employee_id,valid_from,valid_until,shift_start,shift_end,work_days,days_off,supervisor_id,supervisor_name,supervisor_email,campaign_id,secondary_campaign,lob,queue,position_title,system_role,employee_status,change_type,change_reason,changed_by,changed_by_name,source,created_at'
+      )
+      .order('valid_from', { ascending: false });
+
+    if (error) throw error;
+
+    _e_ASSIGNMENT_HISTORY = data || [];
+    return true;
+  } catch (e) {
+    console.error(
+      'Error cargando employee_assignment_history:',
+      e
+    );
+    _e_ASSIGNMENT_HISTORY = [];
+    return false;
+  }
+}
+
+function _e_fmtAssignmentDate(value) {
+  if (!value) return 'Actual';
+
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(date);
+}
+
+function _e_assignmentDaysOffLabel(daysOff) {
+  const labels = {
+    monday: 'Lun',
+    tuesday: 'Mar',
+    wednesday: 'Mié',
+    thursday: 'Jue',
+    friday: 'Vie',
+    saturday: 'Sáb',
+    sunday: 'Dom'
+  };
+
+  return Array.isArray(daysOff) && daysOff.length
+    ? daysOff.map(d => labels[d] || d).join(', ')
+    : 'Sin descanso registrado';
+}
+
+function _e_renderAssignmentHistory(employeeId) {
+  const rows = (_e_ASSIGNMENT_HISTORY || [])
+    .filter(row => String(row.employee_id) === String(employeeId))
+    .sort((a, b) =>
+      String(b.valid_from || '').localeCompare(
+        String(a.valid_from || '')
+      )
+    );
+
+  if (!rows.length) {
+    return `
+      <div style="padding:20px 0;border-bottom:1px solid #F1F5F9">
+        <div style="font-size:13px;font-weight:700;color:#0F172A;margin-bottom:8px">
+          Historial de asignaciones
+        </div>
+        <div
+          style="
+            padding:12px 14px;
+            border-radius:10px;
+            background:#F8FAFC;
+            border:1px solid #E2E8F0;
+            font-size:12px;
+            color:#64748B;
+            line-height:1.5;
+          "
+        >
+          Aún no existe historial confiable para esta persona. Los cambios
+          realizados desde esta versión se conservarán automáticamente.
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="padding:20px 0;border-bottom:1px solid #F1F5F9">
+      <div
+        style="
+          display:flex;
+          justify-content:space-between;
+          gap:12px;
+          align-items:flex-start;
+          margin-bottom:14px;
+        "
+      >
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#0F172A">
+            Historial de asignaciones
+          </div>
+          <div style="font-size:11px;color:#64748B;margin-top:3px">
+            Horario, estructura y operación vigentes en cada periodo.
+          </div>
+        </div>
+
+        <span
+          style="
+            font-size:10px;
+            font-weight:800;
+            padding:4px 8px;
+            border-radius:999px;
+            background:#EFF6FF;
+            color:#1D4ED8;
+          "
+        >
+          ${rows.length} periodo${rows.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      <div style="display:grid;gap:10px">
+        ${rows.map(row => {
+          const isCurrent = !row.valid_until;
+
+          return `
+            <div
+              style="
+                position:relative;
+                padding:14px 15px 14px 18px;
+                border-radius:12px;
+                border:1px solid ${
+                  isCurrent ? '#93C5FD' : '#E2E8F0'
+                };
+                background:${
+                  isCurrent ? '#EFF6FF' : '#FFFFFF'
+                };
+              "
+            >
+              <div
+                style="
+                  position:absolute;
+                  left:-5px;
+                  top:18px;
+                  width:10px;
+                  height:10px;
+                  border-radius:50%;
+                  background:${isCurrent ? '#2563EB' : '#94A3B8'};
+                  box-shadow:0 0 0 4px white;
+                "
+              ></div>
+
+              <div
+                style="
+                  display:flex;
+                  justify-content:space-between;
+                  gap:10px;
+                  flex-wrap:wrap;
+                  margin-bottom:10px;
+                "
+              >
+                <div style="font-size:12px;font-weight:900;color:#0F172A">
+                  ${_e_fmtAssignmentDate(row.valid_from)}
+                  –
+                  ${row.valid_until
+                    ? _e_fmtAssignmentDate(row.valid_until)
+                    : 'Actual'
+                  }
+                </div>
+
+                ${
+                  isCurrent
+                    ? `
+                      <span
+                        style="
+                          padding:3px 8px;
+                          border-radius:999px;
+                          background:#DBEAFE;
+                          color:#1D4ED8;
+                          font-size:10px;
+                          font-weight:900;
+                        "
+                      >
+                        Vigente
+                      </span>
+                    `
+                    : ''
+                }
+              </div>
+
+              <div
+                style="
+                  display:grid;
+                  grid-template-columns:repeat(2,minmax(0,1fr));
+                  gap:8px 18px;
+                "
+              >
+                <div style="font-size:12px;color:#334155">
+                  <b>Horario:</b>
+                  ${
+                    row.shift_start
+                      ? String(row.shift_start).slice(0, 5) +
+                        '–' +
+                        String(row.shift_end || '').slice(0, 5)
+                      : '—'
+                  }
+                </div>
+
+                <div style="font-size:12px;color:#334155">
+                  <b>Descanso:</b>
+                  ${_e_assignmentDaysOffLabel(row.days_off)}
+                </div>
+
+                <div style="font-size:12px;color:#334155">
+                  <b>Supervisor:</b>
+                  ${_d_esc(row.supervisor_name || row.supervisor_id || '—')}
+                </div>
+
+                <div style="font-size:12px;color:#334155">
+                  <b>Campaña:</b>
+                  ${_d_esc(row.campaign_id || '—')}
+                </div>
+
+                <div style="font-size:12px;color:#334155">
+                  <b>Puesto:</b>
+                  ${_d_esc(row.position_title || '—')}
+                </div>
+
+                <div style="font-size:12px;color:#334155">
+                  <b>Rol:</b>
+                  ${_d_esc(_e_roleLabel(row.system_role))}
+                </div>
+              </div>
+
+              ${
+                row.change_reason
+                  ? `
+                    <div
+                      style="
+                        margin-top:10px;
+                        padding-top:9px;
+                        border-top:1px solid #E2E8F0;
+                        font-size:11px;
+                        color:#64748B;
+                        line-height:1.45;
+                      "
+                    >
+                      <b>Motivo:</b>
+                      ${_d_esc(row.change_reason)}
+                      ${
+                        row.changed_by_name
+                          ? ` · Registrado por ${_d_esc(row.changed_by_name)}`
+                          : ''
+                      }
+                    </div>
+                  `
+                  : ''
+              }
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
 }
 
 function _e_roleLabel(r) {
@@ -26873,6 +27187,8 @@ function _e_renderPerfil(empId) {
       ['Nombre', e.supervisor_name || '—'],
       ['Email', e.supervisor_email || '—'],
     ])}
+
+    ${_e_renderAssignmentHistory(e.id)}
 
     ${section('Datos personales', [
       ['Teléfono', e.phone || '—'],
@@ -27457,6 +27773,47 @@ async function _e_abrirEditar(empId) {
       </select>
     </div>
 
+    <div
+      style="
+        margin:16px 0 12px;
+        padding:12px 14px;
+        border-radius:10px;
+        background:#EFF6FF;
+        border:1px solid #BFDBFE;
+        color:#1D4ED8;
+        font-size:12px;
+        line-height:1.5;
+      "
+    >
+      <b>Vigencia de cambios operativos</b><br>
+      Cualquier cambio de horario, descanso, Supervisor, campaña, puesto,
+      rol, LOB o queue tendrá vigencia desde hoy en CDMX. Los periodos
+      anteriores no se modificarán.
+    </div>
+
+    <div class="modal-section">
+      <label class="modal-label">
+        MOTIVO DEL CAMBIO OPERATIVO
+      </label>
+      <input
+        type="text"
+        id="edit-assignment-reason"
+        placeholder="Ej. Cambio de horario solicitado por Operaciones"
+        style="
+          width:100%;
+          padding:8px;
+          border:1px solid #E2E8F0;
+          border-radius:8px;
+          font-size:13px;
+          font-family:var(--f);
+        "
+      />
+      <div style="font-size:11px;color:#94A3B8;margin-top:4px">
+        Será obligatorio únicamente cuando cambies horario, descanso,
+        Supervisor, campaña, puesto, rol, LOB o queue.
+      </div>
+    </div>
+
     <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Horario</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="modal-section">
@@ -27531,6 +27888,15 @@ async function _e_abrirEditar(empId) {
 }
 
 async function _e_confirmarEditar(empId) {
+  const currentEmployee = _e_EMPLEADOS.find(
+    e => String(e.id) === String(empId)
+  );
+
+  if (!currentEmployee) {
+    alert('No se encontró el empleado.');
+    return;
+  }
+
   const nombre      = document.getElementById('edit-nombre')?.value?.trim();
   const birth       = document.getElementById('edit-birth')?.value || null;
   const genero      = document.getElementById('edit-genero')?.value;
@@ -27559,7 +27925,13 @@ async function _e_confirmarEditar(empId) {
   const rfc         = document.getElementById('edit-rfc')?.value?.trim().toUpperCase() || null;
   const curp        = document.getElementById('edit-curp')?.value?.trim().toUpperCase() || null;
   const nss         = document.getElementById('edit-nss')?.value?.trim() || null;
-  const diasDescanso = Array.from(document.querySelectorAll('.edit-descanso-cb:checked')).map(cb => cb.value);
+  const assignmentReason =
+    document.getElementById('edit-assignment-reason')
+      ?.value?.trim() || null;
+
+  const diasDescanso = Array.from(
+    document.querySelectorAll('.edit-descanso-cb:checked')
+  ).map(cb => cb.value);
   const diasTrabajo  = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].filter(d => !diasDescanso.includes(d));
 
   if (!nombre) { alert('Escribe el nombre completo'); return; }
@@ -27567,6 +27939,29 @@ async function _e_confirmarEditar(empId) {
   if (!puesto) { alert('Escribe el puesto'); return; }
   if (!hireDate) { alert('Selecciona la fecha de ingreso'); return; }
   if (campanaSec && campanaSec === campana) { alert('La campaña secundaria no puede ser igual a la principal'); return; }
+
+  const normalizeArray = value =>
+    JSON.stringify([...(value || [])].sort());
+
+  const trackedAssignmentChanged = [
+    String(currentEmployee.system_role || '') !== String(rol || ''),
+    String(currentEmployee.campaign_id || '') !== String(campana || ''),
+    String(currentEmployee.secondary_campaign || '') !== String(campanaSec || ''),
+    String(currentEmployee.lob || '') !== String(lob || ''),
+    String(currentEmployee.queue || '') !== String(queue || ''),
+    String(currentEmployee.position_title || '') !== String(puesto || ''),
+    String(currentEmployee.supervisor_id || '') !== String(supId || ''),
+    String(currentEmployee.shift_start || '').slice(0, 5) !== String(shiftStart || '').slice(0, 5),
+    String(currentEmployee.shift_end || '').slice(0, 5) !== String(shiftEnd || '').slice(0, 5),
+    normalizeArray(currentEmployee.days_off) !== normalizeArray(diasDescanso)
+  ].some(Boolean);
+
+  if (trackedAssignmentChanged && !assignmentReason) {
+    alert(
+      'Escribe el motivo del cambio operativo. Este dato quedará en el historial.'
+    );
+    return;
+  }
 
   const nameParts = nombre.split(' ');
   const firstName = nameParts[0];
@@ -27589,8 +27984,32 @@ async function _e_confirmarEditar(empId) {
       updated_at: new Date().toISOString(),
     };
 
-    const { error } = await _e_sb.from('employees').update(payload).eq('id', empId);
-    if (error) throw new Error('Error guardando cambios: ' + error.message);
+    const { data: updateResult, error } = await _e_sb.rpc(
+      'update_employee_profile_with_history_v1',
+      {
+        p_employee_id: empId,
+        p_payload: payload,
+        p_change_reason: assignmentReason
+      }
+    );
+
+    if (error) {
+      throw new Error(
+        'Error guardando cambios: ' +
+        [
+          error.message,
+          error.details,
+          error.hint
+        ].filter(Boolean).join(' · ')
+      );
+    }
+
+    if (updateResult?.ok === false) {
+      throw new Error(
+        updateResult.message ||
+        'No se pudo guardar el cambio.'
+      );
+    }
 
     if (sueldo !== '' && sueldo !== undefined) {
       const salaryMonthly = parseFloat(sueldo);
@@ -27604,7 +28023,10 @@ async function _e_confirmarEditar(empId) {
 
     closeModal();
     _e_cargando = true; _e_render();
-    await _e_cargarEmpleados();
+    await Promise.all([
+      _e_cargarEmpleados(),
+      _e_cargarAssignmentHistory()
+    ]);
     _e_cargando = false; _e_render();
 
   } catch(e) {
@@ -28130,7 +28552,11 @@ window['_init_equipo']=async function(){
     sessionStorage.setItem('impulse_user', JSON.stringify({ ...saved, empId: resolvedId }));
   }
 
-  const results = await Promise.all([_e_cargarEmpleados(), _e_cargarHistory()]);
+  const results = await Promise.all([
+    _e_cargarEmpleados(),
+    _e_cargarHistory(),
+    _e_cargarAssignmentHistory()
+  ]);
   const ok = results[0];
   _e_cargando=false;
   if (ok) _e_render();
