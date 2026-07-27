@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.23';
+const APP_VERSION   = '1.0.24';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2296,24 +2296,13 @@ async function _rt_refreshActiveModule() {
         null;
 
       const ok = typeof _a_cargarDatos === 'function'
-        ? await _a_cargarDatos()
+        ? await _a_cargarDatos({
+            historyEmployeeId: viewedEmployeeId
+          })
         : true;
 
       if (ok === false) {
         throw new Error('No se pudieron recargar los datos de Asistencia.');
-      }
-
-      const loggedEmployeeId = ROLES[currentRole]?.id || null;
-      if (
-        viewedEmployeeId &&
-        typeof _a_cargarQDAYS === 'function' &&
-        viewedEmployeeId !== loggedEmployeeId
-      ) {
-        await _a_cargarQDAYS(
-          viewedEmployeeId,
-          _a_dateFilter.from,
-          _a_dateFilter.to
-        );
       }
 
       if (
@@ -4116,7 +4105,10 @@ async function _a_cargarQDAYS(empId, from, to) {
   _a_QDAYS_EMPLEADO_ID = empId;
 }
 
-async function _a_cargarDatos() {
+async function _a_cargarDatos(options = {}) {
+  const requestedHistoryEmployeeId =
+    options?.historyEmployeeId ||
+    null;
   try {
     const ro = ROLES[currentRole] || {};
     if (!ro.id) {
@@ -4517,8 +4509,18 @@ async function _a_cargarDatos() {
       ps.salida  = salida  ? String(salida.punch_time).slice(0, 5)  : null;
     }
 
-    // 2. Historial del rango activo del filtro de fechas
-    await _a_cargarQDAYS(ro.id, _a_dateFilter.from, _a_dateFilter.to);
+    // 2. Historial del rango activo del filtro de fechas.
+    // Si un supervisor/manager está viendo el detalle de un agente,
+    // conservamos ese empleado al volver desde otro módulo.
+    const historyEmployeeId =
+      requestedHistoryEmployeeId ||
+      ro.id;
+
+    await _a_cargarQDAYS(
+      historyEmployeeId,
+      _a_dateFilter.from,
+      _a_dateFilter.to
+    );
 
     // 3. Equipo del supervisor / manager / people / head / workforce / ceo
     if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
@@ -7578,6 +7580,40 @@ function _a_render(){
   }
 
   if (_a_drillAgent) {
+    if (
+      _a_QDAYS_EMPLEADO_ID &&
+      String(_a_QDAYS_EMPLEADO_ID) !== String(_a_drillAgent)
+    ) {
+      c.innerHTML = `
+        <div style="text-align:center;padding:60px;color:#94A3B8">
+          <div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
+          Sincronizando el historial del agente…
+        </div>
+      `;
+
+      /*
+       * Autocorrección defensiva. Normalmente el init ya carga al agente
+       * correcto; esto evita mostrar datos cruzados si otra operación
+       * modifica el estado durante la navegación.
+       */
+      if (!_a_cargando) {
+        _a_cargando = true;
+
+        Promise.resolve(
+          _a_cargarQDAYS(
+            _a_drillAgent,
+            _a_dateFilter.from,
+            _a_dateFilter.to
+          )
+        ).finally(() => {
+          _a_cargando = false;
+          _a_render();
+        });
+      }
+
+      return;
+    }
+
     c.innerHTML = _a_renderAgentDetail(_a_drillAgent);
     return;
   }
@@ -11340,15 +11376,37 @@ async function _n_crearPeriodo(){
 
 
 window['_init_asistencia']=async function(){
+  /*
+   * Guardar el contexto ANTES de consultar Supabase.
+   *
+   * Antes, _a_cargarDatos() siempre cargaba el historial del usuario
+   * autenticado. Cuando un supervisor estaba viendo a un agente,
+   * cambiaba a Acciones People y regresaba, _a_drillAgent conservaba
+   * el nombre del agente, pero _a_QDAYS contenía los datos del supervisor.
+   */
+  const viewedEmployeeId =
+    _a_drillAgent ||
+    _a_ceoDrillAg ||
+    null;
+
   _a_cargando = true;
   _a_render();
-  const ok = await _a_cargarDatos();
-  if (ok && ['supervisor','manager','people','head_people'].includes(currentRole)) {
-    // Carga primero los registros existentes para que los KPIs nazcan correctos.
+
+  const ok = await _a_cargarDatos({
+    historyEmployeeId: viewedEmployeeId
+  });
+
+  if (
+    ok &&
+    ['supervisor','manager','people','head_people'].includes(currentRole)
+  ) {
+    // Solo consulta registros existentes; no recalcula ni modifica.
     await _a_cargarOTRecords({ sync: false });
   }
+
   _a_cargando = false;
   _a_render();
+
   if (ok) {
     _a_checkAutoRetardos();
     _a_checkAutoFaltas();
