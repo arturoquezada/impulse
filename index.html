@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.30';
+const APP_VERSION   = '1.0.31';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -14420,8 +14420,98 @@ function _dd4_validAction(a){
   ].includes(_dd_norm(a?.status));
 }
 
+function _dd4_boolValue(value) {
+  if (typeof value === 'boolean') return value;
+
+  const normalized = _dd_norm(value);
+
+  if (['true','t','1','yes','si','sí'].includes(normalized)) {
+    return true;
+  }
+
+  if (['false','f','0','no'].includes(normalized)) {
+    return false;
+  }
+
+  return null;
+}
+
+function _dd4_isActionableLate(r = {}) {
+  if (_dd_norm(r.audit_status) !== 'retardo') {
+    return false;
+  }
+
+  const minutesLate = Number(r.minutes_late || 0);
+
+  const toleranceMinutes = Number(
+    r.tolerance_minutes ??
+    r.tolerancia_minutos ??
+    r.late_tolerance_minutes ??
+    10
+  );
+
+  const explicitWithinTolerance = _dd4_boolValue(
+    r.is_within_tolerance ??
+    r.within_tolerance ??
+    r.en_tolerancia
+  );
+
+  const statusWithinTolerance = [
+    'tolerance',
+    'within_tolerance',
+    'en_tolerancia',
+    'tolerancia'
+  ].includes(
+    _dd_norm(
+      r.attendance_status ??
+      r.status ??
+      r.final_status
+    )
+  );
+
+  const isWithinTolerance =
+    explicitWithinTolerance === true ||
+    statusWithinTolerance ||
+    (
+      explicitWithinTolerance === null &&
+      minutesLate > 0 &&
+      minutesLate <= toleranceMinutes
+    );
+
+  const explicitCountsForDiscipline = _dd4_boolValue(
+    r.counts_for_discipline ??
+    r.disciplinary_actionable ??
+    r.actionable_for_discipline
+  );
+
+  const countsForDiscipline =
+    explicitCountsForDiscipline === null
+      ? (
+          minutesLate > toleranceMinutes &&
+          !isWithinTolerance
+        )
+      : explicitCountsForDiscipline;
+
+  const hasOpenOrApprovedJustification = [
+    'pending',
+    'approved'
+  ].includes(
+    _dd_norm(r.late_justification_status)
+  );
+
+  return (
+    minutesLate > 0 &&
+    !isWithinTolerance &&
+    countsForDiscipline &&
+    !hasOpenOrApprovedJustification
+  );
+}
+
 function _dd4_actionableRows(rows=[]){
-  return (rows||[]).filter(r=>r.audit_status==='falta_injustificada' || (r.audit_status==='retardo' && !['pending','approved'].includes(_dd_norm(r.late_justification_status))));
+  return (rows || []).filter(r =>
+    _dd_norm(r.audit_status) === 'falta_injustificada' ||
+    _dd4_isActionableLate(r)
+  );
 }
 
 const _DD4_EXCLUDED_ATTENDANCE_ROLES = new Set([
@@ -15592,7 +15682,15 @@ function _dd4_renderOverview(d){
 function _dd4_filteredAttendance(d){const q=_dd_norm(_dd4_UI.search);return(d.current.rows||[]).filter(r=>{if(_dd4_UI.attendanceStatus!=='all'&&r.audit_status!==_dd4_UI.attendanceStatus)return false;if(q&&!_dd_norm([r.employee_name,r.employee_id,r.supervisor_name,r.campaign_id,r.audit_status,r.work_date].join(' ')).includes(q))return false;return true;});}
 function _dd4_renderAttendance(d){
   const rows=_dd4_filteredAttendance(d);const statuses=[...new Set((d.current.rows||[]).map(r=>r.audit_status).filter(Boolean))].sort();
-  if(_dd_isOperationalAccess()){return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todos los estados</option>${statuses.map(s=>`<option value="${_dd_escape(s)}" ${_dd4_UI.attendanceStatus===s?'selected':''}>${_dd_escape(s.replaceAll('_',' '))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} filas</span></div><div class="dd4-alert blue">Una fila por persona-fecha. Esta vista es solo lectura y no contiene People Actions ni datos disciplinarios.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1180px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Horario</th><th>Entrada</th><th>Salida</th><th class="dd4-center">Min. tarde</th><th>Estado final</th><th>Incidencia</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td class="dd4-mono">${_dd_timeValue(r,['shift_start'])||'—'}–${_dd_timeValue(r,['shift_end'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${['falta_injustificada','retardo','sin_entrada','sin_salida'].includes(_dd_norm(r.audit_status))?'<span class="dd4-status warn">Revisar</span>':'<span class="dd4-status neutral">No aplica</span>'}</td></tr>`).join(''):`<tr><td colspan="10"><div class="dd4-empty">No hay registros con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;}
+  if(_dd_isOperationalAccess()){return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todos los estados</option>${statuses.map(s=>`<option value="${_dd_escape(s)}" ${_dd4_UI.attendanceStatus===s?'selected':''}>${_dd_escape(s.replaceAll('_',' '))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} filas</span></div><div class="dd4-alert blue">Una fila por persona-fecha. Esta vista es solo lectura y no contiene People Actions ni datos disciplinarios.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1180px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Horario</th><th>Entrada</th><th>Salida</th><th class="dd4-center">Min. tarde</th><th>Estado final</th><th>Incidencia</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td class="dd4-mono">${_dd_timeValue(r,['shift_start'])||'—'}–${_dd_timeValue(r,['shift_end'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${
+  _dd4_actionableRows([r]).length
+    ? '<span class="dd4-status warn">Accionable</span>'
+    : _dd_norm(r.audit_status) === 'retardo'
+      ? '<span class="dd4-status ok">Dentro de tolerancia / no disciplinario</span>'
+      : ['sin_entrada','sin_salida'].includes(_dd_norm(r.audit_status))
+        ? '<span class="dd4-status warn">Revisar asistencia</span>'
+        : '<span class="dd4-status neutral">No aplica</span>'
+}</td></tr>`).join(''):`<tr><td colspan="10"><div class="dd4-empty">No hay registros con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;}
   return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todos los estados</option>${statuses.map(s=>`<option value="${_dd_escape(s)}" ${_dd4_UI.attendanceStatus===s?'selected':''}>${_dd_escape(s.replaceAll('_',' '))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} filas únicas</span></div>
   <div class="dd4-alert blue"><b>Regla del explorador:</b> cada renglón representa una sola persona en una sola fecha. Cuando el RPC devuelve duplicados, Deep Dive conserva la fila con mayor evidencia de asistencia y manda el conflicto a Calidad de datos.</div>
   <div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1350px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Estado final</th><th class="dd4-center">Min. tarde</th><th>Entrada</th><th>Salida</th><th>Registro final</th><th>People Action</th><th>Calidad</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td>${r.dd_has_final_exception?'<span class="dd4-status ok">Encontrado</span>':r.audit_status==='falta_injustificada'?'<span class="dd4-status warn">Sin registro</span>':'<span class="dd4-status neutral">No aplica</span>'}</td><td>${_dd4_actionableRows([r]).length?(r.dd_action?`<span class="dd4-status ${r.dd_action_status==='on_time'?'ok':'warn'}">${r.dd_action_status==='on_time'?'A tiempo':'Tardía'}</span>`:'<span class="dd4-status bad">Sin acción</span>'):'<span class="dd4-status neutral">No aplica</span>'}</td><td>${r.dd_duplicate_count>1?`<span class="dd4-status bad">${r.dd_duplicate_count} duplicados</span>`:'<span class="dd4-status ok">OK</span>'}</td></tr>`).join(''):`<tr><td colspan="11"><div class="dd4-empty">No hay registros con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
@@ -24224,7 +24322,7 @@ async function _d_resolveFollowupCase(id) {
   }
 
   const { data, error } = await _d_sb.rpc(
-    'resolve_people_action_followup_v3',
+    'resolve_people_action_followup_v4',
     {
       p_payload: {
         followup_id: id,
@@ -24258,10 +24356,16 @@ async function _d_resolveFollowupCase(id) {
       String(issue.message || '').toLowerCase()
         .includes('solo people');
 
+    const nonActionableLate =
+      issue.code === 'LATE_NOT_ACTIONABLE' ||
+      issue.code === 'LATE_WITHIN_TOLERANCE';
+
     alert(
       (peopleOnly
         ? 'Este caso debe ser resuelto por People:\n\n'
-        : 'No se pudo procesar la incidencia:\n\n'
+        : nonActionableLate
+          ? 'Esta llegada tarde no requiere Acción People:\n\n'
+          : 'No se pudo procesar la incidencia:\n\n'
       ) +
       [
         issue.message,
