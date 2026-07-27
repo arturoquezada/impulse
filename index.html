@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.32';
+const APP_VERSION   = '1.0.33';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -14852,6 +14852,104 @@ function _dd4_actionIncidentYmd(action={}){
   return match?.[1]||'';
 }
 
+
+function _dd4_actionIncidentType(action={}){
+  const direct=_dd_norm(
+    action.attendance_incident_type ||
+    action.incident_type ||
+    action.matrix_attendance_link_type ||
+    ''
+  );
+
+  if(['late','retardo'].includes(direct)) return 'late';
+  if([
+    'absence','falta','falta_injustificada',
+    'ausencia','ausentismo','no_show'
+  ].includes(direct)) return 'absence';
+
+  const source=_dd_norm(
+    action.attendance_source_id ||
+    action.source_id ||
+    ''
+  );
+
+  if(/(^|:)late$/.test(source)) return 'late';
+  if(/(^|:)absence$/.test(source)) return 'absence';
+
+  return '';
+}
+
+function _dd4_rowIncidentType(row={}){
+  const status=_dd_norm(row.audit_status);
+
+  if(status==='retardo') return 'late';
+  if(['falta_injustificada','sin_entrada'].includes(status)) {
+    return 'absence';
+  }
+
+  return '';
+}
+
+function _dd4_actionSourceId(action={}){
+  return String(
+    action.attendance_source_id ||
+    action.source_id ||
+    ''
+  ).trim().toLowerCase();
+}
+
+function _dd4_expectedActionSourceIds(row={}){
+  const employee=String(row.employee_id||'')
+    .trim()
+    .toUpperCase();
+  const date=String(row.work_date||'').slice(0,10);
+  const type=_dd4_rowIncidentType(row);
+
+  if(!employee||!date||!type) return [];
+
+  return [
+    `attendance_daily_summary:${employee}:${date}:${type}`,
+    `attendance_audit:${employee}:${date}:${type}`,
+    `attendance_exception:${employee}:${date}:${type}`
+  ].map(v=>v.toLowerCase());
+}
+
+function _dd4_actionTypeCompatible(action,row={}){
+  const actionType=_dd4_actionIncidentType(action);
+  const rowType=_dd4_rowIncidentType(row);
+
+  if(!rowType) return true;
+  if(!actionType) return null;
+
+  return actionType===rowType;
+}
+
+function _dd4_actionStatusLabel(action={}){
+  const status=_dd_norm(action.status||action.case_status);
+  const ack=_dd_norm(
+    action.employee_ack_status ||
+    action.ack_status
+  );
+
+  if(['pending_review','pending','requested','draft'].includes(status)) {
+    return 'En revisión de People';
+  }
+
+  if(['approved','issued','active','signed'].includes(status)) {
+    if(ack==='signed'||status==='signed') {
+      return 'Acción emitida y firmada';
+    }
+
+    if(['pending','pending_signature'].includes(ack)) {
+      return 'Acción emitida · firma pendiente';
+    }
+
+    return 'Acción People emitida';
+  }
+
+  return 'Incidencia gestionada';
+}
+
 function _dd4_actionManagementDate(action={}){
   return action.action_date ||
     action.issued_at ||
@@ -14862,10 +14960,14 @@ function _dd4_actionManagementDate(action={}){
 }
 
 function _dd4_operationalResultLabel(exception,row={},action=null){
+  if(action){
+    return _dd4_actionStatusLabel(action);
+  }
+
   if(exception){
     const type=_dd_norm(exception.type);
     const labels={
-      falta_injustificada:'Falta injustificada',
+      falta_injustificada:'Falta registrada en Asistencia',
       permiso:'Permiso',
       incapacidad:'Incapacidad',
       vacaciones:'Vacaciones',
@@ -14880,17 +14982,6 @@ function _dd4_operationalResultLabel(exception,row={},action=null){
     };
     return labels[type] ||
       String(exception.type||'Incidencia registrada').replaceAll('_',' ');
-  }
-
-  if(action){
-    const status=_dd_norm(row.audit_status);
-
-    if(status==='retardo') return 'Retardo injustificado';
-    if(status==='falta_injustificada') return 'Falta injustificada';
-    if(status==='sin_entrada') return 'Ausencia gestionada';
-    if(status==='sin_salida') return 'Salida pendiente gestionada';
-
-    return 'Incidencia gestionada';
   }
 
   return row.audit_status==='falta_injustificada'
@@ -14925,13 +15016,18 @@ function _dd4_buildOperationalIncidents(
     .filter(_dd4_validAction)
     .map(a=>({
       ...a,
-      _employee_id:String(_dd_actionEmployee(a)||'').trim().toUpperCase(),
+      _employee_id:String(_dd_actionEmployee(a)||'')
+        .trim()
+        .toUpperCase(),
       _incident_date:_dd4_actionIncidentYmd(a),
+      _incident_type:_dd4_actionIncidentType(a),
+      _source_id:_dd4_actionSourceId(a),
       _management_date:_dd4_actionManagementDate(a)
     }))
     .filter(a=>a._employee_id && a._management_date)
     .sort((a,b)=>
-      String(a._management_date).localeCompare(String(b._management_date))
+      String(a._management_date)
+        .localeCompare(String(b._management_date))
     );
 
   const actionsByEmployee={};
@@ -14941,6 +15037,13 @@ function _dd4_buildOperationalIncidents(
   });
 
   const usedActions=new Set();
+
+  const actionKey=a=>a.id || [
+    a._employee_id,
+    a._incident_date,
+    a._incident_type,
+    a._management_date
+  ].join('|');
 
   const incidentRows=(rows||[])
     .filter(r=>{
@@ -15019,49 +15122,105 @@ function _dd4_buildOperationalIncidents(
 
     const final=all.find(_dd4_isFinalException)||all[0]||null;
 
-    const employeeId=String(r.employee_id||'').trim().toUpperCase();
+    const employeeId=String(r.employee_id||'')
+      .trim()
+      .toUpperCase();
     const incidentYmd=String(r.work_date||'').slice(0,10);
+    const rowType=_dd4_rowIncidentType(r);
+    const expectedSources=new Set(_dd4_expectedActionSourceIds(r));
     const employeeActions=actionsByEmployee[employeeId]||[];
 
     let action=null;
     let actionDays=null;
+    let matchMethod='';
 
     /*
-     * 1. Prioridad absoluta: una People Action vinculada explícitamente
-     *    a la misma persona y fecha mediante attendance_source_id o
-     *    attendance_incident_date.
+     * 1. Vínculo técnico exacto.
      */
     for(const candidate of employeeActions){
-      const actionKey=candidate.id ||
-        `${candidate._employee_id}|${candidate._management_date}`;
+      const key=actionKey(candidate);
+      if(usedActions.has(key)) continue;
 
-      if(usedActions.has(actionKey)) continue;
-
-      if(candidate._incident_date===incidentYmd){
+      if(
+        candidate._source_id &&
+        expectedSources.has(candidate._source_id)
+      ){
         action=candidate;
         actionDays=_dd4_daysBetweenYmd(
           incidentYmd,
           candidate._management_date
         );
-        usedActions.add(actionKey);
+        matchMethod='exact_source';
+        usedActions.add(key);
         break;
       }
     }
 
     /*
-     * 2. Compatibilidad histórica: cuando el caso antiguo no tiene
-     *    attendance_source_id, se vincula con la primera acción del
-     *    agente creada entre el mismo día y siete días después.
+     * 2. Misma persona + fecha + tipo de incidencia.
+     *    Esta ruta recupera casos históricos vinculados mediante matriz.
+     */
+    if(!action){
+      for(const candidate of employeeActions){
+        const key=actionKey(candidate);
+        if(usedActions.has(key)) continue;
+
+        if(
+          candidate._incident_date===incidentYmd &&
+          _dd4_actionTypeCompatible(candidate,r)===true
+        ){
+          action=candidate;
+          actionDays=_dd4_daysBetweenYmd(
+            incidentYmd,
+            candidate._management_date
+          );
+          matchMethod='date_and_type';
+          usedActions.add(key);
+          break;
+        }
+      }
+    }
+
+    /*
+     * 3. Misma persona y fecha cuando solo existe una Acción People
+     *    de asistencia en ese día y el caso antiguo no guarda el tipo.
+     */
+    if(!action){
+      const sameDate=employeeActions.filter(candidate=>{
+        const key=actionKey(candidate);
+        if(usedActions.has(key)) return false;
+        if(candidate._incident_date!==incidentYmd) return false;
+
+        const compatible=_dd4_actionTypeCompatible(candidate,r);
+        return compatible!==false;
+      });
+
+      if(sameDate.length===1){
+        action=sameDate[0];
+        actionDays=_dd4_daysBetweenYmd(
+          incidentYmd,
+          action._management_date
+        );
+        matchMethod='unique_same_date';
+        usedActions.add(actionKey(action));
+      }
+    }
+
+    /*
+     * 4. Compatibilidad histórica extrema: únicamente para acciones sin
+     *    fecha de incidencia explícita, creadas en los siguientes 7 días.
      */
     if(!action){
       let best=null;
       let bestDays=999;
 
       for(const candidate of employeeActions){
-        const actionKey=candidate.id ||
-          `${candidate._employee_id}|${candidate._management_date}`;
+        const key=actionKey(candidate);
+        if(usedActions.has(key)) continue;
+        if(candidate._incident_date) continue;
 
-        if(usedActions.has(actionKey)) continue;
+        const compatible=_dd4_actionTypeCompatible(candidate,r);
+        if(compatible===false) continue;
 
         const days=_dd4_daysBetweenYmd(
           incidentYmd,
@@ -15077,12 +15236,10 @@ function _dd4_buildOperationalIncidents(
       }
 
       if(best){
-        const actionKey=best.id ||
-          `${best._employee_id}|${best._management_date}`;
-
         action=best;
         actionDays=bestDays;
-        usedActions.add(actionKey);
+        matchMethod='legacy_window';
+        usedActions.add(actionKey(best));
       }
     }
 
@@ -15091,10 +15248,6 @@ function _dd4_buildOperationalIncidents(
       ? _dd4_daysBetweenYmd(incidentYmd,manualCreatedAt)
       : null;
 
-    /*
-     * Puede existir registro administrativo y People Action.
-     * Para accountability se toma la primera gestión válida.
-     */
     const managementCandidates=[];
 
     if(manual && manualDays!==null){
@@ -15189,6 +15342,9 @@ function _dd4_buildOperationalIncidents(
       op_action:action,
       op_action_date:action?._management_date||'',
       op_action_days:actionDays,
+      op_action_match_method:matchMethod,
+      op_action_incident_type:action?._incident_type||'',
+      op_action_status:action?.status||action?.case_status||'',
 
       op_management_source:management?.kind||'',
       op_management_date:management?.date||'',
