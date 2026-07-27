@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.27';
+const APP_VERSION   = '1.0.28';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -22582,9 +22582,56 @@ function _d_openFollowups() {
   return (_d_FOLLOWUPS || []).filter(t => !_d_followupIsResolved(t));
 }
 
+function _d_todayCdmxYmd() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+
+  const values = Object.fromEntries(
+    parts.map(p => [p.type, p.value])
+  );
+
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function _d_ymdUtcDayNumber(value) {
+  const match = String(value || '')
+    .slice(0, 10)
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!match) return null;
+
+  return Math.floor(
+    Date.UTC(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3])
+    ) / 86400000
+  );
+}
+
 function _d_followupDays(t) {
-  const value = Number(t?.days_late);
-  return Number.isFinite(value) ? value : 0;
+  const serverValue = Number(t?.days_late);
+  const serverDays = Number.isFinite(serverValue)
+    ? Math.max(0, Math.trunc(serverValue))
+    : 0;
+
+  const today = _d_ymdUtcDayNumber(_d_todayCdmxYmd());
+  const incident = _d_ymdUtcDayNumber(t?.incident_date);
+
+  const localDays =
+    today !== null && incident !== null
+      ? Math.max(0, today - incident)
+      : serverDays;
+
+  /*
+   * Usar el mayor valor evita que una fila cargada antes de medianoche
+   * conserve una antigüedad menor durante toda la sesión.
+   */
+  return Math.max(serverDays, localDays);
 }
 
 function _d_followupBucket(t) {
@@ -22673,6 +22720,14 @@ function _d_followupAccountabilityPreview(t) {
   if (days === 1) return 'Tardía';
   if (days <= 7) return 'Omisión regularizable';
   return 'Omisión crítica';
+}
+
+function _d_followupIsPeopleOnlyForManager(t) {
+  return (
+    currentRole === 'manager' &&
+    !_d_followupIsResolved(t) &&
+    _d_followupDays(t) > 7
+  );
 }
 
 function _d_followupCanCreate(t) {
@@ -22910,8 +22965,31 @@ function _d_renderFollowupActions(t) {
     `);
   }
 
+  if (_d_followupIsPeopleOnlyForManager(t)) {
+    actions.push(`
+      <div
+        style="
+          display:inline-flex;
+          align-items:center;
+          gap:6px;
+          padding:7px 10px;
+          border-radius:9px;
+          background:#FEE2E2;
+          color:#991B1B;
+          font-size:11px;
+          font-weight:900;
+          line-height:1.25;
+          max-width:180px
+        "
+        title="El Manager conserva visibilidad, pero únicamente People puede resolver casos mayores a siete días."
+      >
+        🔒 Solo People puede resolver
+      </div>
+    `);
+  }
+
   return actions.length
-    ? `<div style="display:flex;gap:6px;flex-wrap:wrap">${actions.join('')}</div>`
+    ? `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${actions.join('')}</div>`
     : '<span style="font-size:11px;color:#94A3B8">Solo seguimiento</span>';
 }
 
@@ -23143,6 +23221,17 @@ function _d_followupMatrixOptions(t) {
 function _d_openFollowupCase(id) {
   const t = _d_followupById(id);
 
+  if (_d_followupIsPeopleOnlyForManager(t)) {
+    alert(
+      'Esta incidencia tiene más de 7 días.\n\n' +
+      'De acuerdo con la regla de accountability, únicamente People ' +
+      'puede revisarla y autorizar una acción excepcional.\n\n' +
+      'El Manager conserva visibilidad del caso, pero no puede emitir ' +
+      'ni cerrar la sanción.'
+    );
+    return;
+  }
+
   if (!t || !_d_followupCanCreate(t)) {
     alert('Este caso ya no está disponible para tu rol.');
     return;
@@ -23269,6 +23358,23 @@ async function _d_resolveFollowupCase(id) {
   const t = _d_followupById(id);
   if (!t) return;
 
+  /*
+   * Protección para ventanas que permanecieron abiertas mientras el
+   * caso pasó del día 7 al día 8.
+   */
+  if (_d_followupIsPeopleOnlyForManager(t)) {
+    closeModal();
+
+    alert(
+      'El caso ya superó la ventana de 7 días del Manager.\n\n' +
+      'Ahora debe ser resuelto por People. La omisión permanecerá ' +
+      'clasificada como crítica.'
+    );
+
+    await _d_reloadFollowups();
+    return;
+  }
+
   const matrixId =
     document.getElementById('d-followup-matrix')?.value || '';
 
@@ -23331,8 +23437,18 @@ async function _d_resolveFollowupCase(id) {
       issue
     );
 
+    const peopleOnly =
+      issue.code === 'PEOPLE_ONLY' ||
+      String(issue.message || '').toLowerCase()
+        .includes('únicamente people') ||
+      String(issue.message || '').toLowerCase()
+        .includes('solo people');
+
     alert(
-      'No se pudo procesar la incidencia:\n\n' +
+      (peopleOnly
+        ? 'Este caso debe ser resuelto por People:\n\n'
+        : 'No se pudo procesar la incidencia:\n\n'
+      ) +
       [
         issue.message,
         issue.detail || issue.details,
