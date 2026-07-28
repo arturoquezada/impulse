@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.38';
+const APP_VERSION   = '1.0.39';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -22534,6 +22534,8 @@ let _d_followupInitialized = false;
 
 let _d_followupLastSyncAt = 0;
 let _d_followupSyncPromise = null;
+let _d_followupSyncWarning = null;
+let _d_followupBackgroundStarted = false;
 const _d_FOLLOWUP_SYNC_TTL_MS = 60_000;
 
 async function _d_syncFollowups({ force = false } = {}) {
@@ -22552,7 +22554,8 @@ async function _d_syncFollowups({ force = false } = {}) {
   if (
     !force &&
     _d_followupLastSyncAt &&
-    now - _d_followupLastSyncAt < _d_FOLLOWUP_SYNC_TTL_MS
+    now - _d_followupLastSyncAt <
+      _d_FOLLOWUP_SYNC_TTL_MS
   ) {
     return { ok: true, skipped: true };
   }
@@ -22567,16 +22570,51 @@ async function _d_syncFollowups({ force = false } = {}) {
       { p_days_back: 30 }
     );
 
-    if (error) {
+    const issue = error || (
+      data && data.ok === false
+        ? data
+        : null
+    );
+
+    if (issue) {
+      _d_followupSyncWarning = {
+        message:
+          issue.message ||
+          'No fue posible sincronizar la bandeja.',
+
+        detail:
+          issue.detail ||
+          issue.details ||
+          null,
+
+        hint:
+          issue.hint ||
+          null,
+
+        sqlstate:
+          issue.sqlstate ||
+          issue.code ||
+          null
+      };
+
       console.error(
         '[Impulse People Followups] Error sincronizando bandeja:',
-        error
+        JSON.stringify(
+          _d_followupSyncWarning,
+          null,
+          2
+        ),
+        issue
       );
 
-      throw error;
+      return {
+        ok: false,
+        ..._d_followupSyncWarning
+      };
     }
 
     _d_followupLastSyncAt = Date.now();
+    _d_followupSyncWarning = null;
 
     console.debug(
       '[Impulse People Followups] Sincronización completa:',
@@ -22588,6 +22626,39 @@ async function _d_syncFollowups({ force = false } = {}) {
 
   try {
     return await _d_followupSyncPromise;
+  } catch (unexpectedError) {
+    _d_followupSyncWarning = {
+      message:
+        unexpectedError?.message ||
+        'Error inesperado durante la sincronización.',
+
+      detail:
+        unexpectedError?.details ||
+        null,
+
+      hint:
+        unexpectedError?.hint ||
+        null,
+
+      sqlstate:
+        unexpectedError?.code ||
+        null
+    };
+
+    console.error(
+      '[Impulse People Followups] Error inesperado:',
+      JSON.stringify(
+        _d_followupSyncWarning,
+        null,
+        2
+      ),
+      unexpectedError
+    );
+
+    return {
+      ok: false,
+      ..._d_followupSyncWarning
+    };
   } finally {
     _d_followupSyncPromise = null;
   }
@@ -22598,14 +22669,6 @@ async function _d_cargarDatos({
   forceSync = false
 } = {}) {
   try {
-    if (
-      syncFollowups &&
-      ['supervisor','manager','people','head_people','ceo']
-        .includes(currentRole)
-    ) {
-      await _d_syncFollowups({ force: forceSync });
-    }
-
     const [
       matrixResult,
       casesResult,
@@ -22657,9 +22720,96 @@ async function _d_cargarDatos({
 
     _d_updateFollowupSidebarBadge();
 
+    /*
+     * La bandeja se muestra primero con la información existente.
+     * Después se intenta sincronizar sin bloquear la pantalla.
+     */
+    if (
+      syncFollowups &&
+      !_d_followupBackgroundStarted &&
+      [
+        'supervisor',
+        'manager',
+        'people',
+        'head_people',
+        'ceo'
+      ].includes(currentRole)
+    ) {
+      _d_followupBackgroundStarted = true;
+
+      Promise.resolve()
+        .then(async () => {
+          const syncResult = await _d_syncFollowups({
+            force: forceSync
+          });
+
+          if (syncResult?.ok === false) {
+            _d_render();
+            return;
+          }
+
+          const { data, error } = await _d_sb.rpc(
+            'list_people_action_followups'
+          );
+
+          if (error) {
+            _d_followupSyncWarning = {
+              message:
+                error.message ||
+                'La sincronización terminó, pero no se pudo recargar la bandeja.',
+              detail:
+                error.details ||
+                null,
+              hint:
+                error.hint ||
+                null,
+              sqlstate:
+                error.code ||
+                null
+            };
+
+            console.error(
+              '[Impulse People Followups] Error recargando bandeja:',
+              JSON.stringify(
+                _d_followupSyncWarning,
+                null,
+                2
+              ),
+              error
+            );
+
+            _d_render();
+            return;
+          }
+
+          _d_FOLLOWUPS = (data || []).filter(
+            _d_followupIsEvaluable
+          );
+
+          _d_updateFollowupSidebarBadge();
+          _d_render();
+        })
+        .finally(() => {
+          _d_followupBackgroundStarted = false;
+        });
+    }
+
     return true;
   } catch (e) {
-    console.error('Error cargando Acciones People:', e);
+    console.error(
+      'Error cargando Acciones People:',
+      JSON.stringify(
+        {
+          message: e?.message || null,
+          details: e?.details || null,
+          hint: e?.hint || null,
+          code: e?.code || null
+        },
+        null,
+        2
+      ),
+      e
+    );
 
     document.getElementById('content').innerHTML = `
       <div class="card">
@@ -24564,6 +24714,73 @@ function _d_renderFollowupBoard() {
       </div>
     </div>
 
+    ${
+      _d_followupSyncWarning
+        ? `
+          <div
+            class="alert alert-amber"
+            style="
+              margin-bottom:14px;
+              display:flex;
+              justify-content:space-between;
+              align-items:flex-start;
+              gap:14px;
+              flex-wrap:wrap;
+            "
+          >
+            <div style="min-width:240px;flex:1">
+              <div
+                style="
+                  font-size:12px;
+                  font-weight:900;
+                  color:#92400E;
+                "
+              >
+                La bandeja se cargó, pero no pudo sincronizarse
+              </div>
+
+              <div
+                style="
+                  font-size:11px;
+                  color:#78350F;
+                  line-height:1.5;
+                  margin-top:4px;
+                "
+              >
+                ${_d_esc(
+                  _d_followupSyncWarning.message ||
+                  'Error de sincronización'
+                )}
+
+                ${
+                  _d_followupSyncWarning.detail
+                    ? `<br>${_d_esc(
+                        _d_followupSyncWarning.detail
+                      )}`
+                    : ''
+                }
+
+                ${
+                  _d_followupSyncWarning.sqlstate
+                    ? `<br>Código: ${_d_esc(
+                        _d_followupSyncWarning.sqlstate
+                      )}`
+                    : ''
+                }
+              </div>
+            </div>
+
+            <button
+              class="btn-ghost"
+              onclick="_d_reloadFollowups()"
+            >
+              Reintentar sincronización
+            </button>
+          </div>
+        `
+        : ''
+    }
+
     ${kpiHTML}
 
     <div class="card">
@@ -24676,13 +24893,32 @@ async function _d_reloadFollowups() {
   _d_cargando = true;
   _d_render();
 
+  const syncResult = await _d_syncFollowups({
+    force: true
+  });
+
   await _d_cargarDatos({
-    syncFollowups: true,
-    forceSync: true
+    syncFollowups: false,
+    forceSync: false
   });
 
   _d_cargando = false;
   _d_render();
+
+  if (syncResult?.ok === false) {
+    alert(
+      'La bandeja se cargó con la información existente, pero la ' +
+      'sincronización no pudo completarse.\n\n' +
+      [
+        syncResult.message,
+        syncResult.detail,
+        syncResult.hint,
+        syncResult.sqlstate
+          ? `Código: ${syncResult.sqlstate}`
+          : null
+      ].filter(Boolean).join('\n\n')
+    );
+  }
 }
 
 function _d_followupById(id) {
