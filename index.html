@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.36';
+const APP_VERSION   = '1.0.37';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -4133,16 +4133,98 @@ async function _a_cargarQDAYS(empId, from, to) {
             : s?.attendance_status || (s ? 'Normal' : 'Sin registro');
 
     const horarioInicio = exPermutaHorario?.shift_start_override
-      || s?.shift_start
       || assignment?.shift_start
+      || s?.shift_start
       || empRes.data?.shift_start
       || null;
 
     const horarioFin = exPermutaHorario?.shift_end_override
-      || s?.shift_end
       || assignment?.shift_end
+      || s?.shift_end
       || empRes.data?.shift_end
       || null;
+
+    const _a_timeToMinutes = value => {
+      const parts = String(value || '')
+        .slice(0, 8)
+        .split(':')
+        .map(Number);
+
+      return (
+        (parts[0] || 0) * 60 +
+        (parts[1] || 0) +
+        (parts[2] || 0) / 60
+      );
+    };
+
+    const effectiveToleranceMinutes = Number(
+      s?.tolerance_minutes ?? 10
+    );
+
+    const effectiveNoShowMinutes = Number(
+      s?.no_show_minutes ?? 60
+    );
+
+    const effectiveMinutesLate =
+      !esDescanso &&
+      !esVacacion &&
+      effectiveTimeIn &&
+      horarioInicio
+        ? Math.max(
+            0,
+            Math.floor(
+              _a_timeToMinutes(effectiveTimeIn) -
+              _a_timeToMinutes(horarioInicio)
+            )
+          )
+        : 0;
+
+    const effectiveIsLate =
+      effectiveMinutesLate > 0;
+
+    const effectiveIsWithinTolerance =
+      effectiveIsLate &&
+      effectiveMinutesLate <= effectiveToleranceMinutes;
+
+    const effectiveCountsForDiscipline =
+      effectiveMinutesLate > effectiveToleranceMinutes;
+
+    const effectiveAttendanceStatus =
+      esDescanso
+        ? 'day_off'
+        : esVacacion
+          ? 'vacation'
+          : !effectiveTimeIn
+            ? s?.attendance_status || null
+            : effectiveMinutesLate >= effectiveNoShowMinutes
+              ? 'no_show'
+              : effectiveCountsForDiscipline
+                ? 'late'
+                : effectiveIsWithinTolerance
+                  ? 'within_tolerance'
+                  : (
+                      horarioInicio &&
+                      _a_timeToMinutes(effectiveTimeIn) <
+                        _a_timeToMinutes(horarioInicio)
+                    )
+                    ? 'early_arrival'
+                    : 'on_time';
+
+    const effectiveEstatus = esVacacion
+      ? 'Vacaciones'
+      : exPermutaDescanso
+        ? 'Descanso por permuta'
+        : exPermutaTrabajo
+          ? (
+              effectiveAttendanceStatus ||
+              (s ? 'Normal' : 'Sin registro')
+            )
+          : esDescanso
+            ? 'Descanso'
+            : (
+                effectiveAttendanceStatus ||
+                (s ? 'Normal' : 'Sin registro')
+              );
 
     dias.push({
       fecha,
@@ -4198,25 +4280,35 @@ async function _a_cargarQDAYS(empId, from, to) {
             })()
           : 0,
 
-      segundos_tarde: esDescanso || esVacacion
-        ? 0
-        : s
-          ? Number(s.late_seconds ?? ((s.minutes_late || 0) * 60))
-          : 0,
+      segundos_tarde:
+        effectiveMinutesLate * 60,
 
-      minutes_late: esDescanso || esVacacion ? 0 : Number(s?.minutes_late || 0),
-      tolerance_minutes: Number(s?.tolerance_minutes ?? 10),
-      no_show_minutes: Number(s?.no_show_minutes ?? 60),
-      attendance_status: s?.attendance_status || null,
-      is_late: esDescanso || esVacacion ? false : Boolean(s?.is_late),
-      is_within_tolerance: esDescanso || esVacacion ? false : Boolean(s?.is_within_tolerance),
-      counts_for_discipline: esDescanso || esVacacion ? false : Boolean(s?.counts_for_discipline),
+      minutes_late:
+        effectiveMinutesLate,
+
+      tolerance_minutes:
+        effectiveToleranceMinutes,
+
+      no_show_minutes:
+        effectiveNoShowMinutes,
+
+      attendance_status:
+        effectiveAttendanceStatus,
+
+      is_late:
+        effectiveIsLate,
+
+      is_within_tolerance:
+        effectiveIsWithinTolerance,
+
+      counts_for_discipline:
+        effectiveCountsForDiscipline,
       policy_id: s?.policy_id || null,
       policy_name: s?.policy_name || 'General',
 
-      es_retardo: esDescanso || esVacacion ? false : Boolean(s?.is_late),
+      es_retardo: effectiveIsLate,
 
-      estatus,
+      estatus: effectiveEstatus,
 
       tipo_falta: tipoFalta,
       estado_falta: estadoFalta,
