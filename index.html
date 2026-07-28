@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.40';
+const APP_VERSION   = '1.0.41';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -11988,6 +11988,7 @@ window['_rerender_nomina']=function(){ if(typeof _n_render==='function')_n_rende
 
 let _dd_LOADING = false;
 let _dd_DATA = null;
+let _dd_OPERATIONAL_WARNING = null;
 
 let _dd_FILTERS = {
   from: null,
@@ -15530,27 +15531,160 @@ function _dd4_operationalAccountabilityPill(status){
   return '<span class="dd4-status neutral">Sin registro de liderazgo</span>';
 }
 
+async function _dd_rpcOperationalBundle(
+  from,
+  to,
+  label
+) {
+  const response = await _a_sb.rpc(
+    'deep_dive_operational_bundle_v2',
+    {
+      p_from: from,
+      p_to: to
+    }
+  );
+
+  if (response.error) {
+    const diagnostic = {
+      message:
+        response.error.message ||
+        'No fue posible consultar Deep Dive.',
+      detail:
+        response.error.details ||
+        null,
+      hint:
+        response.error.hint ||
+        null,
+      sqlstate:
+        response.error.code ||
+        null,
+      from_date: from,
+      to_date: to
+    };
+
+    console.error(
+      `Deep Dive operativo · ${label}:`,
+      JSON.stringify(diagnostic, null, 2),
+      response.error
+    );
+
+    return {
+      ok: false,
+      ...diagnostic
+    };
+  }
+
+  if (response.data?.ok === false) {
+    const diagnostic = {
+      message:
+        response.data.message ||
+        'No fue posible consultar Deep Dive.',
+      detail:
+        response.data.detail ||
+        null,
+      hint:
+        response.data.hint ||
+        null,
+      sqlstate:
+        response.data.sqlstate ||
+        null,
+      context:
+        response.data.context ||
+        null,
+      from_date:
+        response.data.from_date ||
+        from,
+      to_date:
+        response.data.to_date ||
+        to
+    };
+
+    console.error(
+      `Deep Dive operativo · ${label}:`,
+      JSON.stringify(diagnostic, null, 2)
+    );
+
+    return {
+      ok: false,
+      ...diagnostic
+    };
+  }
+
+  return {
+    ok: true,
+    bundle:
+      response.data?.bundle ||
+      {}
+  };
+}
+
+function _dd_operationalErrorText(issue) {
+  return [
+    issue?.message,
+    issue?.detail,
+    issue?.hint,
+    issue?.sqlstate
+      ? `Código: ${issue.sqlstate}`
+      : null
+  ].filter(Boolean).join('\n\n');
+}
+
 async function _dd_loadOperationalData(){
-  _dd_LOADING=true;_dd_render();
+  _dd_LOADING=true;
+  _dd_OPERATIONAL_WARNING=null;
+  _dd_render();
+
   const {from,to,prevFrom,prevTo}=_dd_FILTERS;
 
-  // No disparamos tres auditorías pesadas al mismo tiempo. La vista operativa
-  // solo necesita periodo actual y anterior; ambos se cargan de forma secuencial.
-  const curCall=await _a_sb.rpc('deep_dive_operational_bundle',{p_from:from,p_to:to});
-  if(curCall.error){
-    console.error('Deep Dive operativo · periodo actual:',curCall.error);
-    alert('No se pudo cargar la vista operativa de Deep Dive:\n\n'+(curCall.error.message||curCall.error));
-    _dd_LOADING=false;_dd_render();return;
+  const curCall = await _dd_rpcOperationalBundle(
+    from,
+    to,
+    'periodo actual'
+  );
+
+  if (!curCall.ok) {
+    alert(
+      'No se pudo cargar la vista operativa de Deep Dive:\n\n' +
+      _dd_operationalErrorText(curCall)
+    );
+
+    _dd_LOADING=false;
+    _dd_render();
+    return;
   }
 
-  const prevCall=await _a_sb.rpc('deep_dive_operational_bundle',{p_from:prevFrom,p_to:prevTo});
-  if(prevCall.error){
-    console.error('Deep Dive operativo · periodo anterior:',prevCall.error);
-    alert('No se pudo cargar la comparación de Deep Dive:\n\n'+(prevCall.error.message||prevCall.error));
-    _dd_LOADING=false;_dd_render();return;
+  const prevCall = await _dd_rpcOperationalBundle(
+    prevFrom,
+    prevTo,
+    'periodo anterior'
+  );
+
+  const curBundle = curCall.bundle || {};
+
+  let prevBundle;
+
+  if (!prevCall.ok) {
+    /*
+     * El periodo actual sigue disponible. Solo se desactiva la
+     * comparación mientras se muestra el diagnóstico.
+     */
+    _dd_OPERATIONAL_WARNING = {
+      title:
+        'El periodo actual cargó, pero la comparación anterior no está disponible.',
+      message:
+        _dd_operationalErrorText(prevCall)
+    };
+
+    prevBundle = {
+      employees: curBundle.employees || [],
+      attendance: [],
+      exceptions: [],
+      actions: []
+    };
+  } else {
+    prevBundle = prevCall.bundle || {};
   }
 
-  const curBundle=curCall.data||{},prevBundle=prevCall.data||{};
   const directoryRows=curBundle.employees||[];
   const activeDirectoryRows=directoryRows.filter(e=>_dd_norm(e.status)==='active');
   const employeeById=new Map(directoryRows.map(e=>[String(e.id||'').trim().toUpperCase(),e]));
@@ -15581,7 +15715,7 @@ async function _dd_loadOperationalData(){
     directoryRows,
     curBundle.actions||[]
   );
-  const data={mode:'operational',role:currentRole,scope_label:curBundle.scope_label||_dd_operationalScopeLabel(),from,to,prevFrom,prevTo,historyFrom,campaigns,
+  const data={mode:'operational',role:currentRole,scope_label:curBundle.scope_label||_dd_operationalScopeLabel(),operationalWarning:_dd_OPERATIONAL_WARNING,from,to,prevFrom,prevTo,historyFrom,campaigns,
     supervisorsOptions:Object.entries(supervisorsMap).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)),
     employees,allActiveEmployees:activeDirectoryRows,directoryRows,attendanceUniverse,warningRisk:{all:[],activeLastWarnings:[],byCampaign:{},red:0,yellow:0,green:0},matrixRows:[],payrollTickets:[],
     current:{rawRows:_dd_filterAttendanceRows(cur.raw),rows:curRows,duplicates:cur.dedupe.duplicateGroups,conflicts:cur.dedupe.conflicts,attendance:_dd_attendanceSummary(curRows),expectedActions:{},tickets:{},ticketRows:[],actions:[],actionRowsAll:[],exceptions:curExceptions,absenceSources:_dd4_absenceSourceSummary(curExceptions,employeeById),rotation:{}},
@@ -16034,7 +16168,27 @@ function _dd_render(){
   const modeLabel=operational?(currentRole==='ceo'?'Vista ejecutiva':'Vista operativa'):'People Intelligence · Investigation Workspace';
   const subtitleScope=operational?(d.scope_label||_dd_operationalScopeLabel()):'Cada número puede rastrearse hasta las personas y registros que lo forman.';
   const controlsRight=operational?`<button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button>`:`<button class="btn-ghost" onclick="_dd_copyExecutiveSummary()">📋 Resumen</button><button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button>`;
-  c.innerHTML=`<div class="dd4-shell"><div class="dd4-toolbar"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}"><span style="color:#94A3B8">→</span><input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}"><button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button><select class="df-input" onchange="_dd_setFilter('campaign',this.value)"><option value="all">Todas las campañas</option>${d.campaigns.map(x=>`<option value="${_dd_escape(x)}" ${_dd_FILTERS.campaign===x?'selected':''}>${_dd_escape(x)}</option>`).join('')}</select><select class="df-input" onchange="_dd_setFilter('supervisor',this.value)"><option value="all">Todos los supervisores</option>${d.supervisorsOptions.map(x=>`<option value="${_dd_escape(x.id)}" ${_dd_FILTERS.supervisor===x.id?'selected':''}>${_dd_escape(x.name)}</option>`).join('')}</select></div><div style="display:flex;gap:8px">${controlsRight}</div></div><div class="dd4-header"><div class="dd4-header-main"><div><div class="dd-eyebrow">${modeLabel}</div><div class="dd4-title">Deep Dive</div><div class="dd4-subtitle">${fmtDateShort(d.from)} al ${fmtDateShort(d.to)} · ${_dd_FILTERS.campaign==='all'?'Todas las campañas':_dd_escape(_dd_FILTERS.campaign)} · ${_dd_FILTERS.supervisor==='all'?'Todos los supervisores':_dd_escape(d.supervisorsOptions.find(x=>x.id===_dd_FILTERS.supervisor)?.name||_dd_FILTERS.supervisor)}<br>${_dd_escape(subtitleScope)}</div></div><div class="dd4-trust"><div class="dd4-trust-label">${operational?'Acceso':'Confianza del universo'}</div><div class="dd4-trust-value">${operational?'Solo lectura':trust+'%'}</div><div class="dd4-trust-note">${operational?'Sin información disciplinaria o de nómina':`${d.quality.totalIssues} alertas visibles · ${d.current.rows.length} filas únicas analizadas`}</div></div></div></div><div class="dd4-tabs">${tabs.map(([k,l])=>`<button class="dd4-tab ${_dd4_UI.tab===k?'on':''}" onclick="_dd4_setTab('${k}')">${l}</button>`).join('')}</div>${_dd4_tabContent(d)}</div>`;
+  c.innerHTML=`<div class="dd4-shell"><div class="dd4-toolbar"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}"><span style="color:#94A3B8">→</span><input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}"><button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button><select class="df-input" onchange="_dd_setFilter('campaign',this.value)"><option value="all">Todas las campañas</option>${d.campaigns.map(x=>`<option value="${_dd_escape(x)}" ${_dd_FILTERS.campaign===x?'selected':''}>${_dd_escape(x)}</option>`).join('')}</select><select class="df-input" onchange="_dd_setFilter('supervisor',this.value)"><option value="all">Todos los supervisores</option>${d.supervisorsOptions.map(x=>`<option value="${_dd_escape(x.id)}" ${_dd_FILTERS.supervisor===x.id?'selected':''}>${_dd_escape(x.name)}</option>`).join('')}</select></div><div style="display:flex;gap:8px">${controlsRight}</div></div><div class="dd4-header"><div class="dd4-header-main"><div><div class="dd-eyebrow">${modeLabel}</div><div class="dd4-title">Deep Dive</div><div class="dd4-subtitle">${fmtDateShort(d.from)} al ${fmtDateShort(d.to)} · ${_dd_FILTERS.campaign==='all'?'Todas las campañas':_dd_escape(_dd_FILTERS.campaign)} · ${_dd_FILTERS.supervisor==='all'?'Todos los supervisores':_dd_escape(d.supervisorsOptions.find(x=>x.id===_dd_FILTERS.supervisor)?.name||_dd_FILTERS.supervisor)}<br>${_dd_escape(subtitleScope)}</div></div><div class="dd4-trust"><div class="dd4-trust-label">${operational?'Acceso':'Confianza del universo'}</div><div class="dd4-trust-value">${operational?'Solo lectura':trust+'%'}</div><div class="dd4-trust-note">${operational?'Sin información disciplinaria o de nómina':`${d.quality.totalIssues} alertas visibles · ${d.current.rows.length} filas únicas analizadas`}</div></div></div></div><div class="dd4-tabs">${tabs.map(([k,l])=>`<button class="dd4-tab ${_dd4_UI.tab===k?'on':''}" onclick="_dd4_setTab('${k}')">${l}</button>`).join('')}</div>${
+    d.operationalWarning
+      ? `
+        <div
+          class="dd4-alert amber"
+          style="margin-bottom:14px"
+        >
+          <b>${_dd_escape(
+            d.operationalWarning.title ||
+            'Comparación no disponible'
+          )}</b>
+          <div style="margin-top:4px;white-space:pre-line">
+            ${_dd_escape(
+              d.operationalWarning.message ||
+              ''
+            )}
+          </div>
+        </div>
+      `
+      : ''
+  }${_dd4_tabContent(d)}</div>`;
 }
 
 window._dd4_setTab=_dd4_setTab;window._dd4_setUI=_dd4_setUI;window._dd4_openAgent=_dd4_openAgent;window._dd4_closeAgent=_dd4_closeAgent;
