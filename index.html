@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.41';
+const APP_VERSION   = '1.0.42';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -12296,6 +12296,16 @@ function _dd_markLateJustifications(rows, exceptions) {
 }
 
 function _dd_attendanceSummary(rows) {
+  rows = (rows || []).map(r =>
+    _dd4_isHistoricalDayOff(r)
+      ? {
+          ...r,
+          audit_status: 'descanso',
+          attendance_status: 'day_off'
+        }
+      : r
+  );
+
   const total = rows.length;
 
   const complete = _dd_statusCount(rows, 'completo');
@@ -12352,6 +12362,10 @@ function _dd_attendanceSummary(rows) {
 }
 
 function _dd_expectedActions(rows) {
+  rows = (rows || []).filter(
+    r => !_dd4_isHistoricalDayOff(r)
+  );
+
   const retardos = rows.filter(r =>
     r.audit_status === 'retardo' &&
     !['pending','approved'].includes(String(r.late_justification_status || '').toLowerCase())
@@ -14575,7 +14589,25 @@ function _dd4_boolValue(value) {
   return null;
 }
 
+function _dd4_isHistoricalDayOff(r = {}) {
+  return (
+    _dd4_boolValue(
+      r.historical_is_day_off
+    ) === true ||
+    ['descanso', 'day_off'].includes(
+      _dd_norm(
+        r.audit_status ||
+        r.attendance_status
+      )
+    )
+  );
+}
+
 function _dd4_isActionableLate(r = {}) {
+  if (_dd4_isHistoricalDayOff(r)) {
+    return false;
+  }
+
   if (_dd_norm(r.audit_status) !== 'retardo') {
     return false;
   }
@@ -14648,8 +14680,11 @@ function _dd4_isActionableLate(r = {}) {
 
 function _dd4_actionableRows(rows=[]){
   return (rows || []).filter(r =>
-    _dd_norm(r.audit_status) === 'falta_injustificada' ||
-    _dd4_isActionableLate(r)
+    !_dd4_isHistoricalDayOff(r) &&
+    (
+      _dd_norm(r.audit_status) === 'falta_injustificada' ||
+      _dd4_isActionableLate(r)
+    )
   );
 }
 
@@ -15186,6 +15221,10 @@ function _dd4_buildOperationalIncidents(
 
   const incidentRows=(rows||[])
     .filter(r=>{
+      if(_dd4_isHistoricalDayOff(r)){
+        return false;
+      }
+
       if(![
         'falta_injustificada',
         'retardo',
