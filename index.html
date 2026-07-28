@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.42';
+const APP_VERSION   = '1.0.43';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3838,6 +3838,705 @@ let _a_CAMP_REAL  = {};  // { campaign_id: {total,onTime,late,absent} }
 // y también los presets/nav del filtro de fechas, para que el rango mostrado
 // siempre tenga datos reales detrás, no solo los últimos 15 días fijos).
 let _a_PUNCHES_HOY  = [];  // ya no se usa (feed eliminado)
+let _a_EARLY_ENTRY_REVIEWS = [];
+let _a_EARLY_ENTRY_LOADING = false;
+
+function _a_timeMinutes(value) {
+  const parts = String(value || '')
+    .slice(0, 8)
+    .split(':')
+    .map(Number);
+
+  if (!parts.length || !Number.isFinite(parts[0])) {
+    return null;
+  }
+
+  return (
+    (parts[0] || 0) * 60 +
+    (parts[1] || 0) +
+    (parts[2] || 0) / 60
+  );
+}
+
+function _a_earlyDaysElapsed(workDate) {
+  const start = new Date(
+    String(workDate).slice(0, 10) + 'T12:00:00'
+  );
+
+  const today = new Date(
+    ymd(NOW) + 'T12:00:00'
+  );
+
+  return Math.max(
+    0,
+    Math.floor((today - start) / 86400000)
+  );
+}
+
+function _a_earlyAccountability(row) {
+  const days = row?.accountability_days != null
+    ? Number(row.accountability_days)
+    : _a_earlyDaysElapsed(row?.work_date);
+
+  if (days <= 1) {
+    return {
+      key: 'on_time',
+      label: 'En tiempo',
+      days,
+      cls: 'pill-green'
+    };
+  }
+
+  if (days <= 6) {
+    return {
+      key: 'delayed',
+      label: 'Retrasado',
+      days,
+      cls: 'pill-amber'
+    };
+  }
+
+  return {
+    key: 'critical',
+    label: 'Retraso crítico',
+    days,
+    cls: 'pill-red'
+  };
+}
+
+function _a_earlyDecisionLabel(status) {
+  const map = {
+    pending: 'Pendiente',
+    approved_full: 'Aprobada completa',
+    approved_partial: 'Aprobada parcial',
+    rejected: 'No reconocida',
+    cancelled: 'Cancelada'
+  };
+
+  return map[status] || status || 'Pendiente';
+}
+
+async function _a_loadEarlyEntryReviews() {
+  if (![
+    'supervisor',
+    'manager',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole)) {
+    _a_EARLY_ENTRY_REVIEWS = [];
+    return;
+  }
+
+  _a_EARLY_ENTRY_LOADING = true;
+
+  try {
+    const sync = await _a_sb.rpc(
+      'sync_attendance_early_entry_reviews',
+      { p_days_back: 120 }
+    );
+
+    if (
+      sync.error ||
+      sync.data?.ok === false
+    ) {
+      console.warn(
+        '[Impulse Entradas anticipadas] No se pudo sincronizar:',
+        sync.error || sync.data
+      );
+    }
+
+    const { data, error } = await _a_sb
+      .from('attendance_early_entry_reviews')
+      .select('*')
+      .order('work_date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error(
+        '[Impulse Entradas anticipadas] Error cargando bandeja:',
+        error
+      );
+
+      _a_EARLY_ENTRY_REVIEWS = [];
+      return;
+    }
+
+    _a_EARLY_ENTRY_REVIEWS = data || [];
+  } finally {
+    _a_EARLY_ENTRY_LOADING = false;
+  }
+}
+
+function _a_earlyReviewFor(
+  employeeId,
+  workDate
+) {
+  return (_a_EARLY_ENTRY_REVIEWS || []).find(
+    row =>
+      String(row.employee_id) === String(employeeId) &&
+      String(row.work_date).slice(0, 10) ===
+        String(workDate).slice(0, 10) &&
+      row.decision_status !== 'cancelled'
+  ) || null;
+}
+
+function _a_earlyReviewBadge(row, earlyMinutes = 0) {
+  const status = row?.decision_status || 'pending';
+
+  if (status === 'approved_full') {
+    return `<span class="pill pill-green">
+      <span class="dot"></span>Anticipada aprobada
+    </span>`;
+  }
+
+  if (status === 'approved_partial') {
+    return `<span class="pill pill-blue">
+      <span class="dot"></span>Anticipada parcial
+    </span>`;
+  }
+
+  if (status === 'rejected') {
+    return `<span class="pill pill-gray">
+      <span class="dot"></span>Tiempo no reconocido
+    </span>`;
+  }
+
+  return `<span class="pill pill-amber">
+    <span class="dot"></span>Anticipada pendiente
+    ${earlyMinutes ? ` · ${earlyMinutes} min` : ''}
+  </span>`;
+}
+
+function _a_openEarlyEntryReview(reviewId) {
+  const row = (_a_EARLY_ENTRY_REVIEWS || []).find(
+    x => String(x.id) === String(reviewId)
+  );
+
+  if (!row) {
+    alert('No se encontró la entrada anticipada.');
+    return;
+  }
+
+  const accountability = _a_earlyAccountability(row);
+  const isCritical = accountability.key === 'critical';
+
+  document.getElementById('modalTitle').textContent =
+    'Revisar entrada anticipada';
+
+  document.getElementById('modalSub').textContent =
+    `${row.employee_id} · ${fmtDate(row.work_date)}`;
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section" style="background:#F8FAFC">
+      <div class="kv">
+        <span class="k">Colaborador</span>
+        <span class="v">${_d_esc(
+          row.employee_name || row.employee_id
+        )}</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Supervisor</span>
+        <span class="v">${_d_esc(
+          row.supervisor_name || row.supervisor_id || '—'
+        )}</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Horario</span>
+        <span class="v" style="font-family:'DM Mono',monospace">
+          ${String(row.shift_start).slice(0, 5)}–
+          ${String(row.shift_end || '').slice(0, 5) || '—'}
+        </span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Marca real</span>
+        <span class="v" style="font-family:'DM Mono',monospace">
+          ${String(row.raw_time_in).slice(0, 5)}
+        </span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Anticipación</span>
+        <span class="v">${Number(row.early_minutes || 0)} minutos</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Accountability</span>
+        <span class="v">
+          <span class="pill ${accountability.cls}">
+            ${accountability.label} · ${accountability.days} día(s)
+          </span>
+        </span>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">
+        Decisión <span style="color:#EF4444">*</span>
+      </div>
+
+      <select
+        id="early-decision"
+        onchange="_a_toggleEarlyPartial()"
+        style="width:100%;padding:10px;border:1px solid #CBD5E1;border-radius:8px"
+      >
+        <option value="">Selecciona...</option>
+        <option value="approved_full">
+          Reconocer toda la entrada anticipada
+        </option>
+        <option value="approved_partial">
+          Reconocer solo una parte
+        </option>
+        <option value="rejected">
+          No reconocer el tiempo anticipado
+        </option>
+      </select>
+    </div>
+
+    <div
+      id="early-partial-wrap"
+      class="modal-section"
+      style="display:none"
+    >
+      <div class="ms-title">
+        Reconocer desde qué hora
+        <span style="color:#EF4444">*</span>
+      </div>
+
+      <input
+        id="early-approved-start"
+        type="time"
+        min="${String(row.raw_time_in).slice(0, 5)}"
+        max="${String(row.shift_start).slice(0, 5)}"
+        style="width:100%;padding:10px;border:1px solid #CBD5E1;border-radius:8px"
+      />
+
+      <div style="font-size:11px;color:#64748B;margin-top:6px">
+        Debe estar después de la marca real y antes del inicio del shift.
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">
+        Motivo de la decisión
+        <span style="color:#EF4444">*</span>
+      </div>
+
+      <textarea
+        id="early-decision-reason"
+        placeholder="Ej: Se solicitó cobertura desde las 14:30 / No existía autorización para entrar antes."
+        style="width:100%;min-height:78px;padding:10px;border:1px solid #CBD5E1;border-radius:8px;resize:vertical"
+      ></textarea>
+    </div>
+
+    ${
+      isCritical
+        ? `
+          <div class="modal-section" style="background:#FFF1F2;border-color:#FECDD3">
+            <div class="ms-title" style="color:#9F1239">
+              Motivo del retraso crítico
+              <span style="color:#EF4444">*</span>
+            </div>
+
+            <textarea
+              id="early-late-reason"
+              placeholder="Explica por qué la decisión se tomó después de 7 días."
+              style="width:100%;min-height:78px;padding:10px;border:1px solid #FECDD3;border-radius:8px;resize:vertical"
+            ></textarea>
+          </div>
+        `
+        : ''
+    }
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">
+      Cancelar
+    </button>
+
+    <button
+      id="early-save-button"
+      class="btn-primary"
+      onclick="_a_submitEarlyEntryReview('${row.id}')"
+    >
+      Guardar decisión
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display =
+    'flex';
+}
+
+function _a_toggleEarlyPartial() {
+  const decision =
+    document.getElementById('early-decision')?.value;
+
+  const wrap =
+    document.getElementById('early-partial-wrap');
+
+  if (wrap) {
+    wrap.style.display =
+      decision === 'approved_partial'
+        ? 'block'
+        : 'none';
+  }
+}
+
+async function _a_submitEarlyEntryReview(reviewId) {
+  const row = (_a_EARLY_ENTRY_REVIEWS || []).find(
+    x => String(x.id) === String(reviewId)
+  );
+
+  if (!row) return;
+
+  const decision =
+    document.getElementById('early-decision')?.value;
+
+  const approvedStart =
+    document.getElementById(
+      'early-approved-start'
+    )?.value || null;
+
+  const reason =
+    document.getElementById(
+      'early-decision-reason'
+    )?.value?.trim();
+
+  const lateReason =
+    document.getElementById(
+      'early-late-reason'
+    )?.value?.trim() || null;
+
+  if (!decision) {
+    alert('Selecciona una decisión.');
+    return;
+  }
+
+  if (
+    decision === 'approved_partial' &&
+    !approvedStart
+  ) {
+    alert('Indica desde qué hora se reconoce el tiempo.');
+    return;
+  }
+
+  if (!reason) {
+    alert('El motivo de la decisión es obligatorio.');
+    return;
+  }
+
+  if (
+    _a_earlyAccountability(row).key === 'critical' &&
+    !lateReason
+  ) {
+    alert(
+      'Explica por qué el caso se resolvió fuera del plazo crítico.'
+    );
+    return;
+  }
+
+  const button =
+    document.getElementById('early-save-button');
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Guardando...';
+  }
+
+  const { data, error } = await _a_sb.rpc(
+    'review_attendance_early_entry',
+    {
+      p_review_id: reviewId,
+      p_decision: decision,
+      p_approved_start_time:
+        decision === 'approved_partial'
+          ? `${approvedStart}:00`
+          : null,
+      p_reason: reason,
+      p_late_reason: lateReason
+    }
+  );
+
+  const issue = error || (
+    data?.ok === false
+      ? data
+      : null
+  );
+
+  if (issue) {
+    console.error(
+      '[Impulse Entradas anticipadas] Error resolviendo:',
+      issue
+    );
+
+    alert(
+      'No se pudo guardar la decisión.\n\n' +
+      [
+        issue.message,
+        issue.details || issue.detail,
+        issue.hint
+      ].filter(Boolean).join('\n\n')
+    );
+
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Guardar decisión';
+    }
+
+    return;
+  }
+
+  closeModal();
+
+  _a_cargando = true;
+  _a_render();
+
+  await _a_cargarDatos({
+    historyEmployeeId:
+      _a_QDAYS_EMPLEADO_ID || row.employee_id
+  });
+
+  if (_a_QDAYS_EMPLEADO_ID) {
+    await _a_cargarQDAYS(
+      _a_QDAYS_EMPLEADO_ID,
+      _a_dateFilter.from,
+      _a_dateFilter.to
+    );
+  }
+
+  _a_cargando = false;
+  _a_render();
+
+  alert(
+    'Decisión guardada.\n\n' +
+    `Hora real: ${String(data.raw_time_in).slice(0, 5)}\n` +
+    `Hora reconocida: ${String(data.effective_time_in).slice(0, 5)}\n` +
+    `Gestión: ${
+      data.accountability_status === 'on_time'
+        ? 'En tiempo'
+        : data.accountability_status === 'delayed'
+          ? 'Retrasada'
+          : 'Retraso crítico'
+    }`
+  );
+}
+
+function _a_injectEarlyEntryReviewCard() {
+  if (![
+    'supervisor',
+    'manager',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole)) {
+    return;
+  }
+
+  if (
+    _a_vistaEspecial ||
+    _a_drillAgent ||
+    _a_drillSup ||
+    _a_drillMgr
+  ) {
+    return;
+  }
+
+  const content = document.getElementById('content');
+
+  if (
+    !content ||
+    document.getElementById(
+      'earlyEntryReviewCard'
+    )
+  ) {
+    return;
+  }
+
+  const pending = (_a_EARLY_ENTRY_REVIEWS || [])
+    .filter(row => row.decision_status === 'pending');
+
+  if (!pending.length && !_a_EARLY_ENTRY_LOADING) {
+    return;
+  }
+
+  const onTime = pending.filter(
+    row => _a_earlyAccountability(row).key === 'on_time'
+  ).length;
+
+  const delayed = pending.filter(
+    row => _a_earlyAccountability(row).key === 'delayed'
+  ).length;
+
+  const critical = pending.filter(
+    row => _a_earlyAccountability(row).key === 'critical'
+  ).length;
+
+  const rows = pending
+    .slice()
+    .sort((a, b) =>
+      String(a.work_date).localeCompare(
+        String(b.work_date)
+      )
+    )
+    .slice(0, 20);
+
+  content.insertAdjacentHTML(
+    'afterbegin',
+    `
+      <div
+        id="earlyEntryReviewCard"
+        class="card"
+        style="border-left:4px solid #F59E0B"
+      >
+        <div
+          style="
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:14px;
+            flex-wrap:wrap;
+          "
+        >
+          <div>
+            <div class="card-title" style="margin-bottom:3px">
+              ⏪ Entradas anticipadas por revisar
+            </div>
+
+            <div style="font-size:12px;color:#64748B">
+              La marca real se conserva. Sin aprobación,
+              la hora reconocida será el inicio del shift.
+            </div>
+          </div>
+
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <span class="pill pill-green">
+              En tiempo ${onTime}
+            </span>
+
+            <span class="pill pill-amber">
+              Retrasadas ${delayed}
+            </span>
+
+            <span class="pill pill-red">
+              Críticas ${critical}
+            </span>
+          </div>
+        </div>
+
+        ${
+          _a_EARLY_ENTRY_LOADING
+            ? `
+              <div style="padding:18px;color:#64748B">
+                Sincronizando entradas anticipadas…
+              </div>
+            `
+            : `
+              <div
+                class="tbl-wrap"
+                style="margin-top:14px"
+              >
+                <div style="overflow-x:auto">
+                  <table style="min-width:980px">
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Colaborador</th>
+                        <th>Supervisor</th>
+                        <th>Shift</th>
+                        <th>Marca real</th>
+                        <th>Anticipación</th>
+                        <th>Gestión</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      ${
+                        rows.length
+                          ? rows.map(row => {
+                              const acc =
+                                _a_earlyAccountability(row);
+
+                              return `
+                                <tr>
+                                  <td style="font-family:'DM Mono',monospace">
+                                    ${fmtDateShort(row.work_date)}
+                                  </td>
+
+                                  <td>
+                                    <div class="agent-row-name">
+                                      ${_d_esc(
+                                        row.employee_name ||
+                                        row.employee_id
+                                      )}
+                                    </div>
+
+                                    <div class="agent-row-id">
+                                      ${_d_esc(row.employee_id)}
+                                    </div>
+                                  </td>
+
+                                  <td>
+                                    ${_d_esc(
+                                      row.supervisor_name ||
+                                      row.supervisor_id ||
+                                      '—'
+                                    )}
+                                  </td>
+
+                                  <td style="font-family:'DM Mono',monospace">
+                                    ${String(row.shift_start).slice(0, 5)}–
+                                    ${String(row.shift_end || '').slice(0, 5) || '—'}
+                                  </td>
+
+                                  <td style="font-family:'DM Mono',monospace">
+                                    ${String(row.raw_time_in).slice(0, 5)}
+                                  </td>
+
+                                  <td>
+                                    <b>${Number(row.early_minutes || 0)} min</b>
+                                  </td>
+
+                                  <td>
+                                    <span class="pill ${acc.cls}">
+                                      ${acc.label} · ${acc.days}d
+                                    </span>
+                                  </td>
+
+                                  <td>
+                                    <button
+                                      class="btn-primary"
+                                      onclick="_a_openEarlyEntryReview('${row.id}')"
+                                    >
+                                      Resolver
+                                    </button>
+                                  </td>
+                                </tr>
+                              `;
+                            }).join('')
+                          : `
+                            <tr>
+                              <td colspan="8">
+                                <div style="padding:24px;text-align:center;color:#64748B">
+                                  No hay entradas anticipadas pendientes.
+                                </div>
+                              </td>
+                            </tr>
+                          `
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            `
+        }
+      </div>
+    `
+  );
+}
 
 async function _a_cargarQDAYS(empId, from, to) {
   const [
@@ -3847,7 +4546,8 @@ async function _a_cargarQDAYS(empId, from, to) {
     excepRes,
     vacRes,
     punchCorrectionRes,
-    assignmentHistoryRes
+    assignmentHistoryRes,
+    earlyEntryReviewRes
   ] = await Promise.all([
     _a_sb
       .from('employees')
@@ -3902,7 +4602,15 @@ async function _a_cargarQDAYS(empId, from, to) {
       .eq('employee_id', empId)
       .lte('valid_from', to)
       .or(`valid_until.is.null,valid_until.gte.${from}`)
-      .order('valid_from', { ascending: true })
+      .order('valid_from', { ascending: true }),
+
+    _a_sb
+      .from('attendance_early_entry_reviews')
+      .select('*')
+      .eq('employee_id', empId)
+      .gte('work_date', from)
+      .lte('work_date', to)
+      .neq('decision_status', 'cancelled')
   ]);
 
   const daysOff = empRes.data?.days_off || [];
@@ -3912,6 +4620,7 @@ async function _a_cargarQDAYS(empId, from, to) {
   const vacaciones = vacRes.data || [];
   const punchCorrections = punchCorrectionRes.data || [];
   const assignmentHistory = assignmentHistoryRes.data || [];
+  const earlyEntryReviews = earlyEntryReviewRes.data || [];
 
   const assignmentForDate = date =>
     assignmentHistory.find(row =>
@@ -4079,32 +4788,28 @@ async function _a_cargarQDAYS(empId, from, to) {
           )
         );
 
-    const punchCorrection = punchCorrections.find(x => x.work_date === fecha) || null;
-    const effectiveTimeIn = punchCorrection?.corrected_time_in || s?.time_in || null;
-    const effectiveTimeOut = punchCorrection?.corrected_time_out || s?.time_out || null;
+    const punchCorrection =
+      punchCorrections.find(
+        x => x.work_date === fecha
+      ) || null;
 
+    const rawTimeIn =
+      punchCorrection?.corrected_time_in ||
+      s?.time_in ||
+      null;
+
+    const effectiveTimeOut =
+      punchCorrection?.corrected_time_out ||
+      s?.time_out ||
+      null;
+
+    const earlyEntryReview =
+      earlyEntryReviews.find(
+        x => x.work_date === fecha
+      ) || null;
+
+    let effectiveTimeIn = rawTimeIn;
     let tiempoExtraMin = 0;
-
-    if (!esDescanso && !esVacacion && s && effectiveTimeIn && effectiveTimeOut && s.shift_start && s.shift_end) {
-      const toMinutes = value => {
-        const [hh, mm] = String(value || '00:00').split(':').map(Number);
-        return (hh || 0) * 60 + (mm || 0);
-      };
-      let trabajadoMin = toMinutes(effectiveTimeOut) - toMinutes(effectiveTimeIn);
-      if (trabajadoMin < 0) trabajadoMin += 24 * 60;
-
-      const [shH, shM] = s.shift_start.split(':').map(Number);
-      const [ehH, ehM] = s.shift_end.split(':').map(Number);
-
-      let contratadoMin = (ehH * 60 + ehM) - (shH * 60 + shM);
-
-      // Por si el turno cruza medianoche
-      if (contratadoMin < 0) contratadoMin += 24 * 60;
-
-      if (contratadoMin > 0) {
-        tiempoExtraMin = Math.max(0, trabajadoMin - contratadoMin);
-      }
-    }
 
     const tipoFalta = esVacacion
       ? 'vacaciones'
@@ -4144,18 +4849,67 @@ async function _a_cargarQDAYS(empId, from, to) {
       || empRes.data?.shift_end
       || null;
 
-    const _a_timeToMinutes = value => {
-      const parts = String(value || '')
-        .slice(0, 8)
-        .split(':')
-        .map(Number);
+    const rawTimeMinutes =
+      _a_timeMinutes(rawTimeIn);
 
-      return (
-        (parts[0] || 0) * 60 +
-        (parts[1] || 0) +
-        (parts[2] || 0) / 60
-      );
-    };
+    const shiftStartMinutes =
+      _a_timeMinutes(horarioInicio);
+
+    const calculatedEarlyMinutes =
+      (
+        !esDescanso &&
+        !esVacacion &&
+        rawTimeMinutes != null &&
+        shiftStartMinutes != null &&
+        rawTimeMinutes < shiftStartMinutes
+      )
+        ? Math.floor(
+            shiftStartMinutes - rawTimeMinutes
+          )
+        : 0;
+
+    if (calculatedEarlyMinutes > 0) {
+      effectiveTimeIn =
+        earlyEntryReview?.effective_time_in ||
+        horarioInicio;
+    }
+
+    const recognizedTimeMinutes =
+      _a_timeMinutes(effectiveTimeIn);
+
+    if (
+      !esDescanso &&
+      !esVacacion &&
+      effectiveTimeIn &&
+      effectiveTimeOut &&
+      horarioInicio &&
+      horarioFin
+    ) {
+      let trabajadoMin =
+        _a_timeMinutes(effectiveTimeOut) -
+        recognizedTimeMinutes;
+
+      if (trabajadoMin < 0) {
+        trabajadoMin += 24 * 60;
+      }
+
+      let contratadoMin =
+        _a_timeMinutes(horarioFin) -
+        shiftStartMinutes;
+
+      if (contratadoMin < 0) {
+        contratadoMin += 24 * 60;
+      }
+
+      if (contratadoMin > 0) {
+        tiempoExtraMin = Math.max(
+          0,
+          Math.floor(
+            trabajadoMin - contratadoMin
+          )
+        );
+      }
+    }
 
     const effectiveToleranceMinutes = Number(
       s?.tolerance_minutes ?? 10
@@ -4173,8 +4927,8 @@ async function _a_cargarQDAYS(empId, from, to) {
         ? Math.max(
             0,
             Math.floor(
-              _a_timeToMinutes(effectiveTimeIn) -
-              _a_timeToMinutes(horarioInicio)
+              _a_timeMinutes(effectiveTimeIn) -
+              _a_timeMinutes(horarioInicio)
             )
           )
         : 0;
@@ -4194,20 +4948,34 @@ async function _a_cargarQDAYS(empId, from, to) {
         ? 'day_off'
         : esVacacion
           ? 'vacation'
-          : !effectiveTimeIn
+          : !rawTimeIn
             ? s?.attendance_status || null
-            : effectiveMinutesLate >= effectiveNoShowMinutes
-              ? 'no_show'
-              : effectiveCountsForDiscipline
-                ? 'late'
-                : effectiveIsWithinTolerance
-                  ? 'within_tolerance'
-                  : (
-                      horarioInicio &&
-                      _a_timeToMinutes(effectiveTimeIn) <
-                        _a_timeToMinutes(horarioInicio)
-                    )
-                    ? 'early_arrival'
+            : calculatedEarlyMinutes > 0
+              ? (
+                  earlyEntryReview?.decision_status ===
+                    'approved_full'
+                    ? 'early_approved'
+
+                  : earlyEntryReview?.decision_status ===
+                    'approved_partial'
+                    ? 'early_partial'
+
+                  : earlyEntryReview?.decision_status ===
+                    'rejected'
+                    ? 'early_rejected'
+
+                  : calculatedEarlyMinutes > 15
+                    ? 'early_pending'
+
+                  : 'early_arrival'
+                )
+              : effectiveMinutesLate >=
+                  effectiveNoShowMinutes
+                ? 'no_show'
+                : effectiveCountsForDiscipline
+                  ? 'late'
+                  : effectiveIsWithinTolerance
+                    ? 'within_tolerance'
                     : 'on_time';
 
     const effectiveEstatus = esVacacion
@@ -4254,11 +5022,24 @@ async function _a_cargarQDAYS(empId, from, to) {
 
       tiempoExtraMin,
 
+      raw_entrada_at: esDescanso || esVacacion
+        ? null
+        : rawTimeIn
+          ? `${fecha}T${rawTimeIn}-06:00`
+          : null,
+
       entrada_at: esDescanso || esVacacion
         ? null
         : effectiveTimeIn
           ? `${fecha}T${effectiveTimeIn}-06:00`
           : null,
+
+      entrada_reconocida_at:
+        esDescanso || esVacacion
+          ? null
+          : effectiveTimeIn
+            ? `${fecha}T${effectiveTimeIn}-06:00`
+            : null,
 
       salida_at: esDescanso || esVacacion
         ? null
@@ -4326,13 +5107,56 @@ async function _a_cargarQDAYS(empId, from, to) {
       retardo_justificacion_id: exRetardoJustificado?.id || null,
       retardo_justificacion_notes: exRetardoJustificado?.notes || null,
 
-      // Campos nuevos de auditoría/cálculo si vienen desde attendance_daily_summary
-      time_in_for_calculation: s?.time_in_for_calculation || null,
-      early_arrival_minutes: s?.early_arrival_minutes || 0,
-      early_grace_minutes: s?.early_grace_minutes || 0,
-      approved_ot_minutes: s?.approved_ot_minutes || 0,
-      pre_shift_ot_minutes: s?.pre_shift_ot_minutes || 0,
-      unapproved_early_minutes: s?.unapproved_early_minutes || 0,
+      // Entrada anticipada: marca real vs hora reconocida.
+      early_entry_review_id:
+        earlyEntryReview?.id || null,
+
+      early_entry_status:
+        earlyEntryReview?.decision_status ||
+        (
+          calculatedEarlyMinutes > 15
+            ? 'pending'
+            : calculatedEarlyMinutes > 0
+              ? 'no_review_required'
+              : null
+        ),
+
+      early_entry_accountability:
+        earlyEntryReview?.accountability_status || null,
+
+      early_entry_decision_reason:
+        earlyEntryReview?.decision_reason || null,
+
+      time_in_for_calculation:
+        effectiveTimeIn || null,
+
+      early_arrival_minutes:
+        calculatedEarlyMinutes,
+
+      early_grace_minutes:
+        calculatedEarlyMinutes > 0 &&
+        calculatedEarlyMinutes <= 15
+          ? calculatedEarlyMinutes
+          : 0,
+
+      approved_ot_minutes:
+        Number(
+          earlyEntryReview?.approved_minutes || 0
+        ),
+
+      pre_shift_ot_minutes:
+        Number(
+          earlyEntryReview?.approved_minutes || 0
+        ),
+
+      unapproved_early_minutes:
+        calculatedEarlyMinutes > 0
+          ? Number(
+              earlyEntryReview?.unapproved_minutes ??
+              calculatedEarlyMinutes
+            )
+          : 0,
+
       punch_corrected: !!punchCorrection,
       punch_correction_reason: punchCorrection?.reason || null
     });
@@ -4579,7 +5403,54 @@ async function _a_cargarDatos(options = {}) {
         esVacacionPorExcepcion ||
         esVacacionPorSummary;
 
-      const lateMin = s ? Number(s.minutes_late || 0) : 0;
+      const currentShiftStart =
+        exPermutaHorario?.shift_start_override ||
+        e.shift_start ||
+        s?.shift_start ||
+        null;
+
+      const currentRawTimeIn =
+        s?.time_in || null;
+
+      const currentRawMinutes =
+        _a_timeMinutes(currentRawTimeIn);
+
+      const currentShiftMinutes =
+        _a_timeMinutes(currentShiftStart);
+
+      const earlyArrivalMinutes =
+        (
+          currentRawMinutes != null &&
+          currentShiftMinutes != null &&
+          currentRawMinutes < currentShiftMinutes
+        )
+          ? Math.floor(
+              currentShiftMinutes -
+              currentRawMinutes
+            )
+          : 0;
+
+      const recalculatedLateMin =
+        (
+          currentRawMinutes != null &&
+          currentShiftMinutes != null &&
+          currentRawMinutes > currentShiftMinutes
+        )
+          ? Math.floor(
+              currentRawMinutes -
+              currentShiftMinutes
+            )
+          : 0;
+
+      const earlyReview = _a_earlyReviewFor(
+        e.id,
+        hoy
+      );
+
+      const lateMin =
+        earlyArrivalMinutes > 0
+          ? 0
+          : recalculatedLateMin;
 
       let status = descansaHoy ? 'descanso' : 'sin_punch';
 
@@ -4598,11 +5469,24 @@ async function _a_cargarDatos(options = {}) {
           status = 'falta';
         } else if (ast === 'missing_checkout') {
           status = 'on_time';
-        } else if (ast === 'no_show' || ast === 'late' || lateMin > 0) {
+        } else if (earlyArrivalMinutes > 0) {
+          status = 'early_arrival';
+        } else if (
+          ast === 'no_show' ||
+          ast === 'late' ||
+          lateMin > Number(
+            s?.tolerance_minutes ??
+            _a_toleranciaRetardoMin(e)
+          )
+        ) {
           status = 'late';
-        } else if (ast === 'early_unapproved') {
-          status = 'late';
-        } else if (ast === 'on_time' || ast === 'early_arrival' || s.time_in) {
+        } else if (lateMin > 0) {
+          status = 'tolerance';
+        } else if (
+          ast === 'on_time' ||
+          ast === 'early_arrival' ||
+          s.time_in
+        ) {
           status = 'on_time';
         }
       } else if (!s && exNormal) {
@@ -4665,6 +5549,9 @@ async function _a_cargarDatos(options = {}) {
         descansaHoy,
         esVacacionHoy,
         lateMin,
+        earlyArrivalMinutes,
+        earlyReview,
+        currentShiftStart,
         status,
         statusBase,
         toleranciaMin: Number(s?.tolerance_minutes ?? _a_toleranciaRetardoMin(agenteParaTolerancia)),
@@ -4720,6 +5607,14 @@ async function _a_cargarDatos(options = {}) {
         status:   ctx.status,
         statusBase: ctx.statusBase,
         toleranciaMin: ctx.toleranciaMin,
+
+        earlyArrivalMinutes:
+          ctx.bloqueaMarcas
+            ? 0
+            : Number(ctx.earlyArrivalMinutes || 0),
+
+        earlyReview:
+          ctx.earlyReview || null,
 
         late:     ctx.bloqueaMarcas ? 0 : ctx.lateMin,
         lateMin:  ctx.bloqueaMarcas ? 0 : ctx.lateMin,
@@ -4787,6 +5682,9 @@ async function _a_cargarDatos(options = {}) {
       _a_dateFilter.from,
       _a_dateFilter.to
     );
+
+    // Entradas anticipadas deben estar listas antes de construir el equipo.
+    await _a_loadEarlyEntryReviews();
 
     // 3. Equipo del supervisor / manager / people / head / workforce / ceo
     if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
@@ -8056,6 +8954,7 @@ function _a_render(){
   _a_injectAuditLauncher();
   _a_injectPendientesExcepciones();
   _a_injectPeopleActionFollowupBanner();
+  _a_injectEarlyEntryReviewCard();
 }
 
 function updateSidebarUser(){
@@ -8140,13 +9039,29 @@ function _a_statusPorPuntualidad(status, lateMin = 0, a = {}) {
     a.attendance_status || a.status_source || explicitStatus || ''
   ).trim().toLowerCase();
 
-  if (st === 'on_time' || st === 'early_arrival') return 'on_time';
+  if (
+    [
+      'on_time',
+      'early_arrival',
+      'early_pending',
+      'early_approved',
+      'early_partial',
+      'early_rejected',
+      'early_unapproved'
+    ].includes(st)
+  ) {
+    return 'on_time';
+  }
+
   if (st === 'tolerance') return 'tolerance';
   if (st === 'late' || st === 'no_show') return 'late';
   if (st === 'absent' || st === 'excused_absence') return 'falta';
   if (st === 'missing_checkout') return 'on_time';
-  if (['descanso','vacaciones','falta','sin_punch','early_unapproved'].includes(st)) {
-    return st === 'early_unapproved' ? 'late' : st;
+
+  if (
+    ['descanso','vacaciones','falta','sin_punch'].includes(st)
+  ) {
+    return st;
   }
   return st || 'on_time';
 }
@@ -8291,8 +9206,16 @@ function _a_statusBadge(d) {
     return `<span class="pill pill-red"><span class="dot"></span>${tipo}${pendiente ? ' pend.' : ''}</span>`;
   }
 
-  if (d.estatus === 'early_unapproved' || d.unapproved_early_minutes > 0) {
-    return `<span class="pill pill-amber"><span class="dot"></span>Entrada anticipada</span>`;
+  if (Number(d.early_arrival_minutes || 0) > 0) {
+    return _a_earlyReviewBadge(
+      d.early_entry_review_id
+        ? {
+            decision_status:
+              d.early_entry_status
+          }
+        : null,
+      Number(d.early_arrival_minutes || 0)
+    );
   }
 
   if (statusFinal === 'tolerance') {
@@ -8353,6 +9276,13 @@ function _a_agentBadge(status, falta, lateMin = 0, a = {}) {
 
   if (st === 'vacaciones') {
     return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
+  }
+
+  if (Number(a?.earlyArrivalMinutes || 0) > 0) {
+    return _a_earlyReviewBadge(
+      a.earlyReview,
+      Number(a.earlyArrivalMinutes || 0)
+    );
   }
 
   if (st === 'falta' && falta) {
@@ -8470,7 +9400,30 @@ function _a_quincenaTable(){
     ` : ''}
   </td>
 
-  <td style="font-family:'DM Mono',monospace">${_a_fmtTime(d.entrada_at)}</td>
+  <td style="font-family:'DM Mono',monospace">
+    ${_a_fmtTime(d.raw_entrada_at || d.entrada_at)}
+
+    ${
+      d.raw_entrada_at &&
+      d.entrada_at &&
+      _a_fmtTime(d.raw_entrada_at) !==
+        _a_fmtTime(d.entrada_at)
+        ? `
+          <div
+            style="
+              font-family:var(--f);
+              font-size:10px;
+              color:#64748B;
+              margin-top:2px;
+              white-space:nowrap;
+            "
+          >
+            Reconocida: ${_a_fmtTime(d.entrada_at)}
+          </div>
+        `
+        : ''
+    }
+  </td>
       <td style="font-family:'DM Mono',monospace">${_a_fmtTime(d.salida_at)}</td>
       <td style="font-family:'DM Mono',monospace">${_a_secsHHMM(d.segundos_trabajados)}</td>
       <td style="font-family:'DM Mono',monospace;color:${lateMin > 0 ? '#B45309' : '#94A3B8'}">${_a_secsMin(d.segundos_tarde)}</td>
@@ -8611,15 +9564,36 @@ function _a_renderSupervisor(){
     // Motivo de retardo solo aplica para retardo real, no tolerancia
     const retRec = _a_RETARDO_LOG.find(r => r.agentId === a.id && r.fecha === _a_TODAY);
 
-    const btnRetardo = statusFinal === 'late'
-      ? (retRec && !retRec.pendiente
-          ? `<span style="font-size:11px;color:${retRec.marcadoPor==='sistema'?'#7E22CE':'#16A34A'}">${retRec.marcadoPor==='sistema'?'🤖':'👤'} ${retRec.motivo}</span>`
-          : `<button onclick="event.stopPropagation();_a_abrirModalRetardo('${a.id}')"
-               style="border:1px solid #FDE68A;background:#FFFBEB;color:#92400E;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">
-               📝 Capturar motivo</button>`)
-      : statusFinal === 'tolerance'
-        ? `<span style="font-size:11px;color:#854D0E">En tolerancia (${_a_toleranciaRetardoMin(a)} min)</span>`
-        : '<span style="font-size:11px;color:#CBD5E1">—</span>';
+    const btnRetardo =
+      Number(a.earlyArrivalMinutes || 0) > 0
+        ? (
+            a.earlyReview?.decision_status === 'pending'
+              ? `<button
+                   onclick="event.stopPropagation();_a_openEarlyEntryReview('${a.earlyReview.id}')"
+                   style="border:1px solid #FDE68A;background:#FFFBEB;color:#92400E;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap"
+                 >
+                   ⏪ Revisar entrada
+                 </button>`
+              : `<span style="font-size:11px;color:#64748B">
+                   ${_a_earlyDecisionLabel(
+                     a.earlyReview?.decision_status ||
+                     'pending'
+                   )}
+                 </span>`
+          )
+
+        : statusFinal === 'late'
+          ? (
+              retRec && !retRec.pendiente
+                ? `<span style="font-size:11px;color:${retRec.marcadoPor==='sistema'?'#7E22CE':'#16A34A'}">${retRec.marcadoPor==='sistema'?'🤖':'👤'} ${retRec.motivo}</span>`
+                : `<button onclick="event.stopPropagation();_a_abrirModalRetardo('${a.id}')"
+                     style="border:1px solid #FDE68A;background:#FFFBEB;color:#92400E;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">
+                     📝 Capturar motivo</button>`
+            )
+
+          : statusFinal === 'tolerance'
+            ? `<span style="font-size:11px;color:#854D0E">En tolerancia (${_a_toleranciaRetardoMin(a)} min)</span>`
+            : '<span style="font-size:11px;color:#CBD5E1">—</span>';
 
     rows += `<tr onclick="_a_drillToAgent('${a.id}')">
       <td>
@@ -10486,7 +11460,43 @@ function _a_openDayModal(idx){
     <div class="modal-section">
       <div class="ms-title">Registro del día</div>
       <div class="kv"><span class="k">Fecha</span><span class="v">${fmtDate(d.fecha)}</span></div>
-      <div class="kv"><span class="k">Entrada</span><span class="v" style="font-family:'DM Mono',monospace">${_a_fmtTime(d.entrada_at)}</span></div>
+      <div class="kv">
+        <span class="k">Marca real</span>
+        <span class="v" style="font-family:'DM Mono',monospace">
+          ${_a_fmtTime(d.raw_entrada_at || d.entrada_at)}
+        </span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Hora reconocida</span>
+        <span class="v" style="font-family:'DM Mono',monospace">
+          ${_a_fmtTime(d.entrada_at)}
+        </span>
+      </div>
+
+      ${
+        Number(d.early_arrival_minutes || 0) > 0
+          ? `
+            <div class="kv">
+              <span class="k">Entrada anticipada</span>
+              <span class="v">
+                ${Number(d.early_arrival_minutes || 0)} minutos
+              </span>
+            </div>
+
+            <div class="kv">
+              <span class="k">Decisión</span>
+              <span class="v">
+                ${_a_earlyDecisionLabel(
+                  d.early_entry_status ||
+                  'pending'
+                )}
+              </span>
+            </div>
+          `
+          : ''
+      }
+
       <div class="kv"><span class="k">Salida</span><span class="v" style="font-family:'DM Mono',monospace">${_a_fmtTime(d.salida_at)}</span></div>
       <div class="kv"><span class="k">Horas trabajadas</span><span class="v" style="font-family:'DM Mono',monospace">${_a_secsHHMM(d.segundos_trabajados)}</span></div>
       <div class="kv"><span class="k">Tiempo tarde</span><span class="v" style="font-family:'DM Mono',monospace;color:${d.segundos_tarde>0?'#B45309':'#64748B'}">${_a_secsMin(d.segundos_tarde)}</span></div>
@@ -10520,6 +11530,21 @@ function _a_openDayModal(idx){
   if (puedeCorregir) {
     document.getElementById('modalFooter').innerHTML = `
       <button class="btn-ghost" onclick="closeModal()">Cerrar</button>
+
+      ${
+        d.early_entry_review_id
+          ? `
+            <button
+              class="btn-primary"
+              style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A"
+              onclick="_a_openEarlyEntryReview('${d.early_entry_review_id}')"
+            >
+              ⏪ Revisar entrada anticipada
+            </button>
+          `
+          : ''
+      }
+
       <button class="btn-primary" style="background:#FFFBEB;color:#92400E;border:1px solid #FDE68A" onclick="_a_abrirSolicitudCorreccion('${d.fecha}')">🕐 Corregir entrada / salida</button>
       ${tieneIncidenciaCorregible ? `<button class="btn-primary" style="background:#FFF1F2;color:#9F1239;border:1px solid #FECDD3" onclick="_a_abrirSolicitudCorreccionIncidencia('${d.fecha}')">🚩 Corregir falta / incidencia</button>` : ''}`;
   } else {
