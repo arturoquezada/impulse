@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.55';
+const APP_VERSION   = '1.0.56';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -4575,6 +4575,7 @@ function _a_injectEarlyEntryReviewCard() {
 
 
 let _a_LATE_REGULARIZATIONS = [];
+let _a_LATE_PEOPLE_ACTIONS = [];
 let _a_LATE_REGULARIZATION_LOADING = false;
 
 function _a_lateRegDays(row) {
@@ -4651,6 +4652,82 @@ function _a_lateRegStatusLabel(status) {
   return map[status] || status || 'Pendiente';
 }
 
+function _a_peopleActionStatusActive(status) {
+  return ![
+    'rejected',
+    'cancelled',
+    'canceled',
+    'voided'
+  ].includes(
+    String(status || '').toLowerCase()
+  );
+}
+
+function _a_lateSourceId(employeeId, workDate) {
+  return [
+    'attendance_daily_summary',
+    employeeId,
+    String(workDate || '').slice(0, 10),
+    'late'
+  ].join(':');
+}
+
+function _a_peopleActionMatchesLate(action, row) {
+  if (!action || !row) return false;
+
+  if (
+    String(action.employee_id || '') !==
+    String(row.employee_id || '')
+  ) {
+    return false;
+  }
+
+  if (!_a_peopleActionStatusActive(action.status)) {
+    return false;
+  }
+
+  const workDate =
+    String(row.work_date || '').slice(0, 10);
+
+  const incidentDate =
+    String(action.incident_date || '').slice(0, 10);
+
+  if (!workDate || incidentDate !== workDate) {
+    return false;
+  }
+
+  const expectedSource =
+    _a_lateSourceId(row.employee_id, workDate);
+
+  const actionSource =
+    String(action.attendance_source_id || '');
+
+  const incidentType =
+    String(
+      action.attendance_incident_type || ''
+    ).toLowerCase();
+
+  return (
+    actionSource === expectedSource ||
+    actionSource.endsWith(':late') ||
+    incidentType === 'late'
+  );
+}
+
+function _a_lateRegPeopleAction(row) {
+  return (_a_LATE_PEOPLE_ACTIONS || []).find(
+    action =>
+      _a_peopleActionMatchesLate(action, row)
+  ) || null;
+}
+
+function _a_lateRegHasPeopleAction(row) {
+  return Boolean(
+    row?.has_people_action ||
+    _a_lateRegPeopleAction(row)
+  );
+}
+
 function _a_lateRegularizationFor(
   employeeId,
   workDate
@@ -4673,6 +4750,7 @@ async function _a_loadLateRegularizations() {
     'ceo'
   ].includes(currentRole)) {
     _a_LATE_REGULARIZATIONS = [];
+    _a_LATE_PEOPLE_ACTIONS = [];
     return;
   }
 
@@ -4684,33 +4762,126 @@ async function _a_loadLateRegularizations() {
       { p_days_back: 120 }
     );
 
-    if (
-      sync.error ||
-      sync.data?.ok === false
-    ) {
+    if (sync.error || sync.data?.ok === false) {
       console.warn(
         '[Impulse Regularización retardos] Sync:',
         sync.error || sync.data
       );
     }
 
-    const { data, error } = await _a_sb
+    const regularizationResult = await _a_sb
       .from('attendance_late_regularizations')
       .select('*')
       .order('work_date', { ascending: false })
       .order('created_at', { ascending: false });
 
-    if (error) {
+    if (regularizationResult.error) {
       console.error(
         '[Impulse Regularización retardos] Carga:',
-        error
+        regularizationResult.error
       );
 
       _a_LATE_REGULARIZATIONS = [];
+      _a_LATE_PEOPLE_ACTIONS = [];
       return;
     }
 
-    _a_LATE_REGULARIZATIONS = data || [];
+    const regularizations =
+      regularizationResult.data || [];
+
+    let actions = [];
+
+    if (regularizations.length) {
+      const employeeIds = [
+        ...new Set(
+          regularizations
+            .map(row => row.employee_id)
+            .filter(Boolean)
+        )
+      ];
+
+      const dates = regularizations
+        .map(row =>
+          String(row.work_date || '').slice(0, 10)
+        )
+        .filter(Boolean)
+        .sort();
+
+      let query = _a_sb
+        .from('people_action_cases')
+        .select(
+          [
+            'id',
+            'employee_id',
+            'incident_date',
+            'status',
+            'attendance_source_id',
+            'attendance_incident_type',
+            'recommended_level',
+            'issued_level',
+            'matrix_id'
+          ].join(',')
+        );
+
+      if (employeeIds.length) {
+        query = query.in(
+          'employee_id',
+          employeeIds
+        );
+      }
+
+      if (dates.length) {
+        query = query
+          .gte('incident_date', dates[0])
+          .lte(
+            'incident_date',
+            dates[dates.length - 1]
+          );
+      }
+
+      const actionResult = await query;
+
+      if (actionResult.error) {
+        console.warn(
+          '[Impulse Regularización retardos] Validación de Acciones People:',
+          actionResult.error
+        );
+      } else {
+        actions = (actionResult.data || [])
+          .filter(action =>
+            _a_peopleActionStatusActive(
+              action.status
+            )
+          );
+      }
+    }
+
+    _a_LATE_PEOPLE_ACTIONS = actions;
+
+    _a_LATE_REGULARIZATIONS =
+      regularizations.map(row => {
+        const peopleAction =
+          actions.find(action =>
+            _a_peopleActionMatchesLate(
+              action,
+              row
+            )
+          ) || null;
+
+        return {
+          ...row,
+          has_people_action:
+            Boolean(peopleAction),
+          people_action_case_id:
+            peopleAction?.id || null,
+          people_action_status:
+            peopleAction?.status || null,
+          people_action_level:
+            peopleAction?.issued_level ||
+            peopleAction?.recommended_level ||
+            null
+        };
+      });
   } finally {
     _a_LATE_REGULARIZATION_LOADING = false;
   }
@@ -4730,6 +4901,18 @@ function _a_toggleLateRegFields() {
   if (scheduleWrap) {
     scheduleWrap.style.display =
       type === 'temporary_schedule'
+        ? 'block'
+        : 'none';
+  }
+
+  const warning =
+    document.getElementById(
+      'late-reg-unjustified-warning'
+    );
+
+  if (warning) {
+    warning.style.display =
+      type === 'unjustified'
         ? 'block'
         : 'none';
   }
@@ -4907,6 +5090,13 @@ function _a_openLateRegularization(regId) {
     return;
   }
 
+  if (_a_lateRegHasPeopleAction(row)) {
+    alert(
+      'Este retardo ya tiene una Acción People activa y no requiere otra regularización.'
+    );
+    return;
+  }
+
   const acc = _a_lateRegAccountability(row);
   const critical = acc.key === 'critical';
 
@@ -4998,6 +5188,19 @@ function _a_openLateRegularization(regId) {
           No estaba autorizado
         </option>
       </select>
+
+      <div
+        id="late-reg-unjustified-warning"
+        class="alert alert-amber"
+        style="display:none;margin-top:10px;margin-bottom:0"
+      >
+        Este retardo quedará como <b>no justificado</b>.
+        Después de guardar tendrás que amonestar a
+        <b>${_d_esc(
+          row.employee_name ||
+          row.employee_id
+        )}</b> en Acciones People.
+      </div>
     </div>
 
     <div
@@ -5271,11 +5474,18 @@ async function _a_submitLateRegularization(regId) {
   _a_cargando = false;
   _a_render();
 
+  const employeeName =
+    row.employee_name ||
+    row.employee_id;
+
   alert(
     data.requires_approval
       ? 'Solicitud enviada a Manager / People para aprobación.'
       : data.status === 'unjustified'
-        ? 'El retardo quedó como no justificado.'
+        ? (
+            `El retardo de ${employeeName} quedó como no autorizado.\n\n` +
+            `Tienes que amonestar a ${employeeName} en Acciones People.`
+          )
         : 'Regularización aplicada correctamente.'
   );
 }
@@ -5479,8 +5689,11 @@ function _a_injectLateRegularizationCard() {
 
   const actionable = (_a_LATE_REGULARIZATIONS || [])
     .filter(row =>
-      row.status === 'open' ||
-      row.status === 'pending_approval'
+      (
+        row.status === 'open' ||
+        row.status === 'pending_approval'
+      ) &&
+      !_a_lateRegHasPeopleAction(row)
     );
 
   if (
@@ -5538,8 +5751,8 @@ function _a_injectLateRegularizationCard() {
             </div>
 
             <div style="font-size:12px;color:#64748B">
-              El permiso del agente se corrige; el retraso del liderazgo
-              queda documentado por separado.
+              Solo se muestran retardos sin Acción People activa.
+              Si no estaba autorizado, el Supervisor debe amonestar al colaborador.
             </div>
           </div>
 
