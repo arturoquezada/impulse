@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.49';
+const APP_VERSION   = '1.0.50';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -6672,6 +6672,34 @@ async function _a_cargarDatos(options = {}) {
         }
       }
 
+      const trainingRows = out.filter(
+        row =>
+          row.schedule_source ===
+          'training_schedule'
+      );
+
+      console.log(
+        '[Impulse Horario efectivo] Resueltos:',
+        {
+          requestedEmployees:
+            cleanIds.length,
+          returnedRows:
+            out.length,
+          trainingRows:
+            trainingRows.length,
+          trainingGroups: [
+            ...new Set(
+              trainingRows
+                .map(
+                  row =>
+                    row.training_group_name
+                )
+                .filter(Boolean)
+            )
+          ]
+        }
+      );
+
       return out;
     }
 
@@ -6879,21 +6907,19 @@ async function _a_cargarDatos(options = {}) {
               ? 'temporary_schedule_approved'
               : 'authorized_late';
         } else if (
-          ast === 'no_show' ||
-          ast === 'late' ||
           lateMin > Number(
             s?.tolerance_minutes ??
             _a_toleranciaRetardoMin(e)
           )
         ) {
+          /*
+           * El cálculo contra el horario efectivo manda.
+           * attendance_daily_summary puede conservar un status viejo.
+           */
           status = 'late';
         } else if (lateMin > 0) {
           status = 'tolerance';
-        } else if (
-          ast === 'on_time' ||
-          ast === 'early_arrival' ||
-          s.time_in
-        ) {
+        } else if (s.time_in) {
           status = 'on_time';
         }
       } else if (!s && exNormal) {
@@ -6921,9 +6947,19 @@ async function _a_cargarDatos(options = {}) {
         status = statusBase;
       } else {
         status = _a_statusPorPuntualidad(
-          s?.attendance_status || statusBase,
+          statusBase,
           lateMin,
-          { ...agenteParaTolerancia, ...(s || {}) }
+          {
+            ...agenteParaTolerancia,
+            ...(s || {}),
+
+            /*
+             * Evita que el status histórico de la vista reemplace
+             * el cálculo hecho con capacitación/horario temporal.
+             */
+            attendance_status: statusBase,
+            status_source: statusBase
+          }
         );
       }
 
@@ -6965,9 +7001,15 @@ async function _a_cargarDatos(options = {}) {
         status,
         statusBase,
         toleranciaMin: Number(s?.tolerance_minutes ?? _a_toleranciaRetardoMin(agenteParaTolerancia)),
-        isLate: Boolean(s?.is_late),
-        isWithinTolerance: Boolean(s?.is_within_tolerance),
-        countsForDiscipline: Boolean(s?.counts_for_discipline),
+        isLate:
+          status === 'late' ||
+          status === 'tolerance',
+
+        isWithinTolerance:
+          status === 'tolerance',
+
+        countsForDiscipline:
+          status === 'late',
         policyName: s?.policy_name || 'General',
         bloqueaMarcas,
         falta
