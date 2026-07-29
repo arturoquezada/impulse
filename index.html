@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.44';
+const APP_VERSION   = '1.0.45';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -27590,6 +27590,37 @@ function _d_openFollowupCase(id) {
   document.getElementById('modalBackdrop').style.display = 'flex';
 }
 
+function _d_followupDiagnosticValue(value) {
+  if (value == null || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (typeof value === 'object') {
+    const preferred = [
+      value.message,
+      value.reason
+        ? `Motivo técnico: ${value.reason}`
+        : null,
+      value.minutes_late != null
+        ? `Minutos tarde: ${value.minutes_late}`
+        : null,
+      value.tolerance_minutes != null
+        ? `Tolerancia: ${value.tolerance_minutes} minutos`
+        : null
+    ].filter(Boolean);
+
+    return preferred.length
+      ? preferred.join('\n')
+      : JSON.stringify(value, null, 2);
+  }
+
+  return String(value);
+}
+
 async function _d_resolveFollowupCase(id) {
   const rawTask = (_d_FOLLOWUPS || []).find(
     t => String(t.id) === String(id)
@@ -27705,19 +27736,50 @@ async function _d_resolveFollowupCase(id) {
     const outsideEvaluablePeriod =
       issue.code === 'OUTSIDE_EVALUABLE_PERIOD';
 
+    if (nonActionableLate) {
+      closeModal();
+
+      _d_cargando = true;
+      _d_render();
+
+      await _d_cargarDatos({
+        syncFollowups: true,
+        forceSync: true
+      });
+
+      _d_cargando = false;
+      _d_render();
+
+      alert(
+        issue.code === 'LATE_WITHIN_TOLERANCE'
+          ? 'Caso retirado de la bandeja.\n\n' +
+            'La llegada está dentro de la tolerancia permitida y no requiere Acción People.'
+          : 'Caso retirado de la bandeja.\n\n' +
+            (
+              _d_followupDiagnosticValue(
+                issue.message
+              ) ||
+              'La llegada ya no cumple las reglas para una Acción People.'
+            )
+      );
+
+      return;
+    }
+
     alert(
-      (peopleOnly
-        ? 'Este caso debe ser resuelto por People:\n\n'
-        : outsideEvaluablePeriod
-          ? 'Esta incidencia no es evaluable:\n\n'
-          : nonActionableLate
-            ? 'Esta llegada tarde no requiere Acción People:\n\n'
+      (
+        peopleOnly
+          ? 'Este caso debe ser resuelto por People:\n\n'
+          : outsideEvaluablePeriod
+            ? 'Esta incidencia no es evaluable:\n\n'
             : 'No se pudo procesar la incidencia:\n\n'
       ) +
       [
-        issue.message,
-        issue.detail || issue.details,
-        issue.hint,
+        _d_followupDiagnosticValue(issue.message),
+        _d_followupDiagnosticValue(
+          issue.detail || issue.details
+        ),
+        _d_followupDiagnosticValue(issue.hint),
         issue.sqlstate
           ? `Código técnico: ${issue.sqlstate}`
           : null
