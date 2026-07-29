@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.48';
+const APP_VERSION   = '1.0.49';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3107,6 +3107,14 @@ function _a_horarioDiaTxt(d) {
 const _a_DIA_SLUG = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
 
 const _a_DIA_MAP = {
+  0: 'sunday',
+  1: 'monday',
+  2: 'tuesday',
+  3: 'wednesday',
+  4: 'thursday',
+  5: 'friday',
+  6: 'saturday',
+
   sunday: 'sunday',
   domingo: 'sunday',
   dom: 'sunday',
@@ -5683,7 +5691,8 @@ async function _a_cargarQDAYS(empId, from, to) {
     punchCorrectionRes,
     assignmentHistoryRes,
     earlyEntryReviewRes,
-    lateRegularizationRes
+    lateRegularizationRes,
+    effectiveSchedulesRes
   ] = await Promise.all([
     _a_sb
       .from('employees')
@@ -5754,7 +5763,16 @@ async function _a_cargarQDAYS(empId, from, to) {
       .eq('employee_id', empId)
       .gte('work_date', from)
       .lte('work_date', to)
-      .neq('status', 'cancelled')
+      .neq('status', 'cancelled'),
+
+    _a_sb.rpc(
+      'get_effective_attendance_schedules',
+      {
+        p_employee_ids: [empId],
+        p_from: from,
+        p_to: to
+      }
+    )
   ]);
 
   const daysOff = empRes.data?.days_off || [];
@@ -5766,6 +5784,21 @@ async function _a_cargarQDAYS(empId, from, to) {
   const assignmentHistory = assignmentHistoryRes.data || [];
   const earlyEntryReviews = earlyEntryReviewRes.data || [];
   const lateRegularizations = lateRegularizationRes.data || [];
+  const effectiveSchedules =
+    effectiveSchedulesRes.data || [];
+
+  if (effectiveSchedulesRes.error) {
+    console.error(
+      '[Impulse Horario efectivo] QDAYS:',
+      effectiveSchedulesRes.error
+    );
+  }
+
+  const effectiveScheduleForDate = date =>
+    effectiveSchedules.find(
+      row =>
+        String(row.work_date).slice(0, 10) === date
+    ) || null;
 
   const assignmentForDate = date =>
     assignmentHistory.find(row =>
@@ -5866,6 +5899,8 @@ async function _a_cargarQDAYS(empId, from, to) {
     const s = summary.find(x => x.punch_date === fecha);
     const n = notesData.find(x => x.punch_date === fecha);
     const assignment = assignmentForDate(fecha);
+    const effectiveSchedule =
+      effectiveScheduleForDate(fecha);
 
     // Todas las excepciones válidas del día.
     // Incluye pending y approved, pero excluye rejected/cancelled.
@@ -5905,14 +5940,21 @@ async function _a_cargarQDAYS(empId, from, to) {
       v.start_date <= fecha && v.end_date >= fecha
     );
 
-    const daysOffForDate = Array.isArray(assignment?.days_off)
-      ? assignment.days_off
-      : daysOff;
+    const daysOffForDate = Array.isArray(
+      effectiveSchedule?.days_off
+    )
+      ? effectiveSchedule.days_off
+      : Array.isArray(assignment?.days_off)
+        ? assignment.days_off
+        : daysOff;
 
-    const descansoBase = _a_esDescansoFecha(
-      daysOffForDate,
-      fecha
-    );
+    const descansoBase =
+      effectiveSchedule?.is_day_off === true
+        ? true
+        : _a_esDescansoFecha(
+            daysOffForDate,
+            fecha
+          );
 
     // Si hay permuta_trabajo, aunque sea su descanso normal, ese día debe trabajar.
     // Si hay permuta_descanso, aunque sea día laboral normal, ese día descansa.
@@ -6000,17 +6042,21 @@ async function _a_cargarQDAYS(empId, from, to) {
             ? 'Descanso'
             : s?.attendance_status || (s ? 'Normal' : 'Sin registro');
 
-    let horarioInicio = exPermutaHorario?.shift_start_override
-      || assignment?.shift_start
-      || s?.shift_start
-      || empRes.data?.shift_start
-      || null;
+    let horarioInicio =
+      effectiveSchedule?.shift_start ||
+      exPermutaHorario?.shift_start_override ||
+      assignment?.shift_start ||
+      s?.shift_start ||
+      empRes.data?.shift_start ||
+      null;
 
-    let horarioFin = exPermutaHorario?.shift_end_override
-      || assignment?.shift_end
-      || s?.shift_end
-      || empRes.data?.shift_end
-      || null;
+    let horarioFin =
+      effectiveSchedule?.shift_end ||
+      exPermutaHorario?.shift_end_override ||
+      assignment?.shift_end ||
+      s?.shift_end ||
+      empRes.data?.shift_end ||
+      null;
 
     if (
       lateRegApproved &&
@@ -6212,6 +6258,22 @@ async function _a_cargarQDAYS(empId, from, to) {
         assignment?.supervisor_name || null,
       assignment_campaign_id:
         assignment?.campaign_id || null,
+
+      schedule_source:
+        effectiveSchedule?.schedule_source || null,
+
+      training_schedule_group_id:
+        effectiveSchedule?.training_group_id || null,
+
+      training_schedule_group_name:
+        effectiveSchedule?.training_group_name || null,
+
+      training_schedule_type:
+        effectiveSchedule?.training_override_type || null,
+
+      horario_es_training:
+        effectiveSchedule?.schedule_source ===
+          'training_schedule',
 
       horario_inicio: horarioInicio,
       horario_fin: horarioFin,
@@ -6574,9 +6636,69 @@ async function _a_cargarDatos(options = {}) {
       return out;
     }
 
-    function _a_contextoEmpleadoHoy(e, summaries, exceptions, vacations) {
-      const s = (summaries || []).find(x => x.employee_id === e.id) || null;
-      const exList = (exceptions || []).filter(x => x.employee_id === e.id);
+    async function _a_fetchEffectiveSchedules(
+      ids,
+      fromDate = hoy,
+      toDate = hoy
+    ) {
+      const cleanIds = [
+        ...new Set(
+          (ids || []).filter(Boolean)
+        )
+      ];
+
+      const out = [];
+
+      for (const chunk of _a_chunks(cleanIds, 80)) {
+        const { data, error } = await _a_sb.rpc(
+          'get_effective_attendance_schedules',
+          {
+            p_employee_ids: chunk,
+            p_from: fromDate,
+            p_to: toDate
+          }
+        );
+
+        if (error) {
+          console.error(
+            '[Impulse Horario efectivo] Equipo:',
+            error
+          );
+          throw error;
+        }
+
+        if (data) {
+          out.push(...data);
+        }
+      }
+
+      return out;
+    }
+
+    function _a_contextoEmpleadoHoy(
+      e,
+      summaries,
+      exceptions,
+      vacations,
+      effectiveSchedules
+    ) {
+      const s =
+        (summaries || []).find(
+          x => x.employee_id === e.id
+        ) || null;
+
+      const effectiveSchedule =
+        (effectiveSchedules || []).find(
+          x =>
+            String(x.employee_id) ===
+              String(e.id) &&
+            String(x.work_date).slice(0, 10) ===
+              hoy
+        ) || null;
+
+      const exList = (exceptions || []).filter(
+        x => x.employee_id === e.id
+      );
 
       const exPermutaTrabajo = exList.find(x =>
         _a_isPermutaTrabajoLocal(x.type) &&
@@ -6618,7 +6740,18 @@ async function _a_cargarDatos(options = {}) {
         v.end_date >= hoy
       ) || null;
 
-      const descansoBase = _a_esDescansoLocal(e.days_off || [], hoy);
+      const effectiveDaysOff =
+        Array.isArray(effectiveSchedule?.days_off)
+          ? effectiveSchedule.days_off
+          : e.days_off || [];
+
+      const descansoBase =
+        effectiveSchedule?.is_day_off === true
+          ? true
+          : _a_esDescansoLocal(
+              effectiveDaysOff,
+              hoy
+            );
 
       const descansaHoy = exPermutaTrabajo
         ? false
@@ -6641,9 +6774,17 @@ async function _a_cargarDatos(options = {}) {
         esVacacionPorSummary;
 
       const currentShiftStart =
+        effectiveSchedule?.shift_start ||
         exPermutaHorario?.shift_start_override ||
         e.shift_start ||
         s?.shift_start ||
+        null;
+
+      const currentShiftEnd =
+        effectiveSchedule?.shift_end ||
+        exPermutaHorario?.shift_end_override ||
+        e.shift_end ||
+        s?.shift_end ||
         null;
 
       const currentRawTimeIn =
@@ -6818,7 +6959,9 @@ async function _a_cargarDatos(options = {}) {
         earlyArrivalMinutes,
         earlyReview,
         lateRegularization,
+        effectiveSchedule,
         currentShiftStart,
+        currentShiftEnd,
         status,
         statusBase,
         toleranciaMin: Number(s?.tolerance_minutes ?? _a_toleranciaRetardoMin(agenteParaTolerancia)),
@@ -6831,17 +6974,31 @@ async function _a_cargarDatos(options = {}) {
       };
     }
 
-    function _a_buildTeamRow(e, summaries, exceptions, vacations) {
-      const ctx = _a_contextoEmpleadoHoy(e, summaries, exceptions, vacations);
+    function _a_buildTeamRow(
+      e,
+      summaries,
+      exceptions,
+      vacations,
+      effectiveSchedules
+    ) {
+      const ctx = _a_contextoEmpleadoHoy(
+        e,
+        summaries,
+        exceptions,
+        vacations,
+        effectiveSchedules
+      );
       const s = ctx.s;
       const exPermutaHorario = ctx.exPermutaHorario;
 
       const shiftStart =
+        ctx.currentShiftStart ||
         exPermutaHorario?.shift_start_override ||
         e.shift_start ||
         null;
 
       const shiftEnd =
+        ctx.currentShiftEnd ||
         exPermutaHorario?.shift_end_override ||
         e.shift_end ||
         null;
@@ -6870,6 +7027,22 @@ async function _a_cargarDatos(options = {}) {
         shift:    shiftStart ? String(shiftStart).slice(0, 5) : '—',
         shiftEnd: shiftEnd ? String(shiftEnd).slice(0, 5) : '—',
         shiftH:   Math.round(e.shift_hours || 9),
+
+        scheduleSource:
+          ctx.effectiveSchedule?.schedule_source ||
+          null,
+
+        trainingGroupId:
+          ctx.effectiveSchedule?.training_group_id ||
+          null,
+
+        trainingGroupName:
+          ctx.effectiveSchedule?.training_group_name ||
+          null,
+
+        trainingSchedule:
+          ctx.effectiveSchedule?.schedule_source ===
+            'training_schedule',
 
         status:   ctx.status,
         statusBase: ctx.statusBase,
@@ -6995,14 +7168,26 @@ async function _a_cargarDatos(options = {}) {
 
       const empIds = empList.map(e => e.id);
 
-      const [todaySummary, excepcionesHoy, vacacionesHoy] = await Promise.all([
+      const [
+        todaySummary,
+        excepcionesHoy,
+        vacacionesHoy,
+        effectiveSchedulesHoy
+      ] = await Promise.all([
         _a_fetchTodaySummaries(empIds),
         _a_fetchTodayExceptions(empIds),
-        _a_fetchTodayVacations(empIds)
+        _a_fetchTodayVacations(empIds),
+        _a_fetchEffectiveSchedules(empIds)
       ]);
 
       _a_TEAM = empList.map(e =>
-        _a_buildTeamRow(e, todaySummary, excepcionesHoy, vacacionesHoy)
+        _a_buildTeamRow(
+          e,
+          todaySummary,
+          excepcionesHoy,
+          vacacionesHoy,
+          effectiveSchedulesHoy
+        )
       );
     }
 
@@ -7028,16 +7213,28 @@ async function _a_cargarDatos(options = {}) {
 
       const allIds = allEmployees.map(e => e.id);
 
-      const [todayAll, exceptionsAll, vacationsAll] = await Promise.all([
+      const [
+        todayAll,
+        exceptionsAll,
+        vacationsAll,
+        effectiveSchedulesAll
+      ] = await Promise.all([
         _a_fetchTodaySummaries(allIds),
         _a_fetchTodayExceptions(allIds),
-        _a_fetchTodayVacations(allIds)
+        _a_fetchTodayVacations(allIds),
+        _a_fetchEffectiveSchedules(allIds)
       ]);
 
       const contextById = new Map(
         allEmployees.map(e => [
           e.id,
-          _a_contextoEmpleadoHoy(e, todayAll, exceptionsAll, vacationsAll)
+          _a_contextoEmpleadoHoy(
+            e,
+            todayAll,
+            exceptionsAll,
+            vacationsAll,
+            effectiveSchedulesAll
+          )
         ])
       );
 
@@ -7127,7 +7324,13 @@ async function _a_cargarDatos(options = {}) {
 
       _a_SUPS_REAL = sups.map(e => {
         const ctxSup = contextById.get(e.id) ||
-          _a_contextoEmpleadoHoy(e, todayAll, exceptionsAll, vacationsAll);
+          _a_contextoEmpleadoHoy(
+            e,
+            todayAll,
+            exceptionsAll,
+            vacationsAll,
+            effectiveSchedulesAll
+          );
 
         const myTeam = allEmployees.filter(a =>
           a.supervisor_id === e.id &&
