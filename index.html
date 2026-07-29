@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.54';
+const APP_VERSION   = '1.0.55';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -11696,7 +11696,36 @@ function _a_renderPeople(supsOverride) {
 
   let supRows='';
   sups.forEach(s=>{
-    const pct=Math.round((s.onTime/s.agents)*100);
+    const pct = s.agents
+      ? Math.round((s.onTime / s.agents) * 100)
+      : 0;
+
+    const supStatus = _a_statusPorPuntualidad(
+      s.status,
+      s.lateMin || 0,
+      s
+    );
+
+    const supBlocksPunches = [
+      'descanso',
+      'vacaciones'
+    ].includes(supStatus);
+
+    const supEntry = supBlocksPunches
+      ? '—'
+      : (s.entrada || '—');
+
+    const supExit = supBlocksPunches
+      ? '—'
+      : (s.salida || '—');
+
+    const supStatusLabel = _a_agentBadge(
+      supStatus,
+      s.falta,
+      s.lateMin || 0,
+      s
+    );
+
     supRows+=`<tr onclick="_a_drillToSup('${s.id}')">
       <td>
         <div class="agent-row-name">${s.name}</div>
@@ -11728,6 +11757,25 @@ function _a_renderPeople(supsOverride) {
         </div>
       </td>
       <td><span class="pill pill-gray">${s.camp}</span></td>
+
+      ${
+        esManager
+          ? `
+            <td style="font-family:'DM Mono',monospace;font-size:12px">
+              ${supEntry}
+            </td>
+
+            <td style="font-family:'DM Mono',monospace;font-size:12px">
+              ${supExit}
+            </td>
+
+            <td>
+              ${supStatusLabel}
+            </td>
+          `
+          : ''
+      }
+
       <td style="font-family:'DM Mono',monospace">${s.agents}</td>
       <td style="font-family:'DM Mono',monospace;color:#16A34A">${s.onTime}</td>
       <td style="font-family:'DM Mono',monospace;color:#D97706">${s.late}</td>
@@ -11890,12 +11938,56 @@ ${_a_renderCambiosDescansoPendientes()}
 
   <!-- Tabla equipos -->
   <div class="card">
-    <div class="card-title">Todos los equipos · ${_a_dateFilter.label}</div>
-    <div class="tbl-wrap"><div style="overflow-x:auto"><table style="min-width:720px">
-      <thead><tr><th>Supervisor</th><th>Campaña</th><th>Agentes</th><th>A tiempo</th><th>Retardos</th><th>Faltas</th><th>Puntualidad</th><th>QA prom.</th><th>Ret. 30d</th><th>Fal. 30d</th></tr></thead>
-      <tbody id="supBody">${supRows}</tbody>
-    </table></div></div>
-    <div style="margin-top:8px;font-size:11px;color:#94A3B8">Click en un supervisor para ver su equipo completo</div>
+    <div class="card-title">
+      Todos los equipos · ${_a_dateFilter.label}
+      ${
+        esManager
+          ? '<span class="pill pill-blue">Incluye asistencia del Supervisor</span>'
+          : ''
+      }
+    </div>
+
+    <div class="tbl-wrap">
+      <div style="overflow-x:auto">
+        <table style="min-width:${esManager ? '1020px' : '720px'}">
+          <thead>
+            <tr>
+              <th>Supervisor</th>
+              <th>Campaña</th>
+
+              ${
+                esManager
+                  ? `
+                    <th>Entrada Sup.</th>
+                    <th>Salida Sup.</th>
+                    <th>Status Sup.</th>
+                  `
+                  : ''
+              }
+
+              <th>Agentes</th>
+              <th>A tiempo</th>
+              <th>Retardos</th>
+              <th>Faltas</th>
+              <th>Puntualidad</th>
+              <th>QA prom.</th>
+              <th>Ret. 30d</th>
+              <th>Fal. 30d</th>
+            </tr>
+          </thead>
+
+          <tbody id="supBody">${supRows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:8px;font-size:11px;color:#94A3B8">
+      ${
+        esManager
+          ? 'La entrada, salida y status corresponden al Supervisor. Usa “Ver asistencia” para consultar su historial completo o haz clic en la fila para ver a su equipo.'
+          : 'Click en un supervisor para ver su equipo completo'
+      }
+    </div>
   </div>
   ${_a_renderOTSection('people')}`;
 }
@@ -12862,6 +12954,47 @@ function _a_renderSupDetail(supId) {
   const rest = myTeam.filter(a => statusOf(a) === 'descanso').length;
   const vacations = myTeam.filter(a => statusOf(a) === 'vacaciones').length;
 
+  const supervisorStatus = sup
+    ? _a_statusPorPuntualidad(
+        sup.status,
+        sup.lateMin || 0,
+        sup
+      )
+    : 'sin_punch';
+
+  const supervisorBlocksPunches = [
+    'descanso',
+    'vacaciones'
+  ].includes(supervisorStatus);
+
+  const supervisorEntry =
+    supervisorBlocksPunches
+      ? null
+      : (sup?.entrada || null);
+
+  const supervisorExit =
+    supervisorBlocksPunches
+      ? null
+      : (sup?.salida || null);
+
+  const supervisorLateMinutes =
+    supervisorBlocksPunches
+      ? 0
+      : Number(sup?.lateMin || 0);
+
+  const supervisorShift = sup
+    ? (
+        sup.shift && sup.shift !== '—'
+          ? `${sup.shift}${
+              sup.shiftEnd &&
+              sup.shiftEnd !== '—'
+                ? `–${sup.shiftEnd}`
+                : ''
+            }`
+          : '—'
+      )
+    : '—';
+
   let rows = '';
 
   myTeam.forEach(a => {
@@ -12912,6 +13045,105 @@ function _a_renderSupDetail(supId) {
         <div style="font-size:11px;color:#64748B;margin-top:2px">${supCamp}</div>
       </div>
       <span class="pill pill-gray">${myTeam.length} agentes</span>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div style="
+        display:flex;
+        justify-content:space-between;
+        align-items:flex-start;
+        gap:12px;
+        flex-wrap:wrap
+      ">
+        <div>
+          <div class="card-title" style="margin-bottom:4px">
+            Asistencia del Supervisor · hoy
+          </div>
+
+          <div style="font-size:11px;color:#64748B">
+            Horario: ${supervisorShift}
+            · Tol: ${Number(sup?.toleranciaMin || 10)} min
+          </div>
+        </div>
+
+        <button
+          class="btn-ghost"
+          onclick="_a_drillToEmployee('${supId}')"
+        >
+          Ver historial completo
+        </button>
+      </div>
+
+      <div class="hoy-grid" style="margin-top:14px">
+        <div class="hoy-box">
+          <div class="hoy-box-label">🟢 Entrada</div>
+
+          <div class="hoy-box-val ${supervisorEntry ? '' : 'empty'}">
+            ${supervisorEntry || '——:——'}
+          </div>
+
+          <div class="hoy-box-sub">
+            ${
+              supervisorBlocksPunches
+                ? (
+                    supervisorStatus === 'vacaciones'
+                      ? 'Vacaciones'
+                      : 'Descanso'
+                  )
+                : supervisorEntry
+                  ? 'Registro de hoy'
+                  : 'Sin entrada registrada'
+            }
+          </div>
+        </div>
+
+        <div class="hoy-box">
+          <div class="hoy-box-label">🔴 Salida</div>
+
+          <div class="hoy-box-val ${supervisorExit ? '' : 'empty'}">
+            ${supervisorExit || '——:——'}
+          </div>
+
+          <div class="hoy-box-sub">
+            ${
+              supervisorEntry && !supervisorExit
+                ? 'En turno'
+                : supervisorExit
+                  ? 'Salida registrada'
+                  : '—'
+            }
+          </div>
+        </div>
+      </div>
+
+      <div style="
+        display:flex;
+        align-items:center;
+        gap:10px;
+        flex-wrap:wrap;
+        margin-top:12px
+      ">
+        ${_a_agentBadge(
+          supervisorStatus,
+          sup?.falta,
+          supervisorLateMinutes,
+          sup || {}
+        )}
+
+        ${
+          supervisorLateMinutes > 0
+            ? `
+              <span style="
+                font-size:11px;
+                color:#B45309;
+                font-family:'DM Mono',monospace
+              ">
+                ${supervisorLateMinutes} min tarde
+              </span>
+            `
+            : ''
+        }
+      </div>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
