@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.53';
+const APP_VERSION   = '1.0.54';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -14817,6 +14817,17 @@ window['_rerender_nomina']=function(){ if(typeof _n_render==='function')_n_rende
 let _dd_LOADING = false;
 let _dd_DATA = null;
 let _dd_OPERATIONAL_WARNING = null;
+let _dd_OPERATIONAL_LOAD_ERROR = null;
+let _dd_OPERATIONAL_RETRY_TIMER = null;
+let _dd_OPERATIONAL_NETWORK_BOUND = false;
+let _dd_OPERATIONAL_RETRYING = false;
+
+/*
+ * Cache únicamente en memoria. No persiste información laboral al
+ * cerrar o recargar la pestaña.
+ */
+const _dd_OPERATIONAL_BUNDLE_CACHE = new Map();
+const _DD_ATTENDANCE_DATA_START = '2026-07-16';
 
 let _dd_FILTERS = {
   from: null,
@@ -18398,94 +18409,409 @@ function _dd4_operationalAccountabilityPill(status){
   return '<span class="dd4-status neutral">Sin registro de liderazgo</span>';
 }
 
-async function _dd_rpcOperationalBundle(
+function _dd_wait(ms) {
+  return new Promise(resolve =>
+    setTimeout(resolve, ms)
+  );
+}
+
+function _dd_operationalCacheKey(from, to) {
+  const actor =
+    ROLES[currentRole]?.id ||
+    currentRole ||
+    'unknown';
+
+  return [
+    actor,
+    currentRole,
+    from,
+    to
+  ].join('|');
+}
+
+function _dd_isOperationalTransportError(error) {
+  if (!navigator.onLine) return true;
+
+  const message = String(
+    error?.message ||
+    error?.details ||
+    error ||
+    ''
+  ).toLowerCase();
+
+  const name = String(
+    error?.name || ''
+  ).toLowerCase();
+
+  return (
+    error instanceof TypeError ||
+    name === 'aborterror' ||
+    message.includes('failed to fetch') ||
+    message.includes('networkerror') ||
+    message.includes('network request failed') ||
+    message.includes('load failed') ||
+    message.includes('fetch failed') ||
+    message.includes('timed out') ||
+    message.includes('timeout') ||
+    message.includes('aborted')
+  );
+}
+
+function _dd_operationalFriendlyIssue(
+  error,
   from,
   to,
   label
 ) {
-  const response = await _a_sb.rpc(
-    'deep_dive_operational_bundle_v2',
-    {
-      p_from: from,
-      p_to: to
-    }
-  );
-
-  if (response.error) {
-    const diagnostic = {
-      message:
-        response.error.message ||
-        'No fue posible consultar Deep Dive.',
-      detail:
-        response.error.details ||
-        null,
-      hint:
-        response.error.hint ||
-        null,
-      sqlstate:
-        response.error.code ||
-        null,
-      from_date: from,
-      to_date: to
-    };
-
-    console.error(
-      `Deep Dive operativo · ${label}:`,
-      JSON.stringify(diagnostic, null, 2),
-      response.error
-    );
-
-    return {
-      ok: false,
-      ...diagnostic
-    };
-  }
-
-  if (response.data?.ok === false) {
-    const diagnostic = {
-      message:
-        response.data.message ||
-        'No fue posible consultar Deep Dive.',
-      detail:
-        response.data.detail ||
-        null,
-      hint:
-        response.data.hint ||
-        null,
-      sqlstate:
-        response.data.sqlstate ||
-        null,
-      context:
-        response.data.context ||
-        null,
-      from_date:
-        response.data.from_date ||
-        from,
-      to_date:
-        response.data.to_date ||
-        to
-    };
-
-    console.error(
-      `Deep Dive operativo · ${label}:`,
-      JSON.stringify(diagnostic, null, 2)
-    );
-
-    return {
-      ok: false,
-      ...diagnostic
-    };
-  }
+  const offline = !navigator.onLine;
 
   return {
-    ok: true,
-    bundle:
-      response.data?.bundle ||
-      {}
+    ok: false,
+    kind: offline
+      ? 'offline'
+      : 'network',
+    retryable: true,
+    from_date: from,
+    to_date: to,
+    label,
+    message: offline
+      ? 'Impulse perdió la conexión a internet antes de terminar esta consulta.'
+      : 'La conexión con Supabase se interrumpió antes de terminar esta consulta.',
+    detail:
+      'Tus datos no fueron modificados. Impulse volverá a intentar cuando la conexión esté disponible.',
+    technical_message:
+      String(
+        error?.message ||
+        error?.details ||
+        error ||
+        'Error de red'
+      )
   };
 }
 
+function _dd_operationalCacheGet(from, to) {
+  return _dd_OPERATIONAL_BUNDLE_CACHE.get(
+    _dd_operationalCacheKey(from, to)
+  ) || null;
+}
+
+function _dd_operationalCacheSet(
+  from,
+  to,
+  bundle
+) {
+  _dd_OPERATIONAL_BUNDLE_CACHE.set(
+    _dd_operationalCacheKey(from, to),
+    {
+      bundle,
+      cached_at: new Date().toISOString()
+    }
+  );
+}
+
+function _dd_bindOperationalNetworkRecovery() {
+  if (_dd_OPERATIONAL_NETWORK_BOUND) return;
+
+  _dd_OPERATIONAL_NETWORK_BOUND = true;
+
+  window.addEventListener('online', () => {
+    clearTimeout(_dd_OPERATIONAL_RETRY_TIMER);
+
+    _dd_OPERATIONAL_RETRY_TIMER =
+      setTimeout(() => {
+        const warning =
+          _dd_DATA?.operationalWarning ||
+          _dd_OPERATIONAL_WARNING;
+
+        if (
+          activeModule === 'deepdive' &&
+          _dd_isOperationalAccess() &&
+          (
+            _dd_OPERATIONAL_LOAD_ERROR?.retryable ||
+            warning?.retryable
+          )
+        ) {
+          _dd_retryOperationalData(true);
+        }
+      }, 900);
+  });
+}
+
+async function _dd_retryOperationalData(
+  automatic = false
+) {
+  if (_dd_OPERATIONAL_RETRYING) return;
+
+  if (!navigator.onLine) {
+    _rt_setStatus(
+      'offline',
+      'Sin conexión',
+      'Conéctate a internet para reintentar Deep Dive.'
+    );
+
+    if (!automatic) {
+      _rt_showToast(
+        'Aún no hay conexión. Impulse reintentará automáticamente.'
+      );
+    }
+
+    return;
+  }
+
+  _dd_OPERATIONAL_RETRYING = true;
+
+  try {
+    await _dd_loadOperationalData({
+      retry: true,
+      preserveCurrent: true
+    });
+  } finally {
+    _dd_OPERATIONAL_RETRYING = false;
+  }
+}
+
+async function _dd_rpcOperationalBundle(
+  from,
+  to,
+  label,
+  options = {}
+) {
+  const retries = Number.isInteger(
+    options.retries
+  )
+    ? Math.max(0, options.retries)
+    : 2;
+
+  const timeoutMs =
+    Number(options.timeoutMs) > 0
+      ? Number(options.timeoutMs)
+      : 65000;
+
+  const cached =
+    _dd_operationalCacheGet(from, to);
+
+  let lastError = null;
+
+  for (
+    let attempt = 0;
+    attempt <= retries;
+    attempt += 1
+  ) {
+    if (!navigator.onLine) {
+      lastError = new TypeError(
+        'Sin conexión a internet'
+      );
+      break;
+    }
+
+    if (attempt > 0) {
+      await _dd_wait(
+        attempt === 1 ? 900 : 2200
+      );
+    }
+
+    let timeoutId = null;
+
+    try {
+      const controller =
+        typeof AbortController !== 'undefined'
+          ? new AbortController()
+          : null;
+
+      let request = _a_sb.rpc(
+        'deep_dive_operational_bundle_v2',
+        {
+          p_from: from,
+          p_to: to
+        }
+      );
+
+      if (
+        controller &&
+        typeof request?.abortSignal === 'function'
+      ) {
+        request = request.abortSignal(
+          controller.signal
+        );
+
+        timeoutId = setTimeout(
+          () => controller.abort(),
+          timeoutMs
+        );
+      }
+
+      const response = await request;
+
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+
+      if (response.error) {
+        if (
+          _dd_isOperationalTransportError(
+            response.error
+          )
+        ) {
+          lastError = response.error;
+          continue;
+        }
+
+        const diagnostic = {
+          message:
+            response.error.message ||
+            'No fue posible consultar Deep Dive.',
+          detail:
+            response.error.details ||
+            null,
+          hint:
+            response.error.hint ||
+            null,
+          sqlstate:
+            response.error.code ||
+            null,
+          from_date: from,
+          to_date: to,
+          retryable: false,
+          kind: 'database'
+        };
+
+        console.error(
+          `Deep Dive operativo · ${label}:`,
+          diagnostic
+        );
+
+        return {
+          ok: false,
+          ...diagnostic
+        };
+      }
+
+      if (response.data?.ok === false) {
+        const diagnostic = {
+          message:
+            response.data.message ||
+            'No fue posible consultar Deep Dive.',
+          detail:
+            response.data.detail ||
+            null,
+          hint:
+            response.data.hint ||
+            null,
+          sqlstate:
+            response.data.sqlstate ||
+            null,
+          context:
+            response.data.context ||
+            null,
+          from_date:
+            response.data.from_date ||
+            from,
+          to_date:
+            response.data.to_date ||
+            to,
+          retryable: false,
+          kind: 'database'
+        };
+
+        console.error(
+          `Deep Dive operativo · ${label}:`,
+          diagnostic
+        );
+
+        return {
+          ok: false,
+          ...diagnostic
+        };
+      }
+
+      const bundle =
+        response.data?.bundle ||
+        {};
+
+      _dd_operationalCacheSet(
+        from,
+        to,
+        bundle
+      );
+
+      return {
+        ok: true,
+        bundle,
+        attempts: attempt + 1,
+        fromCache: false,
+        stale: false
+      };
+
+    } catch (error) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+
+      lastError = error;
+
+      console.warn(
+        `Deep Dive operativo · ${label} · intento ${
+          attempt + 1
+        }:`,
+        String(
+          error?.message ||
+          error
+        )
+      );
+
+      if (
+        !_dd_isOperationalTransportError(error)
+      ) {
+        return {
+          ok: false,
+          retryable: false,
+          kind: 'unexpected',
+          message:
+            error?.message ||
+            'Error inesperado consultando Deep Dive.',
+          detail: null,
+          from_date: from,
+          to_date: to
+        };
+      }
+    }
+  }
+
+  const issue =
+    _dd_operationalFriendlyIssue(
+      lastError,
+      from,
+      to,
+      label
+    );
+
+  if (cached?.bundle) {
+    return {
+      ok: true,
+      bundle: cached.bundle,
+      fromCache: true,
+      stale: true,
+      issue,
+      cached_at: cached.cached_at
+    };
+  }
+
+  return issue;
+}
+
 function _dd_operationalErrorText(issue) {
+  if (
+    issue?.kind === 'offline' ||
+    issue?.kind === 'network'
+  ) {
+    return [
+      issue?.message,
+      issue?.detail
+    ].filter(Boolean).join('\n\n');
+  }
+
   return [
     issue?.message,
     issue?.detail,
@@ -18496,60 +18822,226 @@ function _dd_operationalErrorText(issue) {
   ].filter(Boolean).join('\n\n');
 }
 
-async function _dd_loadOperationalData(){
-  _dd_LOADING=true;
-  _dd_OPERATIONAL_WARNING=null;
-  _dd_render();
+async function _dd_loadOperationalData(
+  options = {}
+){
+  _dd_bindOperationalNetworkRecovery();
 
-  const {from,to,prevFrom,prevTo}=_dd_FILTERS;
-
-  const curCall = await _dd_rpcOperationalBundle(
+  const {
     from,
     to,
-    'periodo actual'
+    prevFrom,
+    prevTo
+  } = _dd_FILTERS;
+
+  const existingData =
+    _dd_DATA?.mode === 'operational'
+      ? _dd_DATA
+      : null;
+
+  const sameCurrentRange =
+    existingData?.from === from &&
+    existingData?.to === to;
+
+  _dd_OPERATIONAL_LOAD_ERROR = null;
+  _dd_OPERATIONAL_WARNING = null;
+
+  /*
+   * En una reconexión conservamos la pantalla actual mientras
+   * reintentamos; en la primera carga sí mostramos spinner.
+   */
+  _dd_LOADING = !(
+    options.preserveCurrent &&
+    sameCurrentRange
   );
 
-  if (!curCall.ok) {
-    alert(
-      'No se pudo cargar la vista operativa de Deep Dive:\n\n' +
-      _dd_operationalErrorText(curCall)
+  _dd_render();
+
+  const comparisonFrom =
+    prevFrom < _DD_ATTENDANCE_DATA_START
+      ? _DD_ATTENDANCE_DATA_START
+      : prevFrom;
+
+  const comparisonHasData =
+    prevTo >= _DD_ATTENDANCE_DATA_START;
+
+  const comparisonPartial =
+    comparisonHasData &&
+    comparisonFrom !== prevFrom;
+
+  /*
+   * Ambos periodos comienzan al mismo tiempo. Antes se esperaba a
+   * que terminara el actual para iniciar el anterior; una caída entre
+   * ambas llamadas dejaba la comparación sin cargar.
+   */
+  const currentPromise =
+    _dd_rpcOperationalBundle(
+      from,
+      to,
+      'periodo actual',
+      {
+        retries: 2,
+        timeoutMs: 65000
+      }
     );
 
-    _dd_LOADING=false;
+  const previousPromise =
+    comparisonHasData
+      ? _dd_rpcOperationalBundle(
+          comparisonFrom,
+          prevTo,
+          'periodo anterior',
+          {
+            retries: 2,
+            timeoutMs: 65000
+          }
+        )
+      : Promise.resolve({
+          ok: false,
+          kind: 'not_evaluable',
+          retryable: false,
+          message:
+            'El periodo anterior es previo al inicio de la información evaluable.',
+          detail:
+            `La asistencia evaluable comienza el ${
+              fmtDateShort(
+                _DD_ATTENDANCE_DATA_START
+              )
+            }.`
+        });
+
+  const [
+    curCall,
+    prevCall
+  ] = await Promise.all([
+    currentPromise,
+    previousPromise
+  ]);
+
+  if (!curCall.ok) {
+    if (
+      existingData &&
+      sameCurrentRange
+    ) {
+      _dd_OPERATIONAL_WARNING = {
+        title:
+          'No fue posible actualizar, pero conservamos la información que ya estaba cargada.',
+        message:
+          _dd_operationalErrorText(curCall),
+        retryable:
+          Boolean(curCall.retryable),
+        kind:
+          curCall.kind || 'network'
+      };
+
+      existingData.operationalWarning =
+        _dd_OPERATIONAL_WARNING;
+
+      _dd_DATA = existingData;
+      _dd_LOADING = false;
+      _dd_render();
+      return;
+    }
+
+    _dd_OPERATIONAL_LOAD_ERROR = {
+      title:
+        curCall.kind === 'offline'
+          ? 'Deep Dive está esperando conexión'
+          : 'No se pudo cargar Deep Dive',
+      message:
+        _dd_operationalErrorText(curCall),
+      retryable:
+        Boolean(curCall.retryable),
+      kind:
+        curCall.kind || 'unknown'
+    };
+
+    _dd_DATA = null;
+    _dd_LOADING = false;
     _dd_render();
     return;
   }
 
-  const prevCall = await _dd_rpcOperationalBundle(
-    prevFrom,
-    prevTo,
-    'periodo anterior'
-  );
-
-  const curBundle = curCall.bundle || {};
+  const curBundle =
+    curCall.bundle || {};
 
   let prevBundle;
+  let comparisonAvailable = false;
 
   if (!prevCall.ok) {
-    /*
-     * El periodo actual sigue disponible. Solo se desactiva la
-     * comparación mientras se muestra el diagnóstico.
-     */
-    _dd_OPERATIONAL_WARNING = {
-      title:
-        'El periodo actual cargó, pero la comparación anterior no está disponible.',
-      message:
-        _dd_operationalErrorText(prevCall)
-    };
+    if (
+      prevCall.kind === 'not_evaluable'
+    ) {
+      _dd_OPERATIONAL_WARNING = {
+        title:
+          'El periodo anterior todavía no es evaluable.',
+        message:
+          prevCall.detail ||
+          prevCall.message,
+        retryable: false,
+        kind: 'not_evaluable'
+      };
+    } else {
+      _dd_OPERATIONAL_WARNING = {
+        title:
+          'El periodo actual está completo; la comparación se reintentará al volver la conexión.',
+        message:
+          _dd_operationalErrorText(prevCall),
+        retryable:
+          Boolean(prevCall.retryable),
+        kind:
+          prevCall.kind || 'network'
+      };
+    }
 
     prevBundle = {
-      employees: curBundle.employees || [],
+      employees:
+        curBundle.employees || [],
       attendance: [],
       exceptions: [],
       actions: []
     };
   } else {
-    prevBundle = prevCall.bundle || {};
+    comparisonAvailable = true;
+    prevBundle =
+      prevCall.bundle || {};
+
+    if (prevCall.stale) {
+      _dd_OPERATIONAL_WARNING = {
+        title:
+          'La comparación se muestra con la última información disponible.',
+        message:
+          'Impulse no pudo refrescar el periodo anterior, pero conservó la última consulta exitosa de esta sesión.',
+        retryable: true,
+        kind: 'cached'
+      };
+    } else if (comparisonPartial) {
+      _dd_OPERATIONAL_WARNING = {
+        title:
+          'La comparación anterior es parcial.',
+        message:
+          `Solo se compara del ${
+            fmtDateShort(comparisonFrom)
+          } al ${
+            fmtDateShort(prevTo)
+          }, porque la información evaluable inicia el ${
+            fmtDateShort(
+              _DD_ATTENDANCE_DATA_START
+            )
+          }.`,
+        retryable: false,
+        kind: 'partial'
+      };
+    } else if (curCall.stale) {
+      _dd_OPERATIONAL_WARNING = {
+        title:
+          'Deep Dive muestra la última información disponible.',
+        message:
+          'La conexión se interrumpió durante la actualización. Impulse volverá a consultar automáticamente.',
+        retryable: true,
+        kind: 'cached'
+      };
+    }
   }
 
   const directoryRows=curBundle.employees||[];
@@ -18582,7 +19074,7 @@ async function _dd_loadOperationalData(){
     directoryRows,
     curBundle.actions||[]
   );
-  const data={mode:'operational',role:currentRole,scope_label:curBundle.scope_label||_dd_operationalScopeLabel(),operationalWarning:_dd_OPERATIONAL_WARNING,from,to,prevFrom,prevTo,historyFrom,campaigns,
+  const data={mode:'operational',role:currentRole,scope_label:curBundle.scope_label||_dd_operationalScopeLabel(),operationalWarning:_dd_OPERATIONAL_WARNING,comparisonAvailable,comparisonPartial,comparisonFrom,comparisonTo:prevTo,comparisonLabel:comparisonPartial?`${fmtDateShort(comparisonFrom)} al ${fmtDateShort(prevTo)} · parcial`:`${fmtDateShort(prevFrom)} al ${fmtDateShort(prevTo)}`,from,to,prevFrom,prevTo,historyFrom,campaigns,
     supervisorsOptions:Object.entries(supervisorsMap).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)),
     employees,allActiveEmployees:activeDirectoryRows,directoryRows,attendanceUniverse,warningRisk:{all:[],activeLastWarnings:[],byCampaign:{},red:0,yellow:0,green:0},matrixRows:[],payrollTickets:[],
     current:{rawRows:_dd_filterAttendanceRows(cur.raw),rows:curRows,duplicates:cur.dedupe.duplicateGroups,conflicts:cur.dedupe.conflicts,attendance:_dd_attendanceSummary(curRows),expectedActions:{},tickets:{},ticketRows:[],actions:[],actionRowsAll:[],exceptions:curExceptions,absenceSources:_dd4_absenceSourceSummary(curExceptions,employeeById),rotation:{}},
@@ -18897,6 +19389,25 @@ function _dd4_openCampaignDetail(campaign){
 }
 
 
+function _dd4_operationalDeltaText(
+  d,
+  currentValue,
+  previousValue
+) {
+  if (!d?.comparisonAvailable) {
+    return 'Comparación no disponible';
+  }
+
+  const prefix = _dd_delta(
+    currentValue,
+    previousValue
+  ).label;
+
+  return d.comparisonPartial
+    ? `${prefix} vs periodo parcial`
+    : `${prefix} vs periodo anterior`;
+}
+
 function _dd4_renderOperationalOverview(d){
   const a=d.current.attendance,p=d.previous.attendance,rows=d.current.rows||[],inc=d.operationalIncidents||[],acc=d.operationalAccountability||[];
   const workRows=rows.filter(r=>!_dd_isNonWorkStatus(r.audit_status));
@@ -18909,8 +19420,8 @@ function _dd4_renderOperationalOverview(d){
     ${_dd4_kpi('HC sujeto a asistencia',d.employees.length,`${d.scope_label||_dd_operationalScopeLabel()}`,'#2563EB')}
     ${_dd4_kpi('Con entrada',withEntry,`${withoutEntry} sin entrada en días laborables`,'#15803D',"_dd4_setTab('attendance')")}
     ${_dd4_kpi('Con salida',withExit,`${withoutExit} sin salida registrada`,'#0E7490',"_dd4_setTab('attendance')")}
-    ${_dd4_kpi('Retardos',a.retardo,`${_dd_delta(a.retardo,p.retardo).label} vs periodo anterior`,'#D97706',"_dd4_setTab('incidents')")}
-    ${_dd4_kpi('Faltas detectadas',a.falta,`${_dd_delta(a.falta,p.falta).label} vs periodo anterior`,'#DC2626',"_dd4_setTab('incidents')")}
+    ${_dd4_kpi('Retardos',a.retardo,_dd4_operationalDeltaText(d,a.retardo,p.retardo),'#D97706',"_dd4_setTab('incidents')")}
+    ${_dd4_kpi('Faltas detectadas',a.falta,_dd4_operationalDeltaText(d,a.falta,p.falta),'#DC2626',"_dd4_setTab('incidents')")}
     ${_dd4_kpi('Sin salida',a.sinSalida||rows.filter(r=>r.audit_status==='sin_salida').length,'Requieren validación operativa','#7C3AED',"_dd4_setTab('incidents')")}
     ${_dd4_kpi('Incidencias sin gestión',pending,'Sin registro o fuera del plazo acordado','#BE123C',"_dd4_setTab('accountability')")}
     ${_dd4_kpi('Campañas',d.campaigns.length,`${acc.length} supervisores con incidencias`,'#0891B2',"_dd4_setTab('campaigns')")}
@@ -19027,6 +19538,43 @@ function _dd_render(){
   const c=document.getElementById('content');if(!c)return;
   if(!_dd_canAccess()){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><div style="font-size:13px;color:#64748B">No tienes permiso para acceder a este módulo.</div></div>';return;}
   if(_dd_LOADING){c.innerHTML='<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando Deep Dive...</div>';return;}
+
+  if(_dd_OPERATIONAL_LOAD_ERROR){
+    const issue=_dd_OPERATIONAL_LOAD_ERROR;
+
+    c.innerHTML=`
+      <div class="card" style="max-width:780px;margin:28px auto">
+        <div class="card-title">📊 ${
+          _dd_escape(
+            issue.title ||
+            'No se pudo cargar Deep Dive'
+          )
+        }</div>
+
+        <div
+          class="dd4-alert amber"
+          style="margin-top:14px;white-space:pre-line"
+        >${
+          _dd_escape(
+            issue.message ||
+            'Verifica tu conexión y vuelve a intentarlo.'
+          )
+        }</div>
+
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <button
+            class="btn-primary"
+            onclick="_dd_retryOperationalData(false)"
+          >
+            🔄 Reintentar
+          </button>
+        </div>
+      </div>
+    `;
+
+    return;
+  }
+
   const d=_dd_DATA;if(!d){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><button class="btn-primary" onclick="_dd_loadData()">Cargar análisis</button></div>';return;}
   const operational=_dd_isOperationalAccess();
   if(operational&&!_dd_allowedOperationalTabs().has(_dd4_UI.tab))_dd4_UI.tab='overview';
@@ -19052,6 +19600,20 @@ function _dd_render(){
               ''
             )}
           </div>
+
+          ${
+            d.operationalWarning.retryable
+              ? `
+                <button
+                  class="btn-ghost"
+                  style="margin-top:10px;background:white"
+                  onclick="_dd_retryOperationalData(false)"
+                >
+                  🔄 Reintentar comparación
+                </button>
+              `
+              : ''
+          }
         </div>
       `
       : ''
@@ -19062,6 +19624,7 @@ window._dd4_setTab=_dd4_setTab;window._dd4_setUI=_dd4_setUI;window._dd4_openAgen
 
 async function _init_deepdive() {
   updateSidebarUser();
+  _dd_bindOperationalNetworkRecovery();
 
   const w = _dd_lastCompletedWeek();
 
@@ -19077,6 +19640,8 @@ async function _init_deepdive() {
 
 window._init_deepdive = _init_deepdive;
 window._rerender_deepdive = _dd_render;
+window._dd_retryOperationalData =
+  _dd_retryOperationalData;
 window._dd_openIncidentDrawer = _dd_openIncidentDrawer;
 window._dd_closeIncidentDrawer = _dd_closeIncidentDrawer;
 window._dd_setIncidentDrawerFilter = _dd_setIncidentDrawerFilter;
