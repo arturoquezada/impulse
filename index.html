@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.50';
+const APP_VERSION   = '1.0.51';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -6801,19 +6801,60 @@ async function _a_cargarDatos(options = {}) {
         esVacacionPorExcepcion ||
         esVacacionPorSummary;
 
+      const hasTrainingSchedule =
+        effectiveSchedule?.schedule_source ===
+          'training_schedule';
+
+      const missingTrainingTimes =
+        hasTrainingSchedule &&
+        (
+          !effectiveSchedule?.shift_start ||
+          !effectiveSchedule?.shift_end
+        );
+
+      if (missingTrainingTimes) {
+        console.error(
+          '[Impulse Horario capacitación incompleto]',
+          {
+            employeeId: e.id,
+            employeeName: e.full_name,
+            workDate: hoy,
+            effectiveSchedule
+          }
+        );
+      }
+
+      /*
+       * Una capacitación detectada nunca debe caer silenciosamente al
+       * turno operativo: eso volvería a crear retardos falsos.
+       */
       const currentShiftStart =
-        effectiveSchedule?.shift_start ||
-        exPermutaHorario?.shift_start_override ||
-        e.shift_start ||
-        s?.shift_start ||
-        null;
+        hasTrainingSchedule
+          ? (
+              effectiveSchedule?.shift_start ||
+              null
+            )
+          : (
+              effectiveSchedule?.shift_start ||
+              exPermutaHorario?.shift_start_override ||
+              e.shift_start ||
+              s?.shift_start ||
+              null
+            );
 
       const currentShiftEnd =
-        effectiveSchedule?.shift_end ||
-        exPermutaHorario?.shift_end_override ||
-        e.shift_end ||
-        s?.shift_end ||
-        null;
+        hasTrainingSchedule
+          ? (
+              effectiveSchedule?.shift_end ||
+              null
+            )
+          : (
+              effectiveSchedule?.shift_end ||
+              exPermutaHorario?.shift_end_override ||
+              e.shift_end ||
+              s?.shift_end ||
+              null
+            );
 
       const currentRawTimeIn =
         s?.time_in || null;
@@ -7033,17 +7074,29 @@ async function _a_cargarDatos(options = {}) {
       const s = ctx.s;
       const exPermutaHorario = ctx.exPermutaHorario;
 
+      const isTrainingSchedule =
+        ctx.effectiveSchedule?.schedule_source ===
+          'training_schedule';
+
       const shiftStart =
-        ctx.currentShiftStart ||
-        exPermutaHorario?.shift_start_override ||
-        e.shift_start ||
-        null;
+        isTrainingSchedule
+          ? ctx.currentShiftStart
+          : (
+              ctx.currentShiftStart ||
+              exPermutaHorario?.shift_start_override ||
+              e.shift_start ||
+              null
+            );
 
       const shiftEnd =
-        ctx.currentShiftEnd ||
-        exPermutaHorario?.shift_end_override ||
-        e.shift_end ||
-        null;
+        isTrainingSchedule
+          ? ctx.currentShiftEnd
+          : (
+              ctx.currentShiftEnd ||
+              exPermutaHorario?.shift_end_override ||
+              e.shift_end ||
+              null
+            );
 
       return {
         id:       e.id,
