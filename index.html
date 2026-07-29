@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.43';
+const APP_VERSION   = '1.0.44';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -4538,6 +4538,979 @@ function _a_injectEarlyEntryReviewCard() {
   );
 }
 
+
+let _a_LATE_REGULARIZATIONS = [];
+let _a_LATE_REGULARIZATION_LOADING = false;
+
+function _a_lateRegDays(row) {
+  const start = new Date(
+    String(row?.work_date || '').slice(0, 10) +
+    'T12:00:00'
+  );
+
+  const today = new Date(
+    ymd(NOW) + 'T12:00:00'
+  );
+
+  if (Number.isNaN(start.getTime())) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    Math.floor((today - start) / 86400000)
+  );
+}
+
+function _a_lateRegAccountability(row) {
+  const days = row?.accountability_days != null
+    ? Number(row.accountability_days)
+    : _a_lateRegDays(row);
+
+  if (days <= 1) {
+    return {
+      key: 'on_time',
+      label: 'En tiempo',
+      cls: 'pill-green',
+      days
+    };
+  }
+
+  if (days <= 6) {
+    return {
+      key: 'delayed',
+      label: 'Retrasado',
+      cls: 'pill-amber',
+      days
+    };
+  }
+
+  return {
+    key: 'critical',
+    label: 'Crítico',
+    cls: 'pill-red',
+    days
+  };
+}
+
+function _a_lateRegTypeLabel(type) {
+  const map = {
+    temporary_schedule: 'Cambio temporal de horario',
+    authorized_late: 'Llegada tardía autorizada',
+    unjustified: 'No estaba autorizado'
+  };
+
+  return map[type] || 'Pendiente de decisión';
+}
+
+function _a_lateRegStatusLabel(status) {
+  const map = {
+    open: 'Pendiente de Supervisor',
+    pending_approval: 'Esperando aprobación',
+    approved: 'Regularización aprobada',
+    rejected: 'Regularización rechazada',
+    unjustified: 'Retardo no justificado',
+    cancelled: 'Cancelada'
+  };
+
+  return map[status] || status || 'Pendiente';
+}
+
+function _a_lateRegularizationFor(
+  employeeId,
+  workDate
+) {
+  return (_a_LATE_REGULARIZATIONS || []).find(
+    row =>
+      String(row.employee_id) === String(employeeId) &&
+      String(row.work_date).slice(0, 10) ===
+        String(workDate).slice(0, 10) &&
+      row.status !== 'cancelled'
+  ) || null;
+}
+
+async function _a_loadLateRegularizations() {
+  if (![
+    'supervisor',
+    'manager',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole)) {
+    _a_LATE_REGULARIZATIONS = [];
+    return;
+  }
+
+  _a_LATE_REGULARIZATION_LOADING = true;
+
+  try {
+    const sync = await _a_sb.rpc(
+      'sync_attendance_late_regularizations',
+      { p_days_back: 120 }
+    );
+
+    if (
+      sync.error ||
+      sync.data?.ok === false
+    ) {
+      console.warn(
+        '[Impulse Regularización retardos] Sync:',
+        sync.error || sync.data
+      );
+    }
+
+    const { data, error } = await _a_sb
+      .from('attendance_late_regularizations')
+      .select('*')
+      .order('work_date', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error(
+        '[Impulse Regularización retardos] Carga:',
+        error
+      );
+
+      _a_LATE_REGULARIZATIONS = [];
+      return;
+    }
+
+    _a_LATE_REGULARIZATIONS = data || [];
+  } finally {
+    _a_LATE_REGULARIZATION_LOADING = false;
+  }
+}
+
+function _a_toggleLateRegFields() {
+  const type =
+    document.getElementById(
+      'late-reg-resolution-type'
+    )?.value;
+
+  const scheduleWrap =
+    document.getElementById(
+      'late-reg-schedule-wrap'
+    );
+
+  if (scheduleWrap) {
+    scheduleWrap.style.display =
+      type === 'temporary_schedule'
+        ? 'block'
+        : 'none';
+  }
+}
+
+function _a_openLateRegularization(regId) {
+  const row = (_a_LATE_REGULARIZATIONS || []).find(
+    x => String(x.id) === String(regId)
+  );
+
+  if (!row) {
+    alert('No se encontró el retardo.');
+    return;
+  }
+
+  const acc = _a_lateRegAccountability(row);
+  const critical = acc.key === 'critical';
+
+  document.getElementById('modalTitle').textContent =
+    'Regularizar retardo';
+
+  document.getElementById('modalSub').textContent =
+    `${row.employee_name || row.employee_id} · ${fmtDate(row.work_date)}`;
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section" style="background:#F8FAFC">
+      <div class="kv">
+        <span class="k">Colaborador</span>
+        <span class="v">${_d_esc(
+          row.employee_name || row.employee_id
+        )}</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Supervisor</span>
+        <span class="v">${_d_esc(
+          row.supervisor_name ||
+          row.supervisor_id ||
+          '—'
+        )}</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Horario original</span>
+        <span class="v" style="font-family:'DM Mono',monospace">
+          ${String(row.original_shift_start).slice(0, 5)}–
+          ${String(row.original_shift_end || '').slice(0, 5) || '—'}
+        </span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Marca real</span>
+        <span class="v" style="font-family:'DM Mono',monospace">
+          ${String(row.raw_time_in).slice(0, 5)}
+        </span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Salida real</span>
+        <span class="v" style="font-family:'DM Mono',monospace">
+          ${row.raw_time_out
+            ? String(row.raw_time_out).slice(0, 5)
+            : '—'}
+        </span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Retardo calculado</span>
+        <span class="v">${Number(row.late_minutes || 0)} minutos</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Accountability</span>
+        <span class="v">
+          <span class="pill ${acc.cls}">
+            ${acc.label} · ${acc.days} día(s)
+          </span>
+        </span>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">
+        ¿Qué ocurrió?
+        <span style="color:#EF4444">*</span>
+      </div>
+
+      <select
+        id="late-reg-resolution-type"
+        onchange="_a_toggleLateRegFields()"
+        style="width:100%;padding:10px;border:1px solid #CBD5E1;border-radius:8px"
+      >
+        <option value="">Selecciona...</option>
+
+        <option value="temporary_schedule">
+          Cambio temporal de horario
+        </option>
+
+        <option value="authorized_late">
+          Llegada tardía autorizada
+        </option>
+
+        <option value="unjustified">
+          No estaba autorizado
+        </option>
+      </select>
+    </div>
+
+    <div
+      id="late-reg-schedule-wrap"
+      class="modal-section"
+      style="display:none"
+    >
+      <div class="ms-title">
+        Horario autorizado para ese día
+      </div>
+
+      <div
+        style="
+          display:grid;
+          grid-template-columns:1fr 1fr;
+          gap:10px;
+        "
+      >
+        <div>
+          <label style="font-size:11px;color:#64748B">
+            Inicio
+          </label>
+
+          <input
+            id="late-reg-shift-start"
+            type="time"
+            value="${String(row.raw_time_in).slice(0, 5)}"
+            style="width:100%;padding:10px;border:1px solid #CBD5E1;border-radius:8px"
+          />
+        </div>
+
+        <div>
+          <label style="font-size:11px;color:#64748B">
+            Fin
+          </label>
+
+          <input
+            id="late-reg-shift-end"
+            type="time"
+            value="${
+              row.raw_time_out
+                ? String(row.raw_time_out).slice(0, 5)
+                : String(row.original_shift_end || '').slice(0, 5)
+            }"
+            style="width:100%;padding:10px;border:1px solid #CBD5E1;border-radius:8px"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">
+        Motivo operativo
+        <span style="color:#EF4444">*</span>
+      </div>
+
+      <textarea
+        id="late-reg-reason"
+        placeholder="Ej: Se autorizó trabajar de 10:00 a 17:00 por cobertura operativa."
+        style="width:100%;min-height:82px;padding:10px;border:1px solid #CBD5E1;border-radius:8px;resize:vertical"
+      ></textarea>
+    </div>
+
+    ${
+      critical
+        ? `
+          <div
+            class="modal-section"
+            style="background:#FFF1F2;border-color:#FECDD3"
+          >
+            <div class="ms-title" style="color:#9F1239">
+              Control por retraso crítico
+            </div>
+
+            <label style="font-size:11px;color:#9F1239">
+              ¿Por qué no se registró a tiempo?
+              <span style="color:#EF4444">*</span>
+            </label>
+
+            <textarea
+              id="late-reg-delay-reason"
+              placeholder="Explica el olvido o retraso del Supervisor."
+              style="width:100%;min-height:72px;margin-top:5px;padding:10px;border:1px solid #FECDD3;border-radius:8px;resize:vertical"
+            ></textarea>
+
+            <label
+              style="
+                display:block;
+                font-size:11px;
+                color:#9F1239;
+                margin-top:10px;
+              "
+            >
+              Referencia de evidencia
+              <span style="color:#EF4444">*</span>
+            </label>
+
+            <input
+              id="late-reg-evidence"
+              placeholder="Ej: TKT-1234 / mensaje de Teams del 22-jul"
+              style="width:100%;margin-top:5px;padding:10px;border:1px solid #FECDD3;border-radius:8px"
+            />
+
+            <div style="font-size:10px;color:#9F1239;margin-top:6px">
+              Las justificaciones críticas se enviarán a Manager o People.
+            </div>
+          </div>
+        `
+        : ''
+    }
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">
+      Cancelar
+    </button>
+
+    <button
+      id="late-reg-save"
+      class="btn-primary"
+      onclick="_a_submitLateRegularization('${row.id}')"
+    >
+      Guardar decisión
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display =
+    'flex';
+}
+
+async function _a_submitLateRegularization(regId) {
+  const row = (_a_LATE_REGULARIZATIONS || []).find(
+    x => String(x.id) === String(regId)
+  );
+
+  if (!row) return;
+
+  const type =
+    document.getElementById(
+      'late-reg-resolution-type'
+    )?.value;
+
+  const shiftStart =
+    document.getElementById(
+      'late-reg-shift-start'
+    )?.value || null;
+
+  const shiftEnd =
+    document.getElementById(
+      'late-reg-shift-end'
+    )?.value || null;
+
+  const reason =
+    document.getElementById(
+      'late-reg-reason'
+    )?.value?.trim();
+
+  const delayReason =
+    document.getElementById(
+      'late-reg-delay-reason'
+    )?.value?.trim() || null;
+
+  const evidence =
+    document.getElementById(
+      'late-reg-evidence'
+    )?.value?.trim() || null;
+
+  if (!type) {
+    alert('Selecciona qué ocurrió.');
+    return;
+  }
+
+  if (
+    type === 'temporary_schedule' &&
+    (!shiftStart || !shiftEnd)
+  ) {
+    alert('Indica el horario temporal completo.');
+    return;
+  }
+
+  if (!reason) {
+    alert('El motivo operativo es obligatorio.');
+    return;
+  }
+
+  if (
+    _a_lateRegAccountability(row).key === 'critical' &&
+    type !== 'unjustified' &&
+    (!delayReason || !evidence)
+  ) {
+    alert(
+      'Los casos críticos requieren explicar el retraso y agregar una referencia de evidencia.'
+    );
+    return;
+  }
+
+  const button =
+    document.getElementById('late-reg-save');
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Guardando...';
+  }
+
+  const { data, error } = await _a_sb.rpc(
+    'submit_attendance_late_regularization',
+    {
+      p_regularization_id: regId,
+      p_resolution_type: type,
+      p_proposed_shift_start:
+        type === 'temporary_schedule'
+          ? `${shiftStart}:00`
+          : null,
+      p_proposed_shift_end:
+        type === 'temporary_schedule'
+          ? `${shiftEnd}:00`
+          : null,
+      p_decision_reason: reason,
+      p_delay_reason: delayReason,
+      p_evidence_reference: evidence
+    }
+  );
+
+  const issue = error || (
+    data?.ok === false
+      ? data
+      : null
+  );
+
+  if (issue) {
+    console.error(
+      '[Impulse Regularización retardos] Guardado:',
+      issue
+    );
+
+    alert(
+      'No se pudo guardar la regularización.\n\n' +
+      [
+        issue.message,
+        issue.details || issue.detail,
+        issue.hint
+      ].filter(Boolean).join('\n\n')
+    );
+
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Guardar decisión';
+    }
+
+    return;
+  }
+
+  closeModal();
+
+  _a_cargando = true;
+  _a_render();
+
+  await _a_cargarDatos({
+    historyEmployeeId:
+      _a_QDAYS_EMPLEADO_ID || row.employee_id
+  });
+
+  if (_a_QDAYS_EMPLEADO_ID) {
+    await _a_cargarQDAYS(
+      _a_QDAYS_EMPLEADO_ID,
+      _a_dateFilter.from,
+      _a_dateFilter.to
+    );
+  }
+
+  _a_cargando = false;
+  _a_render();
+
+  alert(
+    data.requires_approval
+      ? 'Solicitud enviada a Manager / People para aprobación.'
+      : data.status === 'unjustified'
+        ? 'El retardo quedó como no justificado.'
+        : 'Regularización aplicada correctamente.'
+  );
+}
+
+function _a_openLateRegApproval(regId) {
+  const row = (_a_LATE_REGULARIZATIONS || []).find(
+    x => String(x.id) === String(regId)
+  );
+
+  if (!row) return;
+
+  document.getElementById('modalTitle').textContent =
+    'Revisar regularización crítica';
+
+  document.getElementById('modalSub').textContent =
+    `${row.employee_name || row.employee_id} · ${fmtDate(row.work_date)}`;
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-section" style="background:#FFF7ED">
+      <div class="kv">
+        <span class="k">Solicitud</span>
+        <span class="v">
+          ${_a_lateRegTypeLabel(row.resolution_type)}
+        </span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Horario original</span>
+        <span class="v">
+          ${String(row.original_shift_start).slice(0, 5)}–
+          ${String(row.original_shift_end || '').slice(0, 5) || '—'}
+        </span>
+      </div>
+
+      ${
+        row.resolution_type === 'temporary_schedule'
+          ? `
+            <div class="kv">
+              <span class="k">Horario solicitado</span>
+              <span class="v">
+                ${String(row.proposed_shift_start).slice(0, 5)}–
+                ${String(row.proposed_shift_end).slice(0, 5)}
+              </span>
+            </div>
+          `
+          : ''
+      }
+
+      <div class="kv">
+        <span class="k">Motivo operativo</span>
+        <span class="v">${_d_esc(row.decision_reason || '—')}</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Motivo del retraso</span>
+        <span class="v">${_d_esc(row.delay_reason || '—')}</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Evidencia</span>
+        <span class="v">${_d_esc(row.evidence_reference || '—')}</span>
+      </div>
+
+      <div class="kv">
+        <span class="k">Preparado por</span>
+        <span class="v">${_d_esc(row.submitted_by_name || row.submitted_by || '—')}</span>
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="ms-title">
+        Comentario de revisión
+        <span style="color:#EF4444">*</span>
+      </div>
+
+      <textarea
+        id="late-reg-review-reason"
+        placeholder="Documenta por qué se aprueba o rechaza."
+        style="width:100%;min-height:82px;padding:10px;border:1px solid #CBD5E1;border-radius:8px;resize:vertical"
+      ></textarea>
+    </div>
+  `;
+
+  document.getElementById('modalFooter').innerHTML = `
+    <button class="btn-ghost" onclick="closeModal()">
+      Cancelar
+    </button>
+
+    <button
+      class="btn-primary"
+      style="background:#FFF1F2;color:#9F1239;border:1px solid #FECDD3"
+      onclick="_a_reviewLateRegularization('${row.id}','reject')"
+    >
+      Rechazar
+    </button>
+
+    <button
+      class="btn-primary"
+      onclick="_a_reviewLateRegularization('${row.id}','approve')"
+    >
+      Aprobar
+    </button>
+  `;
+
+  document.getElementById('modalBackdrop').style.display =
+    'flex';
+}
+
+async function _a_reviewLateRegularization(
+  regId,
+  decision
+) {
+  const reason =
+    document.getElementById(
+      'late-reg-review-reason'
+    )?.value?.trim();
+
+  if (!reason) {
+    alert('El comentario de revisión es obligatorio.');
+    return;
+  }
+
+  const { data, error } = await _a_sb.rpc(
+    'review_attendance_late_regularization',
+    {
+      p_regularization_id: regId,
+      p_decision: decision,
+      p_review_reason: reason
+    }
+  );
+
+  const issue = error || (
+    data?.ok === false
+      ? data
+      : null
+  );
+
+  if (issue) {
+    alert(
+      'No se pudo guardar la revisión.\n\n' +
+      [
+        issue.message,
+        issue.details || issue.detail,
+        issue.hint
+      ].filter(Boolean).join('\n\n')
+    );
+    return;
+  }
+
+  closeModal();
+
+  _a_cargando = true;
+  _a_render();
+
+  await _a_cargarDatos({
+    historyEmployeeId: _a_QDAYS_EMPLEADO_ID
+  });
+
+  if (_a_QDAYS_EMPLEADO_ID) {
+    await _a_cargarQDAYS(
+      _a_QDAYS_EMPLEADO_ID,
+      _a_dateFilter.from,
+      _a_dateFilter.to
+    );
+  }
+
+  _a_cargando = false;
+  _a_render();
+}
+
+function _a_injectLateRegularizationCard() {
+  if (![
+    'supervisor',
+    'manager',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole)) {
+    return;
+  }
+
+  if (
+    _a_vistaEspecial ||
+    _a_drillAgent ||
+    _a_drillSup ||
+    _a_drillMgr
+  ) {
+    return;
+  }
+
+  const content = document.getElementById('content');
+
+  if (
+    !content ||
+    document.getElementById(
+      'lateRegularizationCard'
+    )
+  ) {
+    return;
+  }
+
+  const actionable = (_a_LATE_REGULARIZATIONS || [])
+    .filter(row =>
+      row.status === 'open' ||
+      row.status === 'pending_approval'
+    );
+
+  if (
+    !actionable.length &&
+    !_a_LATE_REGULARIZATION_LOADING
+  ) {
+    return;
+  }
+
+  const open = actionable.filter(
+    row => row.status === 'open'
+  );
+
+  const approvals = actionable.filter(
+    row => row.status === 'pending_approval'
+  );
+
+  const delayed = open.filter(
+    row => _a_lateRegAccountability(row).key === 'delayed'
+  ).length;
+
+  const critical = actionable.filter(
+    row => _a_lateRegAccountability(row).key === 'critical'
+  ).length;
+
+  const rows = actionable
+    .slice()
+    .sort((a, b) =>
+      String(a.work_date).localeCompare(
+        String(b.work_date)
+      )
+    )
+    .slice(0, 25);
+
+  content.insertAdjacentHTML(
+    'afterbegin',
+    `
+      <div
+        id="lateRegularizationCard"
+        class="card"
+        style="border-left:4px solid #F97316"
+      >
+        <div
+          style="
+            display:flex;
+            justify-content:space-between;
+            align-items:flex-start;
+            gap:14px;
+            flex-wrap:wrap;
+          "
+        >
+          <div>
+            <div class="card-title" style="margin-bottom:3px">
+              🕐 Retardos pendientes de regularización
+            </div>
+
+            <div style="font-size:12px;color:#64748B">
+              El permiso del agente se corrige; el retraso del liderazgo
+              queda documentado por separado.
+            </div>
+          </div>
+
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <span class="pill pill-blue">
+              Por resolver ${open.length}
+            </span>
+
+            <span class="pill pill-amber">
+              Retrasados ${delayed}
+            </span>
+
+            <span class="pill pill-red">
+              Críticos ${critical}
+            </span>
+
+            <span class="pill pill-purple">
+              Por aprobar ${approvals.length}
+            </span>
+          </div>
+        </div>
+
+        ${
+          _a_LATE_REGULARIZATION_LOADING
+            ? `
+              <div style="padding:18px;color:#64748B">
+                Sincronizando retardos…
+              </div>
+            `
+            : `
+              <div class="tbl-wrap" style="margin-top:14px">
+                <div style="overflow-x:auto">
+                  <table style="min-width:1120px">
+                    <thead>
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Colaborador</th>
+                        <th>Supervisor</th>
+                        <th>Horario</th>
+                        <th>Entrada</th>
+                        <th>Retardo</th>
+                        <th>Gestión</th>
+                        <th>Estado</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      ${
+                        rows.length
+                          ? rows.map(row => {
+                              const acc =
+                                _a_lateRegAccountability(row);
+
+                              const canReview =
+                                row.status === 'pending_approval' &&
+                                [
+                                  'manager',
+                                  'people',
+                                  'head_people',
+                                  'ceo'
+                                ].includes(currentRole);
+
+                              const action = canReview
+                                ? `
+                                  <button
+                                    class="btn-primary"
+                                    onclick="_a_openLateRegApproval('${row.id}')"
+                                  >
+                                    Revisar solicitud
+                                  </button>
+                                `
+                                : row.status === 'open'
+                                  ? `
+                                    <button
+                                      class="btn-primary"
+                                      onclick="_a_openLateRegularization('${row.id}')"
+                                    >
+                                      Regularizar
+                                    </button>
+                                  `
+                                  : `
+                                    <span style="font-size:11px;color:#7C3AED;font-weight:800">
+                                      Esperando aprobación
+                                    </span>
+                                  `;
+
+                              return `
+                                <tr>
+                                  <td style="font-family:'DM Mono',monospace">
+                                    ${fmtDateShort(row.work_date)}
+                                  </td>
+
+                                  <td>
+                                    <div class="agent-row-name">
+                                      ${_d_esc(
+                                        row.employee_name ||
+                                        row.employee_id
+                                      )}
+                                    </div>
+
+                                    <div class="agent-row-id">
+                                      ${_d_esc(row.employee_id)}
+                                    </div>
+                                  </td>
+
+                                  <td>
+                                    ${_d_esc(
+                                      row.supervisor_name ||
+                                      row.supervisor_id ||
+                                      '—'
+                                    )}
+                                  </td>
+
+                                  <td style="font-family:'DM Mono',monospace">
+                                    ${String(row.original_shift_start).slice(0, 5)}–
+                                    ${String(row.original_shift_end || '').slice(0, 5) || '—'}
+                                  </td>
+
+                                  <td style="font-family:'DM Mono',monospace">
+                                    ${String(row.raw_time_in).slice(0, 5)}
+                                  </td>
+
+                                  <td>
+                                    <b>${Number(row.late_minutes || 0)} min</b>
+                                  </td>
+
+                                  <td>
+                                    <span class="pill ${acc.cls}">
+                                      ${acc.label} · ${acc.days}d
+                                    </span>
+                                  </td>
+
+                                  <td>
+                                    <span class="pill ${
+                                      row.status === 'pending_approval'
+                                        ? 'pill-purple'
+                                        : 'pill-amber'
+                                    }">
+                                      ${_a_lateRegStatusLabel(row.status)}
+                                    </span>
+                                  </td>
+
+                                  <td>${action}</td>
+                                </tr>
+                              `;
+                            }).join('')
+                          : `
+                            <tr>
+                              <td colspan="9">
+                                <div style="padding:24px;text-align:center;color:#64748B">
+                                  No hay retardos pendientes.
+                                </div>
+                              </td>
+                            </tr>
+                          `
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            `
+        }
+      </div>
+    `
+  );
+}
+
 async function _a_cargarQDAYS(empId, from, to) {
   const [
     empRes,
@@ -4547,7 +5520,8 @@ async function _a_cargarQDAYS(empId, from, to) {
     vacRes,
     punchCorrectionRes,
     assignmentHistoryRes,
-    earlyEntryReviewRes
+    earlyEntryReviewRes,
+    lateRegularizationRes
   ] = await Promise.all([
     _a_sb
       .from('employees')
@@ -4610,7 +5584,15 @@ async function _a_cargarQDAYS(empId, from, to) {
       .eq('employee_id', empId)
       .gte('work_date', from)
       .lte('work_date', to)
-      .neq('decision_status', 'cancelled')
+      .neq('decision_status', 'cancelled'),
+
+    _a_sb
+      .from('attendance_late_regularizations')
+      .select('*')
+      .eq('employee_id', empId)
+      .gte('work_date', from)
+      .lte('work_date', to)
+      .neq('status', 'cancelled')
   ]);
 
   const daysOff = empRes.data?.days_off || [];
@@ -4621,6 +5603,7 @@ async function _a_cargarQDAYS(empId, from, to) {
   const punchCorrections = punchCorrectionRes.data || [];
   const assignmentHistory = assignmentHistoryRes.data || [];
   const earlyEntryReviews = earlyEntryReviewRes.data || [];
+  const lateRegularizations = lateRegularizationRes.data || [];
 
   const assignmentForDate = date =>
     assignmentHistory.find(row =>
@@ -4808,6 +5791,24 @@ async function _a_cargarQDAYS(empId, from, to) {
         x => x.work_date === fecha
       ) || null;
 
+    const lateRegularization =
+      lateRegularizations.find(
+        x => x.work_date === fecha
+      ) || null;
+
+    const lateRegApproved =
+      lateRegularization?.status === 'approved';
+
+    const lateRegPending =
+      lateRegularization?.status ===
+        'pending_approval';
+
+    const lateRegExcuses =
+      ['temporary_schedule', 'authorized_late']
+        .includes(
+          lateRegularization?.resolution_type
+        );
+
     let effectiveTimeIn = rawTimeIn;
     let tiempoExtraMin = 0;
 
@@ -4837,17 +5838,31 @@ async function _a_cargarQDAYS(empId, from, to) {
             ? 'Descanso'
             : s?.attendance_status || (s ? 'Normal' : 'Sin registro');
 
-    const horarioInicio = exPermutaHorario?.shift_start_override
+    let horarioInicio = exPermutaHorario?.shift_start_override
       || assignment?.shift_start
       || s?.shift_start
       || empRes.data?.shift_start
       || null;
 
-    const horarioFin = exPermutaHorario?.shift_end_override
+    let horarioFin = exPermutaHorario?.shift_end_override
       || assignment?.shift_end
       || s?.shift_end
       || empRes.data?.shift_end
       || null;
+
+    if (
+      lateRegApproved &&
+      lateRegularization?.resolution_type ===
+        'temporary_schedule'
+    ) {
+      horarioInicio =
+        lateRegularization.effective_shift_start ||
+        horarioInicio;
+
+      horarioFin =
+        lateRegularization.effective_shift_end ||
+        horarioFin;
+    }
 
     const rawTimeMinutes =
       _a_timeMinutes(rawTimeIn);
@@ -4919,7 +5934,7 @@ async function _a_cargarQDAYS(empId, from, to) {
       s?.no_show_minutes ?? 60
     );
 
-    const effectiveMinutesLate =
+    let effectiveMinutesLate =
       !esDescanso &&
       !esVacacion &&
       effectiveTimeIn &&
@@ -4933,6 +5948,13 @@ async function _a_cargarQDAYS(empId, from, to) {
           )
         : 0;
 
+    if (
+      lateRegApproved &&
+      lateRegExcuses
+    ) {
+      effectiveMinutesLate = 0;
+    }
+
     const effectiveIsLate =
       effectiveMinutesLate > 0;
 
@@ -4941,7 +5963,17 @@ async function _a_cargarQDAYS(empId, from, to) {
       effectiveMinutesLate <= effectiveToleranceMinutes;
 
     const effectiveCountsForDiscipline =
-      effectiveMinutesLate > effectiveToleranceMinutes;
+      (
+        effectiveMinutesLate >
+          effectiveToleranceMinutes
+      ) &&
+      !(
+        lateRegExcuses &&
+        (
+          lateRegApproved ||
+          lateRegPending
+        )
+      );
 
     const effectiveAttendanceStatus =
       esDescanso
@@ -4950,6 +5982,20 @@ async function _a_cargarQDAYS(empId, from, to) {
           ? 'vacation'
           : !rawTimeIn
             ? s?.attendance_status || null
+
+            : lateRegApproved &&
+              lateRegularization?.resolution_type ===
+                'temporary_schedule'
+              ? 'temporary_schedule_approved'
+
+            : lateRegApproved &&
+              lateRegularization?.resolution_type ===
+                'authorized_late'
+              ? 'authorized_late'
+
+            : lateRegPending
+              ? 'late_regularization_pending'
+
             : calculatedEarlyMinutes > 0
               ? (
                   earlyEntryReview?.decision_status ===
@@ -5156,6 +6202,35 @@ async function _a_cargarQDAYS(empId, from, to) {
               calculatedEarlyMinutes
             )
           : 0,
+
+      late_regularization_id:
+        lateRegularization?.id || null,
+
+      late_regularization_status:
+        lateRegularization?.status || null,
+
+      late_regularization_type:
+        lateRegularization?.resolution_type || null,
+
+      late_regularization_reason:
+        lateRegularization?.decision_reason || null,
+
+      late_regularization_delay_reason:
+        lateRegularization?.delay_reason || null,
+
+      late_regularization_evidence:
+        lateRegularization?.evidence_reference || null,
+
+      late_regularization_accountability:
+        lateRegularization?.accountability_status || null,
+
+      late_regularization_days:
+        lateRegularization?.accountability_days ?? null,
+
+      late_regularization_submitted_by:
+        lateRegularization?.submitted_by_name ||
+        lateRegularization?.submitted_by ||
+        null,
 
       punch_corrected: !!punchCorrection,
       punch_correction_reason: punchCorrection?.reason || null
@@ -5447,8 +6522,23 @@ async function _a_cargarDatos(options = {}) {
         hoy
       );
 
+      const lateRegularization =
+        _a_lateRegularizationFor(
+          e.id,
+          hoy
+        );
+
+      const lateRegularizationExcuses =
+        ['temporary_schedule', 'authorized_late']
+          .includes(
+            lateRegularization?.resolution_type
+          ) &&
+        ['approved', 'pending_approval']
+          .includes(lateRegularization?.status);
+
       const lateMin =
-        earlyArrivalMinutes > 0
+        earlyArrivalMinutes > 0 ||
+        lateRegularizationExcuses
           ? 0
           : recalculatedLateMin;
 
@@ -5471,6 +6561,20 @@ async function _a_cargarDatos(options = {}) {
           status = 'on_time';
         } else if (earlyArrivalMinutes > 0) {
           status = 'early_arrival';
+        } else if (
+          lateRegularization?.status ===
+            'pending_approval'
+        ) {
+          status = 'late_regularization_pending';
+        } else if (
+          lateRegularization?.status === 'approved' &&
+          lateRegularizationExcuses
+        ) {
+          status =
+            lateRegularization.resolution_type ===
+              'temporary_schedule'
+              ? 'temporary_schedule_approved'
+              : 'authorized_late';
         } else if (
           ast === 'no_show' ||
           ast === 'late' ||
@@ -5551,6 +6655,7 @@ async function _a_cargarDatos(options = {}) {
         lateMin,
         earlyArrivalMinutes,
         earlyReview,
+        lateRegularization,
         currentShiftStart,
         status,
         statusBase,
@@ -5615,6 +6720,9 @@ async function _a_cargarDatos(options = {}) {
 
         earlyReview:
           ctx.earlyReview || null,
+
+        lateRegularization:
+          ctx.lateRegularization || null,
 
         late:     ctx.bloqueaMarcas ? 0 : ctx.lateMin,
         lateMin:  ctx.bloqueaMarcas ? 0 : ctx.lateMin,
@@ -5685,6 +6793,7 @@ async function _a_cargarDatos(options = {}) {
 
     // Entradas anticipadas deben estar listas antes de construir el equipo.
     await _a_loadEarlyEntryReviews();
+    await _a_loadLateRegularizations();
 
     // 3. Equipo del supervisor / manager / people / head / workforce / ceo
     if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
@@ -8955,6 +10064,7 @@ function _a_render(){
   _a_injectPendientesExcepciones();
   _a_injectPeopleActionFollowupBanner();
   _a_injectEarlyEntryReviewCard();
+  _a_injectLateRegularizationCard();
 }
 
 function updateSidebarUser(){
@@ -9047,7 +10157,10 @@ function _a_statusPorPuntualidad(status, lateMin = 0, a = {}) {
       'early_approved',
       'early_partial',
       'early_rejected',
-      'early_unapproved'
+      'early_unapproved',
+      'temporary_schedule_approved',
+      'authorized_late',
+      'late_regularization_pending'
     ].includes(st)
   ) {
     return 'on_time';
@@ -9157,6 +10270,38 @@ function _a_statusBadge(d) {
 
   const agenteCtx = _a_agenteContextoQDAYS();
   const statusFinal = _a_statusDiaConTolerancia(d, agenteCtx);
+
+  if (
+    d.late_regularization_status === 'approved' &&
+    d.late_regularization_type === 'temporary_schedule'
+  ) {
+    return `
+      <span class="pill pill-cyan">
+        <span class="dot"></span>Horario temporal autorizado
+      </span>
+    `;
+  }
+
+  if (
+    d.late_regularization_status === 'approved' &&
+    d.late_regularization_type === 'authorized_late'
+  ) {
+    return `
+      <span class="pill pill-green">
+        <span class="dot"></span>Retardo autorizado
+      </span>
+    `;
+  }
+
+  if (
+    d.late_regularization_status === 'pending_approval'
+  ) {
+    return `
+      <span class="pill pill-purple">
+        <span class="dot"></span>Regularización pendiente
+      </span>
+    `;
+  }
 
   if (['permuta_horario', 'correccion_horario'].includes(tipo)) {
     const h = d.shift_start_override && d.shift_end_override
@@ -9276,6 +10421,29 @@ function _a_agentBadge(status, falta, lateMin = 0, a = {}) {
 
   if (st === 'vacaciones') {
     return `<span class="pill pill-blue"><span class="dot"></span>Vacaciones</span>`;
+  }
+
+  if (
+    a?.lateRegularization?.status === 'approved' &&
+    a?.lateRegularization?.resolution_type ===
+      'temporary_schedule'
+  ) {
+    return `<span class="pill pill-cyan"><span class="dot"></span>Horario temporal</span>`;
+  }
+
+  if (
+    a?.lateRegularization?.status === 'approved' &&
+    a?.lateRegularization?.resolution_type ===
+      'authorized_late'
+  ) {
+    return `<span class="pill pill-green"><span class="dot"></span>Retardo autorizado</span>`;
+  }
+
+  if (
+    a?.lateRegularization?.status ===
+      'pending_approval'
+  ) {
+    return `<span class="pill pill-purple"><span class="dot"></span>Regularización pend.</span>`;
   }
 
   if (Number(a?.earlyArrivalMinutes || 0) > 0) {
@@ -9581,6 +10749,22 @@ function _a_renderSupervisor(){
                    )}
                  </span>`
           )
+
+        : a.lateRegularization
+          ? (
+              a.lateRegularization.status === 'open'
+                ? `<button
+                     onclick="event.stopPropagation();_a_openLateRegularization('${a.lateRegularization.id}')"
+                     style="border:1px solid #FED7AA;background:#FFF7ED;color:#C2410C;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap"
+                   >
+                     🕐 Regularizar
+                   </button>`
+                : `<span style="font-size:11px;color:#64748B">
+                     ${_a_lateRegStatusLabel(
+                       a.lateRegularization.status
+                     )}
+                   </span>`
+            )
 
         : statusFinal === 'late'
           ? (
@@ -11512,6 +12696,55 @@ function _a_openDayModal(idx){
       <div class="kv"><span class="k">Política aplicada</span><span class="v">${d.policy_name || 'General'}</span></div>
       <div class="kv"><span class="k">Cuenta para disciplina</span><span class="v">${cuentaDisciplina ? '<span style="color:#DC2626;font-weight:700">Sí</span>' : 'No'}</span></div>
       <div class="kv"><span class="k">Tipo excepción</span><span class="v">${d.tipo_falta||'—'}</span></div>
+
+      ${
+        d.late_regularization_id
+          ? `
+            <div class="kv">
+              <span class="k">Regularización</span>
+              <span class="v">
+                ${_a_lateRegTypeLabel(
+                  d.late_regularization_type
+                )}
+              </span>
+            </div>
+
+            <div class="kv">
+              <span class="k">Estado</span>
+              <span class="v">
+                ${_a_lateRegStatusLabel(
+                  d.late_regularization_status
+                )}
+              </span>
+            </div>
+
+            <div class="kv">
+              <span class="k">Motivo operativo</span>
+              <span class="v">
+                ${_d_esc(
+                  d.late_regularization_reason || '—'
+                )}
+              </span>
+            </div>
+
+            ${
+              d.late_regularization_submitted_by
+                ? `
+                  <div class="kv">
+                    <span class="k">Registrado por</span>
+                    <span class="v">
+                      ${_d_esc(
+                        d.late_regularization_submitted_by
+                      )}
+                    </span>
+                  </div>
+                `
+                : ''
+            }
+          `
+          : ''
+      }
+
       ${d.motivo_falta?`<div class="kv"><span class="k">Motivo de falta</span><span class="v" style="color:#991B1B;font-weight:600">${d.motivo_falta}</span></div>`:''}
       ${d.motivo_retardo?`<div class="kv"><span class="k">Motivo del retardo</span><span class="v" style="color:#92400E;font-weight:600">${d.motivo_retardo}</span></div>`:''}
     </div>
@@ -11530,6 +12763,45 @@ function _a_openDayModal(idx){
   if (puedeCorregir) {
     document.getElementById('modalFooter').innerHTML = `
       <button class="btn-ghost" onclick="closeModal()">Cerrar</button>
+
+      ${
+        d.late_regularization_id &&
+        ['open', 'rejected'].includes(
+          d.late_regularization_status
+        )
+          ? `
+            <button
+              class="btn-primary"
+              style="background:#FFF7ED;color:#C2410C;border:1px solid #FED7AA"
+              onclick="_a_openLateRegularization('${d.late_regularization_id}')"
+            >
+              🕐 Regularizar retardo
+            </button>
+          `
+          : ''
+      }
+
+      ${
+        d.late_regularization_id &&
+        d.late_regularization_status ===
+          'pending_approval' &&
+        [
+          'manager',
+          'people',
+          'head_people',
+          'ceo'
+        ].includes(currentRole)
+          ? `
+            <button
+              class="btn-primary"
+              style="background:#F5F3FF;color:#6D28D9;border:1px solid #DDD6FE"
+              onclick="_a_openLateRegApproval('${d.late_regularization_id}')"
+            >
+              ⚖️ Revisar regularización
+            </button>
+          `
+          : ''
+      }
 
       ${
         d.early_entry_review_id
