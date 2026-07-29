@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.56';
+const APP_VERSION   = '1.0.57';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -23100,7 +23100,11 @@ function _p_campaign(id) {
 }
 
 function _p_roleCanApprove() {
-  return ['supervisor', 'manager', 'people', 'head_people', 'ceo'].includes(currentRole);
+  return [
+    'manager',
+    'people',
+    'head_people'
+  ].includes(currentRole);
 }
 
 function _p_roleCanReport() {
@@ -23121,7 +23125,7 @@ function _p_statusBadge(s, peerStatus) {
     pending_approval: {
       bg: '#DBEAFE',
       color: '#1D4ED8',
-      label: 'Pendiente aprobación'
+      label: 'Pendiente Manager / People'
     },
     approved: {
       bg: '#DCFCE7',
@@ -23464,30 +23468,42 @@ function _p_esSupervisorDePermuta(s) {
 }
 
 function _p_puedeAprobarPermuta(s) {
-  if (!_p_roleCanApprove()) return false;
-  if (s.status !== 'pending_approval') return false;
-
-  // Managers, People, Head People y CEO ven todo.
-  if (currentRole !== 'supervisor') return true;
-
-  // Supervisor ve si cualquiera de los dos agentes pertenece a su equipo.
-  return _p_esSupervisorDePermuta(s);
+  return (
+    _p_roleCanApprove() &&
+    s.status === 'pending_approval'
+  );
 }
 
 function _p_swapsPendientesAprobacion() {
-  let lista = _p_SWAPS.filter(s => s.status === 'pending_approval');
-
-  if (currentRole === 'supervisor') {
-    lista = lista.filter(s => _p_esSupervisorDePermuta(s));
+  if (!_p_roleCanApprove()) {
+    return [];
   }
 
-  return lista;
+  return _p_SWAPS.filter(
+    s => s.status === 'pending_approval'
+  );
 }
 function _p_renderTabs() {
   const paraMi = _p_swapsParaMi().length;
   const pendientes = _p_swapsPendientesAprobacion().length;
 
   return `
+    ${
+      ['agent', 'supervisor', 'ceo'].includes(
+        currentRole
+      )
+        ? `
+          <div
+            class="alert alert-blue"
+            style="margin-bottom:14px"
+          >
+            Después de que el otro agente acepte, la permuta debe ser
+            aprobada por <b>Manager o People</b>.
+          </div>
+        `
+        : ''
+    }
+
     <div class="tabs" style="margin-bottom:18px">
       <button class="tab ${_p_vista === 'mis' ? 'on' : ''}" onclick="_p_setVista('mis')">
         Mis permutas
@@ -25203,6 +25219,13 @@ async function _p_responder(id, accept) {
   }
 
   console.log('Permuta respondida correctamente:', data);
+
+  if (accept) {
+    alert(
+      'Permuta aceptada. Ahora queda pendiente de aprobación por Manager o People.'
+    );
+  }
+
   _p_cargando = true;
   _p_render();
   await _p_cargarDatos();
@@ -25211,6 +25234,13 @@ async function _p_responder(id, accept) {
 }
 
 async function _p_aprobar(id, approve) {
+  if (!_p_roleCanApprove()) {
+    alert(
+      'Solo Manager o People pueden aprobar o rechazar una permuta.'
+    );
+    return;
+  }
+
   const s = _p_SWAPS.find(x => x.id === id);
 
   if (!s) {
