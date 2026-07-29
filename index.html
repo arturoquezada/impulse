@@ -1607,6 +1607,318 @@ body{font-family:var(--f);background:#F0F2F7;min-height:100vh;color:#0F172A;font
 @media(max-width:760px){.rt-status .rt-label{display:none}.rt-status{padding:6px}.rt-toast{left:12px;right:12px;bottom:12px}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<style>
+  .dd5-overlay{
+    position:fixed;
+    inset:0;
+    z-index:10050;
+    background:rgba(15,23,42,.64);
+    display:flex;
+    align-items:stretch;
+    justify-content:flex-end;
+    backdrop-filter:blur(3px);
+  }
+  .dd5-panel{
+    width:min(1180px,96vw);
+    height:100vh;
+    background:#F8FAFC;
+    box-shadow:-18px 0 60px rgba(15,23,42,.25);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .dd5-head{
+    padding:18px 22px;
+    background:#0F172A;
+    color:#fff;
+    display:flex;
+    justify-content:space-between;
+    gap:16px;
+    align-items:flex-start;
+  }
+  .dd5-head h2{
+    margin:0;
+    font-size:20px;
+    letter-spacing:-.02em;
+  }
+  .dd5-head-sub{
+    color:#CBD5E1;
+    font-size:12px;
+    margin-top:5px;
+    line-height:1.45;
+  }
+  .dd5-close{
+    width:38px;
+    height:38px;
+    border-radius:50%;
+    border:0;
+    color:#fff;
+    background:rgba(255,255,255,.12);
+    font-size:24px;
+    cursor:pointer;
+  }
+  .dd5-layout{
+    display:grid;
+    grid-template-columns:230px minmax(0,1fr);
+    min-height:0;
+    flex:1;
+  }
+  .dd5-side{
+    background:#fff;
+    border-right:1px solid #E2E8F0;
+    padding:16px 12px;
+    overflow:auto;
+  }
+  .dd5-step{
+    width:100%;
+    border:0;
+    background:transparent;
+    border-radius:10px;
+    padding:11px 12px;
+    text-align:left;
+    cursor:pointer;
+    display:flex;
+    gap:10px;
+    align-items:center;
+    color:#475569;
+    font-size:12px;
+    font-weight:800;
+    margin-bottom:4px;
+  }
+  .dd5-step.on{
+    color:#0F172A;
+    background:#E0F2FE;
+  }
+  .dd5-step-num{
+    width:25px;
+    height:25px;
+    border-radius:50%;
+    display:grid;
+    place-items:center;
+    background:#E2E8F0;
+    font-size:11px;
+    flex:0 0 auto;
+  }
+  .dd5-step.on .dd5-step-num{
+    background:#0EA5E9;
+    color:#fff;
+  }
+  .dd5-main{
+    min-width:0;
+    overflow:auto;
+    padding:20px 22px 100px;
+  }
+  .dd5-title{
+    font-size:18px;
+    font-weight:900;
+    color:#0F172A;
+    margin-bottom:5px;
+  }
+  .dd5-help{
+    font-size:12px;
+    color:#64748B;
+    line-height:1.5;
+    margin-bottom:16px;
+  }
+  .dd5-card{
+    background:#fff;
+    border:1px solid #E2E8F0;
+    border-radius:14px;
+    padding:15px;
+    margin-bottom:12px;
+  }
+  .dd5-card.risk-high{border-left:4px solid #DC2626}
+  .dd5-card.risk-medium{border-left:4px solid #D97706}
+  .dd5-card.positive{border-left:4px solid #16A34A}
+  .dd5-item-head{
+    display:flex;
+    justify-content:space-between;
+    gap:14px;
+    align-items:flex-start;
+  }
+  .dd5-item-name{
+    font-size:13px;
+    font-weight:900;
+    color:#0F172A;
+  }
+  .dd5-item-meta{
+    font-size:11px;
+    color:#64748B;
+    margin-top:3px;
+  }
+  .dd5-statement{
+    font-size:12px;
+    line-height:1.55;
+    color:#334155;
+    margin-top:12px;
+  }
+  .dd5-statement b{color:#0F172A}
+  .dd5-label{
+    display:inline-block;
+    text-transform:uppercase;
+    font-size:9px;
+    letter-spacing:.08em;
+    font-weight:900;
+    color:#64748B;
+    margin-right:6px;
+  }
+  .dd5-actions{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-top:13px;
+  }
+  .dd5-mini-btn{
+    border:1px solid #CBD5E1;
+    background:#fff;
+    color:#334155;
+    border-radius:9px;
+    padding:7px 10px;
+    font-size:11px;
+    font-weight:800;
+    cursor:pointer;
+  }
+  .dd5-mini-btn.validated{
+    border-color:#86EFAC;
+    color:#15803D;
+    background:#F0FDF4;
+  }
+  .dd5-check{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-size:11px;
+    font-weight:800;
+    color:#475569;
+  }
+  .dd5-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:12px;
+  }
+  .dd5-kpi{
+    background:#fff;
+    border:1px solid #E2E8F0;
+    border-radius:13px;
+    padding:14px;
+  }
+  .dd5-kpi-value{
+    font-size:25px;
+    font-weight:950;
+    color:#0F172A;
+  }
+  .dd5-kpi-label{
+    font-size:10px;
+    font-weight:900;
+    color:#64748B;
+    text-transform:uppercase;
+    margin-top:3px;
+  }
+  .dd5-note{
+    border-radius:12px;
+    padding:12px 14px;
+    background:#EFF6FF;
+    border:1px solid #BFDBFE;
+    color:#1E40AF;
+    font-size:11px;
+    line-height:1.5;
+    margin-bottom:14px;
+  }
+  .dd5-warning{
+    background:#FFF7ED;
+    border-color:#FED7AA;
+    color:#9A3412;
+  }
+  .dd5-input,.dd5-select,.dd5-textarea{
+    width:100%;
+    border:1px solid #CBD5E1;
+    background:#fff;
+    border-radius:9px;
+    padding:9px 10px;
+    font:inherit;
+    font-size:12px;
+    color:#0F172A;
+  }
+  .dd5-textarea{
+    min-height:88px;
+    resize:vertical;
+  }
+  .dd5-commit-row{
+    display:grid;
+    grid-template-columns:minmax(220px,2fr) minmax(150px,1fr) 145px 130px 42px;
+    gap:8px;
+    margin-bottom:8px;
+    align-items:center;
+  }
+  .dd5-draft-tabs{
+    display:flex;
+    gap:7px;
+    flex-wrap:wrap;
+    margin-bottom:12px;
+  }
+  .dd5-draft-tab{
+    border:1px solid #CBD5E1;
+    border-radius:999px;
+    background:#fff;
+    padding:7px 12px;
+    font-size:11px;
+    font-weight:900;
+    cursor:pointer;
+  }
+  .dd5-draft-tab.on{
+    background:#0F172A;
+    color:#fff;
+    border-color:#0F172A;
+  }
+  .dd5-draft{
+    white-space:pre-wrap;
+    background:#fff;
+    border:1px solid #CBD5E1;
+    border-radius:12px;
+    padding:16px;
+    min-height:360px;
+    font-family:'DM Mono',monospace;
+    font-size:11px;
+    line-height:1.65;
+    color:#1E293B;
+  }
+  .dd5-footer{
+    position:absolute;
+    left:230px;
+    right:0;
+    bottom:0;
+    padding:12px 20px;
+    border-top:1px solid #E2E8F0;
+    background:rgba(248,250,252,.96);
+    backdrop-filter:blur(8px);
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    align-items:center;
+  }
+  .dd5-history-row{
+    display:grid;
+    grid-template-columns:1fr 160px 120px 120px;
+    gap:10px;
+    align-items:center;
+    padding:10px 0;
+    border-bottom:1px solid #E2E8F0;
+    font-size:11px;
+  }
+  @media(max-width:820px){
+    .dd5-layout{grid-template-columns:1fr}
+    .dd5-side{display:none}
+    .dd5-grid{grid-template-columns:1fr}
+    .dd5-footer{left:0}
+    .dd5-commit-row{
+      grid-template-columns:1fr;
+      border-bottom:1px solid #E2E8F0;
+      padding-bottom:12px;
+    }
+  }
+</style>
+
 </head>
 <body>
 <div id="app-root" style="font-family:'DM Sans',-apple-system,sans-serif"></div>
@@ -1619,7 +1931,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.57';
+const APP_VERSION   = '1.0.58';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -19979,6 +20291,1562 @@ function _dd4_closeAgent(){document.getElementById('dd4-agent-modal')?.remove();
 
 function _dd4_tabContent(d){if(_dd_isOperationalAccess()){switch(_dd4_UI.tab){case'attendance':return _dd4_renderAttendance(d);case'incidents':return _dd4_renderOperationalIncidents(d);case'campaigns':return _dd4_renderOperationalCampaigns(d);case'accountability':return _dd4_renderOperationalAccountability(d);default:return _dd4_renderOperationalOverview(d);}}switch(_dd4_UI.tab){case'attendance':return _dd4_renderAttendance(d);case'supervisors':return _dd4_renderSupervisors(d);case'agents':return _dd4_renderAgents(d,false);case'recurrence':return _dd4_renderAgents(d,true);case'rotation':return _dd4_renderRotation(d);case'quality':return _dd4_renderQuality(d);case'tickets':return `${_dd_renderTicketCommandCenter(d)}${_dd_renderDetalleCorreccionesAsistencia(d.current.ticketRows||[])}${_dd_renderPayrollDeepDive(d.payrollTickets||[])}`;default:return _dd4_renderOverview(d);}}
 
+
+// ════════════════════════════════════════════════════════════
+// DEEP DIVE V5 · PREPARAR REVISIÓN SEMANAL PEOPLE × OPERATIONS
+// ════════════════════════════════════════════════════════════
+let _dd5_STATE = null;
+let _dd5_HISTORY = [];
+
+const _DD5_STEPS = [
+  ['scope','Alcance'],
+  ['pulse','Pulso'],
+  ['people','Offenders'],
+  ['leaders','Liderazgo'],
+  ['recognition','Cracks'],
+  ['commitments','Compromisos'],
+  ['draft','Borrador']
+];
+
+function _dd5_canPrepare(){
+  return ['people','head_people'].includes(currentRole);
+}
+
+function _dd5_uid(prefix='item'){
+  return `${prefix}-${Math.random().toString(36).slice(2,9)}-${Date.now().toString(36)}`;
+}
+
+function _dd5_safe(value){
+  return _dd_escape(String(value ?? ''));
+}
+
+function _dd5_roleName(){
+  const ro=ROLES[currentRole]||{};
+  return ro.name||ro.id||'People';
+}
+
+function _dd5_shiftBucket(row={}){
+  const raw=String(
+    row.shift_start ||
+    row.historical_shift_start ||
+    ''
+  ).slice(0,5);
+
+  const match=raw.match(/^(\d{1,2}):(\d{2})$/);
+  if(!match)return 'Sin horario';
+
+  return Number(match[1])<12?'AM':'PM';
+}
+
+function _dd5_groupCount(rows=[],keyFn=()=>'',filterFn=()=>true){
+  const map={};
+  (rows||[]).filter(filterFn).forEach(row=>{
+    const key=keyFn(row)||'Sin clasificar';
+    map[key]=(map[key]||0)+1;
+  });
+  return map;
+}
+
+function _dd5_actionableCurrent(data){
+  return _dd4_actionableRows(
+    data?.current?.rows||[]
+  );
+}
+
+function _dd5_missingActionRows(data){
+  return _dd5_actionableCurrent(data)
+    .filter(row=>!row.dd_action);
+}
+
+function _dd5_currentIncidentCountByEmployee(data){
+  const map={};
+  _dd5_actionableCurrent(data).forEach(row=>{
+    const id=String(row.employee_id||'').trim().toUpperCase();
+    if(!id)return;
+    if(!map[id]){
+      map[id]={
+        total:0,
+        faltas:0,
+        retardos:0,
+        missing:0,
+        dates:[],
+        rows:[]
+      };
+    }
+    const item=map[id];
+    item.total++;
+    item.rows.push(row);
+    item.dates.push(String(row.work_date||'').slice(0,10));
+    if(_dd_norm(row.audit_status)==='falta_injustificada')item.faltas++;
+    if(_dd_norm(row.audit_status)==='retardo')item.retardos++;
+    if(!row.dd_action)item.missing++;
+  });
+  return map;
+}
+
+function _dd5_previousIncidentCountByEmployee(data){
+  const map={};
+  _dd4_actionableRows(
+    data?.previous?.rows||[]
+  ).forEach(row=>{
+    const id=String(row.employee_id||'').trim().toUpperCase();
+    if(id)map[id]=(map[id]||0)+1;
+  });
+  return map;
+}
+
+function _dd5_makeItem({
+  id,
+  category,
+  entityType='general',
+  entityId='',
+  entityName='',
+  supervisorName='',
+  campaign='',
+  severity='medium',
+  fact='',
+  interpretation='',
+  recommendation='',
+  evidenceLabel='Ver evidencia',
+  included=true,
+  validated=false,
+  metadata={}
+}){
+  return {
+    id:id||_dd5_uid(category),
+    category,
+    entityType,
+    entityId,
+    entityName,
+    supervisorName,
+    campaign,
+    severity,
+    fact,
+    interpretation,
+    recommendation,
+    evidenceLabel,
+    included,
+    validated,
+    metadata
+  };
+}
+
+function _dd5_buildPulse(data){
+  const cur=data.current.attendance||{};
+  const prev=data.previous.attendance||{};
+  const missing=_dd5_missingActionRows(data);
+  const tickets=data.current.tickets||{};
+  const prevTickets=data.previous.tickets||{};
+  const rows=data.current.rows||[];
+
+  const shiftCounts=_dd5_groupCount(
+    _dd5_actionableCurrent(data),
+    _dd5_shiftBucket
+  );
+
+  const campaignCounts=_dd5_groupCount(
+    _dd5_actionableCurrent(data),
+    row=>row.campaign_id||'Sin campaña'
+  );
+
+  const topCampaign=Object.entries(campaignCounts)
+    .sort((a,b)=>b[1]-a[1])[0];
+
+  const incidentDelta=_dd_delta(
+    Number(cur.retardo||0)+Number(cur.falta||0),
+    Number(prev.retardo||0)+Number(prev.falta||0)
+  );
+
+  const ticketDelta=_dd_delta(
+    Number(tickets.created||0),
+    Number(prevTickets.created||0)
+  );
+
+  return [
+    _dd5_makeItem({
+      id:'pulse-attendance',
+      category:'pulse',
+      severity:
+        Number(cur.falta||0)>0?'high':'medium',
+      entityName:'Asistencia',
+      fact:`Durante el periodo se detectaron ${Number(cur.retardo||0)} retardos disciplinarios y ${Number(cur.falta||0)} faltas injustificadas.`,
+      interpretation:`El volumen total de incidencias fue ${incidentDelta.label} frente al periodo anterior.`,
+      recommendation:'Usar el detalle de offenders para separar reincidencia, casos sin gestión y eventos ya documentados.',
+      metadata:{
+        retardos:Number(cur.retardo||0),
+        faltas:Number(cur.falta||0),
+        delta:incidentDelta.label
+      }
+    }),
+    _dd5_makeItem({
+      id:'pulse-missing-actions',
+      category:'pulse',
+      severity:missing.length?'high':'positive',
+      entityName:'Acciones pendientes',
+      fact:`Hay ${missing.length} incidencia${missing.length===1?'':'s'} disciplinaria${missing.length===1?'':'s'} sin una Acción People vinculada.`,
+      interpretation:missing.length
+        ? 'Estos casos requieren confirmar si falta amonestación, justificación o cierre administrativo.'
+        : 'Todas las incidencias disciplinarias detectadas tienen una acción vinculada.',
+      recommendation:missing.length
+        ? 'Revisar cada caso antes de la junta y asignar responsable y fecha de cierre.'
+        : 'Mantener el mismo nivel de documentación.',
+      metadata:{missing:missing.length}
+    }),
+    _dd5_makeItem({
+      id:'pulse-tickets',
+      category:'pulse',
+      entityName:'Carga de tickets',
+      severity:Number(tickets.open||0)>0?'medium':'positive',
+      fact:`Se crearon ${Number(tickets.created||0)} tickets; ${Number(tickets.resolved||0)} se resolvieron y ${Number(tickets.open||0)} permanecen abiertos.`,
+      interpretation:`El volumen fue ${ticketDelta.label} frente al periodo anterior y el tiempo promedio de resolución fue de ${Number(tickets.avgResolution||0)} horas.`,
+      recommendation:'Abrir Tickets y nómina para identificar las categorías que generan trabajo repetitivo.',
+      metadata:{
+        created:Number(tickets.created||0),
+        open:Number(tickets.open||0),
+        resolved:Number(tickets.resolved||0)
+      }
+    }),
+    _dd5_makeItem({
+      id:'pulse-shifts',
+      category:'pulse',
+      entityName:'AM vs PM',
+      severity:'medium',
+      fact:`Las incidencias disciplinarias se distribuyeron en AM: ${Number(shiftCounts.AM||0)}, PM: ${Number(shiftCounts.PM||0)} y sin horario clasificable: ${Number(shiftCounts['Sin horario']||0)}.`,
+      interpretation:Number(shiftCounts.AM||0)===Number(shiftCounts.PM||0)
+        ? 'No existe una concentración clara por bloque de turno.'
+        : `${Number(shiftCounts.AM||0)>Number(shiftCounts.PM||0)?'AM':'PM'} concentra más incidencias en el periodo.`,
+      recommendation:'Comparar la tasa contra las personas esperadas de cada turno antes de concluir que un bloque tiene peor desempeño.',
+      metadata:shiftCounts
+    }),
+    _dd5_makeItem({
+      id:'pulse-campaign',
+      category:'pulse',
+      entityName:'Concentración por campaña',
+      severity:topCampaign?'medium':'positive',
+      fact:topCampaign
+        ? `${topCampaign[0]} concentra ${topCampaign[1]} incidencia${topCampaign[1]===1?'':'s'} disciplinaria${topCampaign[1]===1?'':'s'}, el mayor volumen del periodo.`
+        : 'No se detectaron incidencias disciplinarias en el periodo.',
+      interpretation:topCampaign
+        ? 'La concentración debe revisarse junto con el headcount y los horarios efectivos de la campaña.'
+        : 'El periodo no presenta una concentración operativa por campaña.',
+      recommendation:topCampaign
+        ? 'Abrir la campaña y validar si el patrón se concentra en un Supervisor, turno o grupo específico.'
+        : 'Mantener monitoreo.',
+      metadata:{campaign:topCampaign?.[0]||'',count:topCampaign?.[1]||0}
+    })
+  ];
+}
+
+function _dd5_buildOffenders(data){
+  const byCurrent=_dd5_currentIncidentCountByEmployee(data);
+  const agentMap=new Map(
+    (data.agents||[]).map(agent=>[
+      String(agent.id||'').trim().toUpperCase(),
+      agent
+    ])
+  );
+
+  const items=[];
+
+  Object.entries(byCurrent).forEach(([id,stats])=>{
+    const agent=agentMap.get(id)||{};
+    const recurrence=agent.recurrence||(
+      Number(agent.incidents90||0)>=2
+        ? 'Reincidente'
+        : 'Primera incidencia'
+    );
+
+    const warning=agent.warningLevel &&
+      agent.warningLevel!=='other'
+        ? agent.warningLabel
+        : '';
+
+    const latest=stats.dates.slice().sort().pop();
+
+    items.push(_dd5_makeItem({
+      id:`offender-${id}`,
+      category:'people',
+      entityType:'agent',
+      entityId:agent.id||id,
+      entityName:agent.name||stats.rows[0]?.employee_name||id,
+      supervisorName:agent.supervisor||stats.rows[0]?.supervisor_name||'Sin supervisor',
+      campaign:agent.campaign||stats.rows[0]?.campaign_id||'Sin campaña',
+      severity:
+        stats.missing>0 ||
+        Number(agent.incidents90||0)>=4 ||
+        ['last_warning','second_warning'].includes(agent.warningLevel)
+          ? 'high'
+          : 'medium',
+      fact:`${agent.name||stats.rows[0]?.employee_name||id} registró ${stats.total} incidencia${stats.total===1?'':'s'} disciplinaria${stats.total===1?'':'s'} en la semana: ${stats.retardos} retardo${stats.retardos===1?'':'s'} y ${stats.faltas} falta${stats.faltas===1?'':'s'}.`,
+      interpretation:`Clasificación de 90 días: ${recurrence}.${stats.missing?` ${stats.missing} caso${stats.missing===1?'':'s'} no tiene${stats.missing===1?'':'n'} Acción People vinculada.`:''}${warning?` Advertencia vigente: ${warning}.`:''}`,
+      recommendation:stats.missing
+        ? `Confirmar con ${agent.supervisor||'el Supervisor'} la amonestación o justificación faltante.`
+        : Number(agent.incidents90||0)>=2
+          ? 'Revisar la efectividad de la intervención previa y el siguiente paso de la matriz.'
+          : 'Dar seguimiento preventivo y confirmar que la acción registrada esté completa.',
+      metadata:{
+        current:stats.total,
+        missing:stats.missing,
+        incidents90:Number(agent.incidents90||0),
+        latestDate:latest,
+        warningLevel:agent.warningLevel||'other'
+      }
+    }));
+  });
+
+  return items
+    .sort((a,b)=>
+      ({high:0,medium:1,positive:2}[a.severity]-
+       ({high:0,medium:1,positive:2}[b.severity])) ||
+      Number(b.metadata.missing||0)-Number(a.metadata.missing||0) ||
+      Number(b.metadata.incidents90||0)-Number(a.metadata.incidents90||0) ||
+      a.entityName.localeCompare(b.entityName)
+    )
+    .slice(0,40);
+}
+
+function _dd5_buildLeaders(data){
+  return (data.supervisors||[])
+    .filter(s=>
+      Number(s.expectedActions||0)>0 ||
+      Number(s.missingException||0)>0 ||
+      Number(s.tickets||0)>0
+    )
+    .map(s=>_dd5_makeItem({
+      id:`leader-${s.supervisor_id}`,
+      category:'leaders',
+      entityType:'supervisor',
+      entityId:s.supervisor_id,
+      entityName:s.supervisor_name||s.supervisor_id,
+      severity:
+        s.risk==='Alto'?'high':
+        s.risk==='Medio'?'medium':'positive',
+      fact:`${s.supervisor_name} tuvo ${Number(s.expectedActions||0)} incidencia${Number(s.expectedActions||0)===1?'':'s'} que requería${Number(s.expectedActions||0)===1?'':'n'} acción: ${Number(s.onTime||0)} en tiempo, ${Number(s.lateActions||0)} tardía${Number(s.lateActions||0)===1?'':'s'} y ${Number(s.missingActions||0)} sin acción.`,
+      interpretation:`Cobertura de gestión: ${Number(s.compliance||0)}%. Tiene ${Number(s.missingException||0)} falta${Number(s.missingException||0)===1?'':'s'} sin registro final y ${Number(s.tickets||0)} ticket${Number(s.tickets||0)===1?'':'s'} asociado${Number(s.tickets||0)===1?'':'s'} a su equipo.`,
+      recommendation:Number(s.missingActions||0)>0
+        ? 'Acordar responsables y fechas para cerrar las acciones pendientes.'
+        : Number(s.lateActions||0)>0
+          ? 'Revisar qué impidió documentar las acciones dentro del tiempo esperado.'
+          : 'Reconocer el control del proceso y mantener seguimiento.',
+      metadata:{
+        expected:Number(s.expectedActions||0),
+        onTime:Number(s.onTime||0),
+        late:Number(s.lateActions||0),
+        missing:Number(s.missingActions||0),
+        compliance:Number(s.compliance||0),
+        risk:s.risk||'Controlado'
+      }
+    }))
+    .sort((a,b)=>
+      ({high:0,medium:1,positive:2}[a.severity]-
+       ({high:0,medium:1,positive:2}[b.severity])) ||
+      Number(b.metadata.missing||0)-Number(a.metadata.missing||0) ||
+      Number(a.metadata.compliance||100)-Number(b.metadata.compliance||100)
+    );
+}
+
+function _dd5_buildRecognition(data){
+  const items=[];
+  const currentByEmployee=_dd5_currentIncidentCountByEmployee(data);
+  const previousByEmployee=_dd5_previousIncidentCountByEmployee(data);
+
+  (data.supervisors||[])
+    .filter(s=>
+      Number(s.expectedActions||0)>=1 &&
+      Number(s.compliance||0)===100 &&
+      Number(s.missingException||0)===0
+    )
+    .slice(0,8)
+    .forEach(s=>{
+      items.push(_dd5_makeItem({
+        id:`crack-sup-${s.supervisor_id}`,
+        category:'recognition',
+        entityType:'supervisor',
+        entityId:s.supervisor_id,
+        entityName:s.supervisor_name||s.supervisor_id,
+        severity:'positive',
+        included:true,
+        fact:`${s.supervisor_name} documentó el 100% de las ${Number(s.expectedActions||0)} incidencia${Number(s.expectedActions||0)===1?'':'s'} esperada${Number(s.expectedActions||0)===1?'':'s'} de su equipo.`,
+        interpretation:'No tiene faltas sin registro final dentro del periodo.',
+        recommendation:'Considerarlo para reconocimiento de accountability y compartir su práctica con otros Supervisores.',
+        metadata:{type:'supervisor',compliance:100}
+      }));
+    });
+
+  (data.agents||[])
+    .filter(agent=>{
+      const id=String(agent.id||'').trim().toUpperCase();
+      const current=Number(currentByEmployee[id]?.total||0);
+      const previous=Number(previousByEmployee[id]||0);
+      const evaluated=(agent.currentRows||[])
+        .filter(row=>!_dd_isNonWorkStatus(row.audit_status))
+        .length;
+
+      return evaluated>=3 && (
+        current===0 ||
+        previous>current
+      );
+    })
+    .sort((a,b)=>{
+      const aid=String(a.id||'').trim().toUpperCase();
+      const bid=String(b.id||'').trim().toUpperCase();
+      const aimprovement=Number(previousByEmployee[aid]||0)-Number(currentByEmployee[aid]?.total||0);
+      const bimprovement=Number(previousByEmployee[bid]||0)-Number(currentByEmployee[bid]?.total||0);
+      return bimprovement-aimprovement ||
+        (b.currentRows||[]).length-(a.currentRows||[]).length ||
+        a.name.localeCompare(b.name);
+    })
+    .slice(0,10)
+    .forEach(agent=>{
+      const id=String(agent.id||'').trim().toUpperCase();
+      const current=Number(currentByEmployee[id]?.total||0);
+      const previous=Number(previousByEmployee[id]||0);
+      const evaluated=(agent.currentRows||[])
+        .filter(row=>!_dd_isNonWorkStatus(row.audit_status))
+        .length;
+
+      items.push(_dd5_makeItem({
+        id:`crack-agent-${id}`,
+        category:'recognition',
+        entityType:'agent',
+        entityId:agent.id,
+        entityName:agent.name,
+        supervisorName:agent.supervisor,
+        campaign:agent.campaign,
+        severity:'positive',
+        included:previous>current || evaluated>=5,
+        fact:current===0
+          ? `${agent.name} cerró el periodo sin faltas ni retardos disciplinarios en ${evaluated} día${evaluated===1?'':'s'} evaluable${evaluated===1?'':'s'}.`
+          : `${agent.name} redujo sus incidencias disciplinarias de ${previous} a ${current} frente al periodo anterior.`,
+        interpretation:previous>current
+          ? 'Existe una señal positiva de mejora frente al periodo anterior.'
+          : 'Mantuvo cumplimiento disciplinario durante los días evaluables.',
+        recommendation:'Validar con su Supervisor si corresponde incluirlo en reconocimientos de la junta.',
+        metadata:{type:'agent',current,previous,evaluated}
+      }));
+    });
+
+  return items;
+}
+
+function _dd5_buildDecisions(data,offenders,leaders){
+  const decisions=[];
+
+  offenders
+    .filter(item=>
+      item.severity==='high' ||
+      Number(item.metadata.missing||0)>0
+    )
+    .slice(0,12)
+    .forEach(item=>{
+      decisions.push(_dd5_makeItem({
+        id:`decision-${item.id}`,
+        category:'decisions',
+        entityType:item.entityType,
+        entityId:item.entityId,
+        entityName:item.entityName,
+        supervisorName:item.supervisorName,
+        campaign:item.campaign,
+        severity:'high',
+        included:false,
+        fact:`Se requiere una decisión o compromiso sobre ${item.entityName}.`,
+        interpretation:item.interpretation,
+        recommendation:item.recommendation,
+        metadata:{sourceItemId:item.id}
+      }));
+    });
+
+  leaders
+    .filter(item=>Number(item.metadata.missing||0)>0)
+    .slice(0,8)
+    .forEach(item=>{
+      decisions.push(_dd5_makeItem({
+        id:`decision-${item.id}`,
+        category:'decisions',
+        entityType:item.entityType,
+        entityId:item.entityId,
+        entityName:item.entityName,
+        severity:'high',
+        included:false,
+        fact:`${item.entityName} tiene ${item.metadata.missing} acción${item.metadata.missing===1?'':'es'} pendiente${item.metadata.missing===1?'':'s'} que necesita${item.metadata.missing===1?'':'n'} responsable y fecha.`,
+        interpretation:item.interpretation,
+        recommendation:'Convertir este hallazgo en un compromiso de la junta.',
+        metadata:{sourceItemId:item.id}
+      }));
+    });
+
+  return decisions;
+}
+
+function _dd5_buildReviewModel(data){
+  const pulse=_dd5_buildPulse(data);
+  const people=_dd5_buildOffenders(data);
+  const leaders=_dd5_buildLeaders(data);
+  const recognition=_dd5_buildRecognition(data);
+  const decisions=_dd5_buildDecisions(
+    data,
+    people,
+    leaders
+  );
+
+  return {
+    pulse,
+    people,
+    leaders,
+    recognition,
+    decisions
+  };
+}
+
+function _dd5_allItems(){
+  if(!_dd5_STATE)return[];
+  const model=_dd5_STATE.model||{};
+  return [
+    ...(model.pulse||[]),
+    ...(model.people||[]),
+    ...(model.leaders||[]),
+    ...(model.recognition||[]),
+    ...(model.decisions||[])
+  ];
+}
+
+function _dd5_selectedValidated(category=null){
+  return _dd5_allItems().filter(item=>
+    item.included &&
+    item.validated &&
+    (!category || item.category===category)
+  );
+}
+
+function _dd5_mergeSavedItems(freshModel,savedItems=[]){
+  const savedMap=new Map(
+    (savedItems||[]).map(item=>[item.id,item])
+  );
+
+  const merged={};
+
+  Object.entries(freshModel).forEach(([category,items])=>{
+    merged[category]=(items||[]).map(item=>{
+      const saved=savedMap.get(item.id);
+      return saved
+        ? {
+            ...item,
+            included:Boolean(saved.included),
+            validated:Boolean(saved.validated)
+          }
+        : item;
+    });
+  });
+
+  /*
+   * Conserva hallazgos históricos que ya no aparecen en el filtro
+   * actual, para que un borrador guardado no pierda su contenido.
+   */
+  (savedItems||[]).forEach(saved=>{
+    const exists=Object.values(merged)
+      .flat()
+      .some(item=>item.id===saved.id);
+
+    if(!exists){
+      const category=saved.category||'people';
+      if(!merged[category])merged[category]=[];
+      merged[category].push(saved);
+    }
+  });
+
+  return merged;
+}
+
+async function _dd5_loadHistory(){
+  if(!_dd5_canPrepare()){
+    _dd5_HISTORY=[];
+    return;
+  }
+
+  try{
+    const {data,error}=await _a_sb.rpc(
+      'list_deep_dive_weekly_reviews',
+      {p_limit:20}
+    );
+
+    if(error)throw error;
+    _dd5_HISTORY=data||[];
+  }catch(error){
+    console.warn(
+      'No se pudo cargar el historial de revisiones:',
+      error
+    );
+    _dd5_HISTORY=[];
+  }
+}
+
+async function _dd5_openReview(){
+  if(!_dd5_canPrepare()){
+    alert(
+      'La preparación del borrador está disponible únicamente para People y Head People.'
+    );
+    return;
+  }
+
+  if(!_dd_DATA || _dd_DATA.mode==='operational'){
+    alert(
+      'Carga primero Deep Dive con acceso People para preparar la revisión.'
+    );
+    return;
+  }
+
+  const model=_dd5_buildReviewModel(_dd_DATA);
+
+  _dd5_STATE={
+    reviewId:null,
+    status:'draft',
+    step:'scope',
+    draftTab:'wbr',
+    title:`People × Operations · ${fmtDateShort(_dd_DATA.from)} al ${fmtDateShort(_dd_DATA.to)}`,
+    periodFrom:_dd_DATA.from,
+    periodTo:_dd_DATA.to,
+    filters:{
+      campaign:_dd_FILTERS.campaign,
+      supervisor:_dd_FILTERS.supervisor
+    },
+    model,
+    commitments:[],
+    savedAt:null,
+    finalizedAt:null
+  };
+
+  await _dd5_loadHistory();
+  _dd5_render();
+}
+
+function _dd5_close(){
+  document.getElementById('dd5-review')?.remove();
+}
+
+function _dd5_setStep(step){
+  if(!_dd5_STATE)return;
+  _dd5_STATE.step=step;
+  _dd5_render();
+}
+
+function _dd5_findItem(id){
+  return _dd5_allItems()
+    .find(item=>item.id===id)||null;
+}
+
+function _dd5_toggleItem(id,field){
+  const item=_dd5_findItem(id);
+  if(!item)return;
+
+  item[field]=!item[field];
+
+  if(field==='validated' && item.validated){
+    item.included=true;
+  }
+
+  _dd5_render();
+}
+
+function _dd5_openEvidence(id){
+  const item=_dd5_findItem(id);
+  if(!item)return;
+
+  if(item.entityType==='agent' && item.entityId){
+    _dd4_openAgent(item.entityId);
+    return;
+  }
+
+  if(item.entityType==='supervisor' && item.entityId){
+    _dd_openSupervisorDetail(item.entityId);
+    return;
+  }
+
+  if(item.category==='pulse'){
+    const tabMap={
+      'pulse-attendance':'attendance',
+      'pulse-missing-actions':'accountability',
+      'pulse-tickets':'tickets',
+      'pulse-shifts':'attendance',
+      'pulse-campaign':'overview'
+    };
+
+    _dd5_close();
+    _dd4_setTab(tabMap[item.id]||'overview');
+  }
+}
+
+function _dd5_addCommitment(){
+  if(!_dd5_STATE)return;
+
+  _dd5_STATE.commitments.push({
+    id:_dd5_uid('commitment'),
+    action:'',
+    owner:'',
+    due_date:'',
+    status:'Pendiente'
+  });
+
+  _dd5_render();
+}
+
+function _dd5_updateCommitment(index,field,value){
+  const row=_dd5_STATE?.commitments?.[index];
+  if(!row)return;
+  row[field]=value;
+}
+
+function _dd5_removeCommitment(index){
+  if(!_dd5_STATE)return;
+  _dd5_STATE.commitments.splice(index,1);
+  _dd5_render();
+}
+
+function _dd5_itemList(items=[]){
+  if(!items.length){
+    return `
+      <div class="dd5-card">
+        <div class="dd5-item-name">Sin hallazgos para esta sección</div>
+        <div class="dd5-item-meta">
+          Cambia los filtros de Deep Dive para revisar otro alcance.
+        </div>
+      </div>
+    `;
+  }
+
+  return items.map(item=>`
+    <div class="dd5-card ${
+      item.severity==='high'
+        ? 'risk-high'
+        : item.severity==='positive'
+          ? 'positive'
+          : 'risk-medium'
+    }">
+      <div class="dd5-item-head">
+        <div>
+          <div class="dd5-item-name">
+            ${_dd5_safe(item.entityName||'Hallazgo')}
+          </div>
+          <div class="dd5-item-meta">
+            ${
+              [
+                item.campaign,
+                item.supervisorName
+              ].filter(Boolean)
+               .map(_dd5_safe)
+               .join(' · ') || 'Deep Dive'
+            }
+          </div>
+        </div>
+
+        <label class="dd5-check">
+          <input
+            type="checkbox"
+            ${item.included?'checked':''}
+            onchange="_dd5_toggleItem('${item.id}','included')"
+          >
+          Incluir
+        </label>
+      </div>
+
+      <div class="dd5-statement">
+        <div>
+          <span class="dd5-label">Hecho</span>
+          ${_dd5_safe(item.fact)}
+        </div>
+
+        <div style="margin-top:8px">
+          <span class="dd5-label">Lectura</span>
+          ${_dd5_safe(item.interpretation)}
+        </div>
+
+        <div style="margin-top:8px">
+          <span class="dd5-label">Siguiente paso</span>
+          ${_dd5_safe(item.recommendation)}
+        </div>
+      </div>
+
+      <div class="dd5-actions">
+        <button
+          class="dd5-mini-btn"
+          onclick="_dd5_openEvidence('${item.id}')"
+        >
+          🔎 ${_dd5_safe(item.evidenceLabel||'Ver evidencia')}
+        </button>
+
+        <button
+          class="dd5-mini-btn ${item.validated?'validated':''}"
+          onclick="_dd5_toggleItem('${item.id}','validated')"
+        >
+          ${item.validated?'✅ Validado para junta':'☐ Validar para junta'}
+        </button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function _dd5_scopeContent(){
+  const history=_dd5_HISTORY||[];
+  const validated=_dd5_selectedValidated().length;
+  const included=_dd5_allItems().filter(x=>x.included).length;
+
+  return `
+    <div class="dd5-title">Alcance de la revisión</div>
+    <div class="dd5-help">
+      La revisión toma los filtros que ya aplicaste en Deep Dive.
+      Los nombres se incluyen únicamente cuando el hallazgo fue validado.
+    </div>
+
+    <div class="dd5-note">
+      <b>Periodo:</b>
+      ${fmtDateShort(_dd5_STATE.periodFrom)}
+      al
+      ${fmtDateShort(_dd5_STATE.periodTo)}
+      <br>
+      <b>Campaña:</b>
+      ${
+        _dd5_STATE.filters.campaign==='all'
+          ? 'Todas'
+          : _dd5_safe(_dd5_STATE.filters.campaign)
+      }
+      ·
+      <b>Supervisor:</b>
+      ${
+        _dd5_STATE.filters.supervisor==='all'
+          ? 'Todos'
+          : _dd5_safe(
+              _dd_DATA.supervisorsOptions
+                .find(x=>x.id===_dd5_STATE.filters.supervisor)
+                ?.name ||
+              _dd5_STATE.filters.supervisor
+            )
+      }
+    </div>
+
+    <div class="dd5-grid">
+      <div class="dd5-kpi">
+        <div class="dd5-kpi-value">${included}</div>
+        <div class="dd5-kpi-label">Hallazgos seleccionados</div>
+      </div>
+      <div class="dd5-kpi">
+        <div class="dd5-kpi-value">${validated}</div>
+        <div class="dd5-kpi-label">Validados para junta</div>
+      </div>
+    </div>
+
+    <div class="dd5-card" style="margin-top:14px">
+      <div class="dd5-item-name">Título de la revisión</div>
+      <input
+        class="dd5-input"
+        style="margin-top:9px"
+        value="${_dd5_safe(_dd5_STATE.title)}"
+        oninput="_dd5_STATE.title=this.value"
+      >
+    </div>
+
+    <div class="dd5-card">
+      <div class="dd5-item-name">Método que seguirá People</div>
+      <div class="dd5-statement">
+        1. Confirmar qué cambió.<br>
+        2. Abrir evidencia de offenders.<br>
+        3. Revisar accountability del liderazgo.<br>
+        4. Validar señales positivas.<br>
+        5. Convertir decisiones en compromisos.<br>
+        6. Copiar o guardar el borrador.
+      </div>
+    </div>
+
+    <div class="dd5-card">
+      <div class="dd5-item-name">Revisiones guardadas</div>
+      <div class="dd5-item-meta">
+        Puedes retomar borradores anteriores o consultar una revisión finalizada.
+      </div>
+
+      <div style="margin-top:10px">
+        ${
+          history.length
+            ? history.map(row=>`
+              <div class="dd5-history-row">
+                <div>
+                  <b>${_dd5_safe(row.review_title)}</b>
+                  <div style="color:#64748B;margin-top:3px">
+                    ${fmtDateShort(row.period_from)}
+                    al
+                    ${fmtDateShort(row.period_to)}
+                  </div>
+                </div>
+                <div>${_dd5_safe(row.created_by_name||'People')}</div>
+                <div>
+                  <span class="pill ${
+                    row.status==='finalized'
+                      ? 'pill-green'
+                      : 'pill-yellow'
+                  }">
+                    ${
+                      row.status==='finalized'
+                        ? 'Finalizada'
+                        : 'Borrador'
+                    }
+                  </span>
+                </div>
+                <button
+                  class="dd5-mini-btn"
+                  onclick="_dd5_openSaved('${row.id}')"
+                >
+                  Abrir
+                </button>
+              </div>
+            `).join('')
+            : '<div style="font-size:11px;color:#94A3B8;margin-top:12px">Todavía no hay revisiones guardadas.</div>'
+        }
+      </div>
+    </div>
+  `;
+}
+
+function _dd5_pulseContent(){
+  const cur=_dd_DATA.current.attendance||{};
+  const missing=_dd5_missingActionRows(_dd_DATA).length;
+  const recurrent=(_dd_DATA.recurrence||[]).length;
+
+  return `
+    <div class="dd5-title">Pulso ejecutivo</div>
+    <div class="dd5-help">
+      Empieza por hechos. Abre la evidencia y valida únicamente lo que
+      quieres llevar a la conversación con Operaciones.
+    </div>
+
+    <div class="dd5-grid" style="margin-bottom:14px">
+      <div class="dd5-kpi">
+        <div class="dd5-kpi-value">${Number(cur.retardo||0)}</div>
+        <div class="dd5-kpi-label">Retardos disciplinarios</div>
+      </div>
+      <div class="dd5-kpi">
+        <div class="dd5-kpi-value">${Number(cur.falta||0)}</div>
+        <div class="dd5-kpi-label">Faltas injustificadas</div>
+      </div>
+      <div class="dd5-kpi">
+        <div class="dd5-kpi-value">${missing}</div>
+        <div class="dd5-kpi-label">Sin Acción People</div>
+      </div>
+      <div class="dd5-kpi">
+        <div class="dd5-kpi-value">${recurrent}</div>
+        <div class="dd5-kpi-label">Reincidentes 90 días</div>
+      </div>
+    </div>
+
+    ${_dd5_itemList(_dd5_STATE.model.pulse)}
+  `;
+}
+
+function _dd5_peopleContent(){
+  return `
+    <div class="dd5-title">Offenders y personas que requieren intervención</div>
+    <div class="dd5-help">
+      No toda incidencia convierte a una persona en reincidente.
+      Revisa el historial de 90 días, la acción vinculada y la advertencia vigente.
+    </div>
+
+    <div class="dd5-note dd5-warning">
+      Los casos con amonestación faltante se detectan cuando existe una
+      falta o retardo disciplinario y no se encontró una Acción People vinculada.
+    </div>
+
+    ${_dd5_itemList(_dd5_STATE.model.people)}
+  `;
+}
+
+function _dd5_leadersContent(){
+  const decisions=_dd5_STATE.model.decisions||[];
+
+  return `
+    <div class="dd5-title">Accountability de liderazgo</div>
+    <div class="dd5-help">
+      Esta sección separa el comportamiento del agente de la calidad de
+      respuesta del liderazgo: a tiempo, tardía o sin acción.
+    </div>
+
+    ${_dd5_itemList(_dd5_STATE.model.leaders)}
+
+    <div class="dd5-title" style="margin-top:24px">
+      Casos que pueden requerir decisión
+    </div>
+    <div class="dd5-help">
+      Incluye solamente los puntos que necesiten una resolución,
+      escalación o compromiso explícito en la junta.
+    </div>
+
+    ${_dd5_itemList(decisions)}
+  `;
+}
+
+function _dd5_recognitionContent(){
+  return `
+    <div class="dd5-title">Cracks y señales positivas</div>
+    <div class="dd5-help">
+      People debe llevar tanto riesgos como comportamientos que vale la
+      pena reconocer y replicar.
+    </div>
+
+    <div class="dd5-note">
+      Una señal positiva no equivale automáticamente a reconocimiento.
+      Valídala con la persona responsable antes de incluirla.
+    </div>
+
+    ${_dd5_itemList(_dd5_STATE.model.recognition)}
+  `;
+}
+
+function _dd5_commitmentsContent(){
+  const rows=_dd5_STATE.commitments||[];
+
+  return `
+    <div class="dd5-title">Compromisos de la junta</div>
+    <div class="dd5-help">
+      Convierte los hallazgos en acciones con responsable y fecha.
+      Esta sección puede actualizarse después de la reunión.
+    </div>
+
+    <div class="dd5-card">
+      ${
+        rows.length
+          ? rows.map((row,index)=>`
+            <div class="dd5-commit-row">
+              <input
+                class="dd5-input"
+                placeholder="Acción o compromiso"
+                value="${_dd5_safe(row.action)}"
+                oninput="_dd5_updateCommitment(${index},'action',this.value)"
+              >
+              <input
+                class="dd5-input"
+                placeholder="Responsable"
+                value="${_dd5_safe(row.owner)}"
+                oninput="_dd5_updateCommitment(${index},'owner',this.value)"
+              >
+              <input
+                class="dd5-input"
+                type="date"
+                value="${_dd5_safe(row.due_date)}"
+                oninput="_dd5_updateCommitment(${index},'due_date',this.value)"
+              >
+              <select
+                class="dd5-select"
+                onchange="_dd5_updateCommitment(${index},'status',this.value)"
+              >
+                ${['Pendiente','En curso','Completado','Bloqueado']
+                  .map(status=>`
+                    <option
+                      value="${status}"
+                      ${row.status===status?'selected':''}
+                    >${status}</option>
+                  `).join('')}
+              </select>
+              <button
+                class="dd5-mini-btn"
+                onclick="_dd5_removeCommitment(${index})"
+              >×</button>
+            </div>
+          `).join('')
+          : `
+            <div style="font-size:12px;color:#64748B">
+              Todavía no agregas compromisos.
+            </div>
+          `
+      }
+
+      <button
+        class="btn-ghost"
+        style="margin-top:12px"
+        onclick="_dd5_addCommitment()"
+      >
+        ＋ Agregar compromiso
+      </button>
+    </div>
+  `;
+}
+
+function _dd5_sectionLines(items=[]){
+  return items.map(item=>`- ${item.fact}${
+    item.interpretation
+      ? ` Lectura: ${item.interpretation}`
+      : ''
+  }${
+    item.recommendation
+      ? ` Siguiente paso: ${item.recommendation}`
+      : ''
+  }`);
+}
+
+function _dd5_buildDrafts(){
+  const pulse=_dd5_selectedValidated('pulse');
+  const people=_dd5_selectedValidated('people');
+  const leaders=_dd5_selectedValidated('leaders');
+  const recognition=_dd5_selectedValidated('recognition');
+  const decisions=_dd5_selectedValidated('decisions');
+  const commitments=(_dd5_STATE.commitments||[])
+    .filter(row=>row.action||row.owner||row.due_date);
+
+  const filterCampaign=
+    _dd5_STATE.filters.campaign==='all'
+      ? 'Todas las campañas'
+      : _dd5_STATE.filters.campaign;
+
+  const filterSupervisor=
+    _dd5_STATE.filters.supervisor==='all'
+      ? 'Todos los supervisores'
+      : (
+          _dd_DATA.supervisorsOptions
+            .find(x=>x.id===_dd5_STATE.filters.supervisor)
+            ?.name ||
+          _dd5_STATE.filters.supervisor
+        );
+
+  const header=[
+    'PEOPLE × OPERATIONS · REVISIÓN SEMANAL',
+    _dd5_STATE.title,
+    `Periodo: ${fmtDateShort(_dd5_STATE.periodFrom)} al ${fmtDateShort(_dd5_STATE.periodTo)}`,
+    `Alcance: ${filterCampaign} · ${filterSupervisor}`,
+    `Preparado por: ${_dd5_roleName()}`,
+    `Hallazgos validados: ${pulse.length+people.length+leaders.length+recognition.length+decisions.length}`
+  ];
+
+  const wbr=[
+    ...header,
+    '',
+    '1. PULSO EJECUTIVO',
+    ...(_dd5_sectionLines(pulse).length
+      ? _dd5_sectionLines(pulse)
+      : ['- Sin hallazgos validados.']),
+    '',
+    '2. PERSONAS QUE REQUIEREN INTERVENCIÓN',
+    ...(_dd5_sectionLines(people).length
+      ? _dd5_sectionLines(people)
+      : ['- Sin offenders validados para la junta.']),
+    '',
+    '3. ACCOUNTABILITY DE LIDERAZGO',
+    ...(_dd5_sectionLines(leaders).length
+      ? _dd5_sectionLines(leaders)
+      : ['- Sin hallazgos de liderazgo validados.']),
+    '',
+    '4. DECISIONES REQUERIDAS',
+    ...(_dd5_sectionLines(decisions).length
+      ? _dd5_sectionLines(decisions)
+      : ['- Sin decisiones marcadas.']),
+    '',
+    '5. RECONOCIMIENTOS Y SEÑALES POSITIVAS',
+    ...(_dd5_sectionLines(recognition).length
+      ? _dd5_sectionLines(recognition)
+      : ['- Sin reconocimientos validados.']),
+    '',
+    '6. COMPROMISOS',
+    ...(commitments.length
+      ? commitments.map((row,index)=>
+          `${index+1}. ${row.action||'Acción pendiente'} · Responsable: ${row.owner||'Por definir'} · Fecha: ${row.due_date?fmtDateShort(row.due_date):'Por definir'} · Estatus: ${row.status||'Pendiente'}`
+        )
+      : ['- Sin compromisos registrados.'])
+  ].join('\n');
+
+  const slack=[
+    `*People × Operations · ${fmtDateShort(_dd5_STATE.periodFrom)} al ${fmtDateShort(_dd5_STATE.periodTo)}*`,
+    '',
+    pulse.length
+      ? `*Pulso:* ${pulse.map(x=>x.fact).join(' ')}`
+      : '*Pulso:* sin hallazgos validados.',
+    '',
+    people.length
+      ? `*Offenders:* ${people.map(x=>x.fact).join(' ')}`
+      : '*Offenders:* sin casos validados.',
+    '',
+    leaders.length
+      ? `*Accountability:* ${leaders.map(x=>x.fact).join(' ')}`
+      : '*Accountability:* sin hallazgos validados.',
+    '',
+    recognition.length
+      ? `*Cracks:* ${recognition.map(x=>x.fact).join(' ')}`
+      : '*Cracks:* sin reconocimientos validados.',
+    '',
+    commitments.length
+      ? `*Compromisos:* ${commitments.map(x=>`${x.action||'Acción'} — ${x.owner||'Por definir'} — ${x.due_date?fmtDateShort(x.due_date):'Sin fecha'}`).join(' | ')}`
+      : '*Compromisos:* pendientes de definir.'
+  ].join('\n');
+
+  const followup=[
+    'SEGUIMIENTO · PEOPLE × OPERATIONS',
+    `${fmtDateShort(_dd5_STATE.periodFrom)} al ${fmtDateShort(_dd5_STATE.periodTo)}`,
+    '',
+    'COMPROMISO | RESPONSABLE | FECHA | ESTATUS',
+    ...(commitments.length
+      ? commitments.map(row=>
+          `${row.action||'Acción pendiente'} | ${row.owner||'Por definir'} | ${row.due_date?fmtDateShort(row.due_date):'Por definir'} | ${row.status||'Pendiente'}`
+        )
+      : ['Sin compromisos registrados | — | — | —']),
+    '',
+    'CASOS QUE REGRESAN A LA SIGUIENTE REVISIÓN',
+    ...decisions.map(item=>`- ${item.entityName}: ${item.recommendation}`)
+  ].join('\n');
+
+  return {wbr,slack,followup};
+}
+
+function _dd5_draftContent(){
+  const drafts=_dd5_buildDrafts();
+  const tab=_dd5_STATE.draftTab||'wbr';
+  const text=drafts[tab]||drafts.wbr;
+  const included=_dd5_allItems().filter(x=>x.included);
+  const pending=included.filter(x=>!x.validated);
+
+  return `
+    <div class="dd5-title">Borrador para People × Operations</div>
+    <div class="dd5-help">
+      El texto incluye nombres únicamente en hallazgos que People validó.
+      Las interpretaciones y recomendaciones permanecen separadas de los hechos.
+    </div>
+
+    ${
+      pending.length
+        ? `
+          <div class="dd5-note dd5-warning">
+            Hay <b>${pending.length}</b> hallazgo${pending.length===1?'':'s'}
+            seleccionado${pending.length===1?'':'s'} sin validar.
+            No aparecerá${pending.length===1?'':'n'} en el borrador final.
+          </div>
+        `
+        : ''
+    }
+
+    <div class="dd5-draft-tabs">
+      ${[
+        ['wbr','WBR'],
+        ['slack','Slack'],
+        ['followup','Seguimiento']
+      ].map(([key,label])=>`
+        <button
+          class="dd5-draft-tab ${tab===key?'on':''}"
+          onclick="_dd5_setDraftTab('${key}')"
+        >
+          ${label}
+        </button>
+      `).join('')}
+    </div>
+
+    <div class="dd5-draft">${_dd5_safe(text)}</div>
+
+    <div class="dd5-actions">
+      <button
+        class="btn-primary"
+        onclick="_dd5_copyDraft('${tab}')"
+      >
+        📋 Copiar ${tab==='wbr'?'WBR':tab==='slack'?'Slack':'seguimiento'}
+      </button>
+
+      <button
+        class="btn-ghost"
+        onclick="_dd5_saveReview('draft')"
+      >
+        💾 Guardar borrador
+      </button>
+
+      <button
+        class="btn-ghost"
+        onclick="_dd5_saveReview('finalized')"
+      >
+        ✅ Finalizar revisión
+      </button>
+    </div>
+  `;
+}
+
+function _dd5_setDraftTab(tab){
+  if(!_dd5_STATE)return;
+  _dd5_STATE.draftTab=tab;
+  _dd5_render();
+}
+
+async function _dd5_copyDraft(tab){
+  const drafts=_dd5_buildDrafts();
+  const text=drafts[tab]||drafts.wbr;
+
+  try{
+    await navigator.clipboard.writeText(text);
+    alert('Borrador copiado.');
+  }catch(error){
+    console.error(error);
+    alert('No se pudo copiar automáticamente. Selecciona el texto del borrador.');
+  }
+}
+
+async function _dd5_saveReview(status='draft'){
+  if(!_dd5_STATE || !_dd5_canPrepare())return;
+
+  const included=_dd5_allItems().filter(x=>x.included);
+  const pending=included.filter(x=>!x.validated);
+  const validated=included.filter(x=>x.validated);
+
+  if(status==='finalized'){
+    if(!validated.length){
+      alert(
+        'Valida al menos un hallazgo antes de finalizar la revisión.'
+      );
+      return;
+    }
+
+    if(pending.length){
+      alert(
+        `Todavía hay ${pending.length} hallazgo${pending.length===1?'':'s'} seleccionado${pending.length===1?'':'s'} sin validar. Valídalo o quítalo del borrador.`
+      );
+      return;
+    }
+
+    if(!confirm(
+      '¿Finalizar esta revisión? Podrás consultarla después en el historial.'
+    )){
+      return;
+    }
+  }
+
+  const drafts=_dd5_buildDrafts();
+
+  const payloadItems=_dd5_allItems().map(item=>({
+    id:item.id,
+    category:item.category,
+    entityType:item.entityType,
+    entityId:item.entityId,
+    entityName:item.entityName,
+    supervisorName:item.supervisorName,
+    campaign:item.campaign,
+    severity:item.severity,
+    fact:item.fact,
+    interpretation:item.interpretation,
+    recommendation:item.recommendation,
+    included:Boolean(item.included),
+    validated:Boolean(item.validated),
+    metadata:item.metadata||{}
+  }));
+
+  try{
+    const {data,error}=await _a_sb.rpc(
+      'save_deep_dive_weekly_review',
+      {
+        p_review_id:_dd5_STATE.reviewId,
+        p_review_title:_dd5_STATE.title,
+        p_period_from:_dd5_STATE.periodFrom,
+        p_period_to:_dd5_STATE.periodTo,
+        p_filters:_dd5_STATE.filters,
+        p_selected_items:payloadItems,
+        p_commitments:_dd5_STATE.commitments||[],
+        p_readout_wbr:drafts.wbr,
+        p_readout_slack:drafts.slack,
+        p_readout_followup:drafts.followup,
+        p_status:status
+      }
+    );
+
+    if(error)throw error;
+
+    const saved=data?.review||data||{};
+    _dd5_STATE.reviewId=
+      saved.id||_dd5_STATE.reviewId;
+    _dd5_STATE.status=
+      saved.status||status;
+    _dd5_STATE.savedAt=
+      saved.updated_at||new Date().toISOString();
+    _dd5_STATE.finalizedAt=
+      saved.finalized_at||null;
+
+    await _dd5_loadHistory();
+
+    alert(
+      status==='finalized'
+        ? 'Revisión finalizada y guardada.'
+        : 'Borrador guardado.'
+    );
+
+    _dd5_render();
+  }catch(error){
+    console.error(
+      'No se pudo guardar la revisión:',
+      error
+    );
+    alert(
+      'No se pudo guardar la revisión.\n\n'+
+      (error?.message||'Error desconocido')
+    );
+  }
+}
+
+async function _dd5_openSaved(id){
+  try{
+    const {data,error}=await _a_sb.rpc(
+      'get_deep_dive_weekly_review',
+      {p_review_id:id}
+    );
+
+    if(error)throw error;
+
+    const row=data?.review||data;
+
+    if(!row){
+      alert('No se encontró la revisión.');
+      return;
+    }
+
+    const fresh=_dd5_buildReviewModel(_dd_DATA);
+
+    _dd5_STATE={
+      reviewId:row.id,
+      status:row.status||'draft',
+      step:'scope',
+      draftTab:'wbr',
+      title:row.review_title||
+        `People × Operations · ${fmtDateShort(row.period_from)} al ${fmtDateShort(row.period_to)}`,
+      periodFrom:row.period_from,
+      periodTo:row.period_to,
+      filters:row.filters||{
+        campaign:'all',
+        supervisor:'all'
+      },
+      model:_dd5_mergeSavedItems(
+        fresh,
+        row.selected_items||[]
+      ),
+      commitments:row.commitments||[],
+      savedAt:row.updated_at||null,
+      finalizedAt:row.finalized_at||null
+    };
+
+    _dd5_render();
+  }catch(error){
+    console.error(error);
+    alert(
+      'No se pudo abrir la revisión.\n\n'+
+      (error?.message||'Error desconocido')
+    );
+  }
+}
+
+function _dd5_stepContent(){
+  switch(_dd5_STATE?.step){
+    case'pulse':return _dd5_pulseContent();
+    case'people':return _dd5_peopleContent();
+    case'leaders':return _dd5_leadersContent();
+    case'recognition':return _dd5_recognitionContent();
+    case'commitments':return _dd5_commitmentsContent();
+    case'draft':return _dd5_draftContent();
+    default:return _dd5_scopeContent();
+  }
+}
+
+function _dd5_render(){
+  if(!_dd5_STATE)return;
+
+  const currentIndex=Math.max(
+    0,
+    _DD5_STEPS.findIndex(
+      ([key])=>key===_dd5_STATE.step
+    )
+  );
+
+  const validated=_dd5_selectedValidated().length;
+  const included=_dd5_allItems().filter(x=>x.included).length;
+
+  const html=`
+    <div
+      class="dd5-overlay"
+      id="dd5-review"
+      onclick="if(event.target===this)_dd5_close()"
+    >
+      <div class="dd5-panel">
+        <div class="dd5-head">
+          <div>
+            <h2>Preparar revisión semanal</h2>
+            <div class="dd5-head-sub">
+              People × Operations ·
+              ${fmtDateShort(_dd5_STATE.periodFrom)}
+              al
+              ${fmtDateShort(_dd5_STATE.periodTo)}
+              · ${validated}/${included} hallazgos validados
+              ${
+                _dd5_STATE.status==='finalized'
+                  ? ' · Revisión finalizada'
+                  : ''
+              }
+            </div>
+          </div>
+
+          <button
+            class="dd5-close"
+            onclick="_dd5_close()"
+          >×</button>
+        </div>
+
+        <div class="dd5-layout">
+          <div class="dd5-side">
+            ${_DD5_STEPS.map(([key,label],index)=>`
+              <button
+                class="dd5-step ${_dd5_STATE.step===key?'on':''}"
+                onclick="_dd5_setStep('${key}')"
+              >
+                <span class="dd5-step-num">${index+1}</span>
+                <span>${label}</span>
+              </button>
+            `).join('')}
+          </div>
+
+          <div class="dd5-main">
+            ${_dd5_stepContent()}
+          </div>
+
+          <div class="dd5-footer">
+            <button
+              class="btn-ghost"
+              ${currentIndex===0?'disabled':''}
+              onclick="_dd5_setStep('${_DD5_STEPS[Math.max(0,currentIndex-1)][0]}')"
+            >
+              ← Anterior
+            </button>
+
+            <div style="font-size:10px;color:#64748B">
+              ${
+                _dd5_STATE.savedAt
+                  ? `Guardado: ${new Date(_dd5_STATE.savedAt).toLocaleString('es-MX')}`
+                  : 'Cambios sin guardar'
+              }
+            </div>
+
+            <button
+              class="btn-primary"
+              ${currentIndex===_DD5_STEPS.length-1?'disabled':''}
+              onclick="_dd5_setStep('${_DD5_STEPS[Math.min(_DD5_STEPS.length-1,currentIndex+1)][0]}')"
+            >
+              Siguiente →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('dd5-review')?.remove();
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    html
+  );
+}
+
+window._dd5_openReview=_dd5_openReview;
+window._dd5_close=_dd5_close;
+window._dd5_setStep=_dd5_setStep;
+window._dd5_toggleItem=_dd5_toggleItem;
+window._dd5_openEvidence=_dd5_openEvidence;
+window._dd5_addCommitment=_dd5_addCommitment;
+window._dd5_updateCommitment=_dd5_updateCommitment;
+window._dd5_removeCommitment=_dd5_removeCommitment;
+window._dd5_setDraftTab=_dd5_setDraftTab;
+window._dd5_copyDraft=_dd5_copyDraft;
+window._dd5_saveReview=_dd5_saveReview;
+window._dd5_openSaved=_dd5_openSaved;
+
+
 function _dd_render(){
   const c=document.getElementById('content');if(!c)return;
   if(!_dd_canAccess()){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><div style="font-size:13px;color:#64748B">No tienes permiso para acceder a este módulo.</div></div>';return;}
@@ -20027,7 +21895,28 @@ function _dd_render(){
   const tabs=operational?[['overview','Control Tower'],['attendance','Asistencia'],['incidents','Incidencias'],['campaigns','Campañas'],['accountability','Accountability']]:[['overview','Control Tower'],['attendance','Asistencia'],['supervisors','Supervisores'],['agents','Agentes 360'],['recurrence','Reincidencias'],['rotation','Rotación'],['tickets','Tickets y nómina'],['quality','Calidad de datos']];
   const modeLabel=operational?(currentRole==='ceo'?'Vista ejecutiva':'Vista operativa'):'People Intelligence · Investigation Workspace';
   const subtitleScope=operational?(d.scope_label||_dd_operationalScopeLabel()):'Cada número puede rastrearse hasta las personas y registros que lo forman.';
-  const controlsRight=operational?`<button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button>`:`<button class="btn-ghost" onclick="_dd_copyExecutiveSummary()">📋 Resumen</button><button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button>`;
+  const controlsRight=operational
+    ? `<button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button>`
+    : `
+      ${
+        _dd5_canPrepare()
+          ? `
+            <button
+              class="btn-primary"
+              onclick="_dd5_openReview()"
+            >
+              🧭 Preparar revisión semanal
+            </button>
+          `
+          : ''
+      }
+      <button
+        class="btn-ghost"
+        onclick="_dd_loadData()"
+      >
+        🔄 Actualizar
+      </button>
+    `;
   c.innerHTML=`<div class="dd4-shell"><div class="dd4-toolbar"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}"><span style="color:#94A3B8">→</span><input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}"><button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button><select class="df-input" onchange="_dd_setFilter('campaign',this.value)"><option value="all">Todas las campañas</option>${d.campaigns.map(x=>`<option value="${_dd_escape(x)}" ${_dd_FILTERS.campaign===x?'selected':''}>${_dd_escape(x)}</option>`).join('')}</select><select class="df-input" onchange="_dd_setFilter('supervisor',this.value)"><option value="all">Todos los supervisores</option>${d.supervisorsOptions.map(x=>`<option value="${_dd_escape(x.id)}" ${_dd_FILTERS.supervisor===x.id?'selected':''}>${_dd_escape(x.name)}</option>`).join('')}</select></div><div style="display:flex;gap:8px">${controlsRight}</div></div><div class="dd4-header"><div class="dd4-header-main"><div><div class="dd-eyebrow">${modeLabel}</div><div class="dd4-title">Deep Dive</div><div class="dd4-subtitle">${fmtDateShort(d.from)} al ${fmtDateShort(d.to)} · ${_dd_FILTERS.campaign==='all'?'Todas las campañas':_dd_escape(_dd_FILTERS.campaign)} · ${_dd_FILTERS.supervisor==='all'?'Todos los supervisores':_dd_escape(d.supervisorsOptions.find(x=>x.id===_dd_FILTERS.supervisor)?.name||_dd_FILTERS.supervisor)}<br>${_dd_escape(subtitleScope)}</div></div><div class="dd4-trust"><div class="dd4-trust-label">${operational?'Acceso':'Confianza del universo'}</div><div class="dd4-trust-value">${operational?'Solo lectura':trust+'%'}</div><div class="dd4-trust-note">${operational?'Sin información disciplinaria o de nómina':`${d.quality.totalIssues} alertas visibles · ${d.current.rows.length} filas únicas analizadas`}</div></div></div></div><div class="dd4-tabs">${tabs.map(([k,l])=>`<button class="dd4-tab ${_dd4_UI.tab===k?'on':''}" onclick="_dd4_setTab('${k}')">${l}</button>`).join('')}</div>${
     d.operationalWarning
       ? `
