@@ -1619,7 +1619,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.46';
+const APP_VERSION   = '1.0.47';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -10848,6 +10848,7 @@ function _a_renderAgent(){
 function _a_renderSupervisor(){
   const {entrada:en, salida:sa} = _a_getPunch();
   const r = ROLES['supervisor'];
+  const fechaHoy = _a_TODAY || ymd(NOW);
 
   const expectedTeam = _a_TEAM.filter(a => !['descanso','vacaciones'].includes(a.status));
 
@@ -10929,34 +10930,19 @@ function _a_renderSupervisor(){
             )
 
         : statusFinal === 'late'
-          ? (
-              a.lateRegularization
-                ? (
-                    a.lateRegularization.status === 'open'
-                      ? `<button
-                           onclick="event.stopPropagation();_a_openLateRegularization('${a.lateRegularization.id}')"
-                           style="border:1px solid #FED7AA;background:#FFF7ED;color:#C2410C;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap"
-                         >
-                           🕐 Regularizar
-                         </button>`
-                      : `<span style="font-size:11px;color:#64748B">
-                           ${_a_lateRegStatusLabel(
-                             a.lateRegularization.status
-                           )}
-                         </span>`
-                  )
-
-                : `<button
-                     onclick="event.stopPropagation();_a_QDAYS_EMPLEADO_ID='${a.id}';_a_ensureLateRegularization('${hoy}')"
-                     data-ensure-late-regularization="true"
-                     style="border:1px solid #FED7AA;background:#FFF7ED;color:#C2410C;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap"
-                   >
-                     🕐 Regularizar
-                   </button>`
-            )
+          ? `<button
+               onclick="event.stopPropagation();_a_QDAYS_EMPLEADO_ID='${a.id}';_a_ensureLateRegularization('${fechaHoy}')"
+               data-ensure-late-regularization="true"
+               style="border:1px solid #FED7AA;background:#FFF7ED;color:#C2410C;border-radius:7px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap"
+             >
+               🕐 Regularizar
+             </button>`
 
           : statusFinal === 'tolerance'
-            ? `<span style="font-size:11px;color:#854D0E">En tolerancia (${_a_toleranciaRetardoMin(a)} min)</span>`
+            ? `<span style="font-size:11px;color:#854D0E">
+                 En tolerancia (${_a_toleranciaRetardoMin(a)} min)
+               </span>`
+
             : '<span style="font-size:11px;color:#CBD5E1">—</span>';
 
     rows += `<tr onclick="_a_drillToAgent('${a.id}')">
