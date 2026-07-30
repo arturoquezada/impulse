@@ -1931,7 +1931,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.58';
+const APP_VERSION   = '1.0.59';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -15903,33 +15903,56 @@ function _dd_attendanceSummary(rows) {
   );
 
   const total = rows.length;
-
   const complete = _dd_statusCount(rows, 'completo');
   const tolerancia = _dd_statusCount(rows, 'tolerancia');
-  const retardoJustificado = rows.filter(r => r.audit_status === 'retardo' && r.late_justified).length;
-  const retardoPendiente = rows.filter(r => r.audit_status === 'retardo' && r.late_justification_pending).length;
-  const retardo = rows.filter(r =>
-    r.audit_status === 'retardo' &&
-    !['pending','approved'].includes(String(r.late_justification_status || '').toLowerCase())
+
+  const retardoJustificado = rows.filter(r =>
+    _dd_norm(r.audit_status) === 'retardo' &&
+    _dd_norm(r.late_justification_status) === 'approved'
   ).length;
-  const falta = _dd_statusCount(rows, 'falta_injustificada');
+
+  const retardoPendiente = rows.filter(r =>
+    _dd_norm(r.audit_status) === 'retardo' &&
+    _dd_norm(r.late_justification_status) === 'pending'
+  ).length;
+
+  const actionableRows = _dd4_actionableRows(rows);
+
+  const retardo = actionableRows.filter(r =>
+    _dd_norm(r.audit_status) === 'retardo'
+  ).length;
+
+  const falta = actionableRows.filter(r =>
+    _dd_norm(r.audit_status) === 'falta_injustificada'
+  ).length;
+
   const sinEntrada = _dd_statusCount(rows, 'sin_entrada');
   const sinSalida = _dd_statusCount(rows, 'sin_salida');
 
-  const justified = rows.filter(r => _dd_isNonWorkStatus(r.audit_status)).length;
+  const justified = rows.filter(r =>
+    _dd_isNonWorkStatus(r.audit_status)
+  ).length;
 
-  // Días/personas que realmente se esperaban trabajando.
-  const expectedDays = rows.filter(r => !_dd_isNonWorkStatus(r.audit_status)).length;
+  const expectedDays = rows.filter(r =>
+    !_dd_isNonWorkStatus(r.audit_status)
+  ).length;
 
-  // Personas que sí registraron entrada.
-  const withEntryRows = rows.filter(r => !_dd_isNonWorkStatus(r.audit_status) && _dd_hasEntry(r));
+  const withEntryRows = rows.filter(r =>
+    !_dd_isNonWorkStatus(r.audit_status) &&
+    _dd_hasEntry(r)
+  );
+
   const withEntry = withEntryRows.length;
 
-  // Personas con salida registrada.
-  const withCheckout = rows.filter(r => !_dd_isNonWorkStatus(r.audit_status) && _dd_hasCheckout(r)).length;
+  const withCheckout = rows.filter(r =>
+    !_dd_isNonWorkStatus(r.audit_status) &&
+    _dd_hasCheckout(r)
+  ).length;
 
-  // Puntualidad operativa: llegó a tiempo o dentro de tolerancia.
-  const operationalOnTime = withEntryRows.filter(_dd_isOperationallyOnTime).length;
+  const operationalOnTime =
+    withEntryRows.filter(
+      _dd_isOperationallyOnTime
+    ).length;
 
   return {
     total,
@@ -15937,7 +15960,10 @@ function _dd_attendanceSummary(rows) {
     hc: _dd_uniqueCount(rows, 'employee_id'),
 
     complete,
-    completeRate: _dd_pct(complete, expectedDays),
+    completeRate: _dd_pct(
+      complete,
+      expectedDays
+    ),
 
     tolerancia,
     retardo,
@@ -15952,8 +15978,17 @@ function _dd_attendanceSummary(rows) {
     withCheckout,
     operationalOnTime,
 
-    operationalPunctuality: _dd_pct(operationalOnTime, withEntry),
-    checkoutCompliance: _dd_pct(withCheckout, withEntry)
+    operationalPunctuality:
+      _dd_pct(
+        operationalOnTime,
+        withEntry
+      ),
+
+    checkoutCompliance:
+      _dd_pct(
+        withCheckout,
+        withEntry
+      )
   };
 }
 
@@ -17351,12 +17386,16 @@ function _dd_renderTicketCommandCenter(data){
   const t=data.current.tickets, prev=data.previous.tickets;
   const resolution=t.created?Math.round((t.resolved/t.created)*100):100;
   const top=Object.entries(t.byCategory||{}).sort((a,b)=>b[1]-a[1])[0];
-  const delta=_dd_delta(t.created,prev.created);
+  const deltaLabel=_dd4_comparisonText(
+    data,
+    t.created,
+    prev.created
+  );
   return `<div class="card" style="margin-bottom:0">
     <div class="card-title" style="margin-bottom:4px">🎫 HR Operations Command Center</div>
     <div style="font-size:11px;color:#64748B;margin-bottom:14px">No solo cuántos tickets llegaron: qué presión generan, qué tan rápido se resuelven y dónde está el cuello de botella.</div>
     <div class="dd-flow">
-      <div class="dd-flow-card"><div class="dd-flow-value">${t.created}</div><div class="dd-flow-label">Demanda creada</div><div class="dd-flow-note">${delta.label} vs anterior</div></div>
+      <div class="dd-flow-card"><div class="dd-flow-value">${t.created}</div><div class="dd-flow-label">Demanda creada</div><div class="dd-flow-note">${deltaLabel}</div></div>
       <div class="dd-flow-card"><div class="dd-flow-value" style="color:#16A34A">${t.resolved}</div><div class="dd-flow-label">Resueltos</div><div class="dd-flow-note">${resolution}% de resolución</div></div>
       <div class="dd-flow-card"><div class="dd-flow-value" style="color:${t.open?'#D97706':'#16A34A'}">${t.open}</div><div class="dd-flow-label">Backlog</div><div class="dd-flow-note">${t.open?'Requiere seguimiento':'Sin pendientes'}</div></div>
       <div class="dd-flow-card"><div class="dd-flow-value" style="color:#2563EB">${t.avgResolution}h</div><div class="dd-flow-label">Tiempo promedio</div><div class="dd-flow-note">Creación → resolución</div></div>
@@ -18107,7 +18146,91 @@ function _dd_render() {
 let _dd4_UI = { tab:'overview', search:'', attendanceStatus:'all', recurrence:'all', quality:'all' };
 
 function _dd4_dateAdd(dateStr, days){
-  const d=_dd_parseDate(dateStr); d.setDate(d.getDate()+Number(days||0)); return ymd(d);
+  const d=_dd_parseDate(dateStr);
+  d.setDate(d.getDate()+Number(days||0));
+  return ymd(d);
+}
+
+function _dd4_maxYmd(a,b){
+  const left=String(a||'').slice(0,10);
+  const right=String(b||'').slice(0,10);
+
+  if(!left)return right;
+  if(!right)return left;
+
+  return left>=right?left:right;
+}
+
+function _dd4_historyUsable(d){
+  return ['ready','partial'].includes(
+    d?.historyStatus
+  );
+}
+
+function _dd4_historyWindowLabel(d){
+  if(!_dd4_historyUsable(d)){
+    return d?.historyStatus==='error'
+      ? 'Histórico no disponible'
+      : 'Calculando histórico';
+  }
+
+  const days=Number(d?.historyDays||0);
+  const suffix=d?.historyStatus==='partial'
+    ? ' · acciones parcialmente disponibles'
+    : '';
+
+  return `${days} día${days===1?'':'s'} disponibles${suffix}`;
+}
+
+function _dd4_comparisonText(
+  d,
+  currentValue,
+  previousValue
+){
+  if(!d?.comparisonAvailable){
+    return 'Comparación no disponible';
+  }
+
+  const label=_dd_delta(
+    currentValue,
+    previousValue
+  ).label;
+
+  return d.comparisonPartial
+    ? `${label} vs periodo parcial`
+    : `${label} vs periodo anterior`;
+}
+
+function _dd4_dataHealth(d){
+  const q=d?.quality||{};
+
+  const critical=
+    Number(d?.current?.duplicates?.length||0)+
+    Number(d?.current?.conflicts?.length||0)+
+    Number(q.missingSupervisor?.length||0)+
+    Number(q.missingCampaign?.length||0)+
+    Number(d?.modelChecks?.length||0);
+
+  const followup=
+    Number(q.auditWithoutException?.length||0)+
+    Number(q.exceptionWithoutAudit?.length||0)+
+    Number(q.pending?.length||0)+
+    Number(q.activeWithoutRows?.length||0);
+
+  return {
+    critical,
+    followup,
+    label:critical
+      ? 'Revisar'
+      : followup
+        ? 'Monitoreada'
+        : 'Confiable',
+    tone:critical
+      ? 'red'
+      : followup
+        ? 'amber'
+        : 'green'
+  };
 }
 
 function _dd4_rowKey(r){
@@ -18448,34 +18571,219 @@ function _dd4_absenceSourceSummary(rows=[],employeeById){
 }
 
 function _dd4_matchActions(rows=[],actions=[]){
-  const incidents=_dd4_actionableRows(rows).sort((a,b)=>String(a.work_date).localeCompare(String(b.work_date)));
-  const byEmp={};
-  (actions||[]).filter(_dd4_validAction).forEach(a=>{
-    const emp=String(_dd_actionEmployee(a)||'').trim().toUpperCase();
-    if(!emp) return; (byEmp[emp] ||= []).push(a);
-  });
-  Object.values(byEmp).forEach(list=>list.sort((a,b)=>String(_dd4_tsToCdmxYmd(_dd_actionDate(a))).localeCompare(String(_dd4_tsToCdmxYmd(_dd_actionDate(b))))));
-  const used=new Set(); let matched=0,onTime=0,late=0;
-  incidents.forEach(r=>{
-    const emp=String(r.employee_id||'').trim().toUpperCase();
-    const incidentYmd=String(r.work_date||'').slice(0,10);
-    const list=byEmp[emp]||[];
-    let best=null,bestIndex=-1,bestDays=999;
-    list.forEach((a,idx)=>{
-      if(used.has(a.id||`${emp}-${idx}`)) return;
-      const ad=_dd_actionDate(a); if(!ad) return;
-      const days=_dd4_daysBetweenYmd(incidentYmd,ad);
-      if(days===null||days<0||days>7) return;
-      if(days<bestDays){best=a;bestIndex=idx;bestDays=days;}
+  const incidents=_dd4_actionableRows(rows)
+    .sort((a,b)=>
+      String(a.work_date||'')
+        .localeCompare(
+          String(b.work_date||'')
+        )
+    );
+
+  const byEmployee={};
+
+  (actions||[])
+    .filter(_dd4_validAction)
+    .forEach((action,index)=>{
+      const employee=String(
+        _dd_actionEmployee(action)||''
+      ).trim().toUpperCase();
+
+      if(!employee)return;
+
+      const prepared={
+        ...action,
+        _dd_match_key:
+          action.id ||
+          `${employee}-${index}`,
+        _dd_employee:employee,
+        _dd_management_date:
+          _dd4_actionManagementDate(action),
+        _dd_incident_date:
+          _dd4_actionIncidentYmd(action),
+        _dd_incident_type:
+          _dd4_actionIncidentType(action),
+        _dd_source_id:
+          _dd4_actionSourceId(action)
+      };
+
+      (byEmployee[employee]||=[]).push(
+        prepared
+      );
     });
+
+  Object.values(byEmployee).forEach(list=>
+    list.sort((a,b)=>
+      String(a._dd_management_date||'')
+        .localeCompare(
+          String(b._dd_management_date||'')
+        )
+    )
+  );
+
+  const used=new Set();
+  let matched=0;
+  let onTime=0;
+  let late=0;
+
+  incidents.forEach(row=>{
+    const employee=String(
+      row.employee_id||''
+    ).trim().toUpperCase();
+
+    const incidentDate=String(
+      row.work_date||''
+    ).slice(0,10);
+
+    const expectedSources=
+      _dd4_expectedActionSourceIds(row);
+
+    const candidates=[];
+
+    (byEmployee[employee]||[])
+      .forEach(action=>{
+        if(used.has(action._dd_match_key)){
+          return;
+        }
+
+        const managementDate=
+          action._dd_management_date;
+
+        if(!managementDate)return;
+
+        const days=_dd4_daysBetweenYmd(
+          incidentDate,
+          managementDate
+        );
+
+        if(
+          days===null ||
+          days<0 ||
+          days>7
+        ){
+          return;
+        }
+
+        const exactSource=
+          Boolean(action._dd_source_id) &&
+          expectedSources.includes(
+            action._dd_source_id
+          );
+
+        const directDate=
+          action._dd_incident_date;
+
+        const directDateMatches=
+          Boolean(directDate) &&
+          directDate===incidentDate;
+
+        /*
+         * Si la acción declara otra fecha de incidencia,
+         * no la usamos para cubrir este evento.
+         */
+        if(
+          directDate &&
+          !directDateMatches &&
+          !exactSource
+        ){
+          return;
+        }
+
+        const typeCompatibility=
+          _dd4_actionTypeCompatible(
+            action,
+            row
+          );
+
+        if(
+          typeCompatibility===false &&
+          !exactSource
+        ){
+          return;
+        }
+
+        let score=100+days;
+        let matchType='fallback_window';
+
+        if(exactSource){
+          score=days;
+          matchType='source';
+        }else if(
+          directDateMatches &&
+          typeCompatibility===true
+        ){
+          score=10+days;
+          matchType='date_type';
+        }else if(
+          typeCompatibility===true
+        ){
+          score=30+days;
+          matchType='type_window';
+        }else if(directDateMatches){
+          score=50+days;
+          matchType='date_window';
+        }
+
+        candidates.push({
+          action,
+          days,
+          score,
+          matchType
+        });
+      });
+
+    candidates.sort((a,b)=>
+      a.score-b.score ||
+      String(a.action._dd_management_date)
+        .localeCompare(
+          String(b.action._dd_management_date)
+        )
+    );
+
+    const best=candidates[0];
+
     if(best){
-      used.add(best.id||`${emp}-${bestIndex}`); matched++; if(bestDays===0) onTime++; else late++;
-      r.dd_action=best; r.dd_action_days=bestDays; r.dd_action_status=bestDays===0?'on_time':'late';
+      used.add(
+        best.action._dd_match_key
+      );
+
+      matched++;
+
+      if(best.days===0){
+        onTime++;
+      }else{
+        late++;
+      }
+
+      row.dd_action=best.action;
+      row.dd_action_days=best.days;
+      row.dd_action_status=
+        best.days===0
+          ? 'on_time'
+          : 'late';
+
+      row.dd_action_match=
+        best.matchType;
+
     }else{
-      r.dd_action=null; r.dd_action_days=null; r.dd_action_status='missing';
+      row.dd_action=null;
+      row.dd_action_days=null;
+      row.dd_action_status='missing';
+      row.dd_action_match='none';
     }
   });
-  return {incidents,matched,onTime,late,missing:incidents.length-matched,coverage:_dd_pct(matched,incidents.length),usedActionIds:used};
+
+  return {
+    incidents,
+    matched,
+    onTime,
+    late,
+    missing:incidents.length-matched,
+    coverage:_dd_pct(
+      matched,
+      incidents.length
+    ),
+    usedActionIds:used
+  };
 }
 
 function _dd4_filterEmployees(rows=[]){
@@ -18545,32 +18853,401 @@ function _dd4_windowCount(rows,to,days,fn){
   const from=_dd4_dateAdd(to,-days+1); return rows.filter(r=>String(r.work_date||'')>=from&&String(r.work_date||'')<=to&&(!fn||fn(r))).length;
 }
 
+
+function _dd4_validateDataModel(data){
+  const issues=[];
+  const rows=data?.current?.rows||[];
+
+  const keys=rows.map(_dd4_rowKey);
+  const duplicateCleanKeys=
+    keys.filter(
+      (key,index)=>
+        key &&
+        keys.indexOf(key)!==index
+    );
+
+  if(duplicateCleanKeys.length){
+    issues.push({
+      check:'unique_employee_date',
+      message:
+        'El universo limpio todavía contiene personas-fecha duplicadas.',
+      count:
+        new Set(duplicateCleanKeys).size
+    });
+  }
+
+  const actionable=
+    _dd4_actionableRows(rows);
+
+  const calculatedLate=
+    actionable.filter(r=>
+      _dd_norm(r.audit_status)==='retardo'
+    ).length;
+
+  const calculatedAbsence=
+    actionable.filter(r=>
+      _dd_norm(r.audit_status)===
+        'falta_injustificada'
+    ).length;
+
+  if(
+    calculatedLate !==
+    Number(data?.current?.attendance?.retardo||0)
+  ){
+    issues.push({
+      check:'late_summary',
+      message:
+        'El KPI de retardos no coincide con las filas accionables.',
+      expected:calculatedLate,
+      actual:
+        Number(
+          data?.current?.attendance?.retardo||0
+        )
+    });
+  }
+
+  if(
+    calculatedAbsence !==
+    Number(data?.current?.attendance?.falta||0)
+  ){
+    issues.push({
+      check:'absence_summary',
+      message:
+        'El KPI de faltas no coincide con las filas accionables.',
+      expected:calculatedAbsence,
+      actual:
+        Number(
+          data?.current?.attendance?.falta||0
+        )
+    });
+  }
+
+  const actionIds=actionable
+    .map(row=>row.dd_action?.id)
+    .filter(Boolean);
+
+  const reusedActions=actionIds.filter(
+    (id,index)=>
+      actionIds.indexOf(id)!==index
+  );
+
+  if(reusedActions.length){
+    issues.push({
+      check:'reused_people_action',
+      message:
+        'Una Acción People fue vinculada con más de una incidencia.',
+      count:new Set(reusedActions).size
+    });
+  }
+
+  if(_dd4_historyUsable(data)){
+    (data.agents||[]).forEach(agent=>{
+      const expected=
+        Number(agent.faltas90||0)+
+        Number(agent.retardos90||0);
+
+      if(
+        expected !==
+        Number(agent.incidents90||0)
+      ){
+        issues.push({
+          check:'person_history_total',
+          employee_id:agent.id,
+          employee_name:agent.name,
+          message:
+            'El total histórico no coincide con faltas + retardos accionables.',
+          expected,
+          actual:
+            Number(agent.incidents90||0)
+        });
+      }
+    });
+  }
+
+  return issues;
+}
+
+function _dd4_appendModelChecks(data){
+  data.modelChecks=
+    _dd4_validateDataModel(data);
+
+  if(!data.quality){
+    return;
+  }
+
+  const existingIndex=
+    data.quality.issues.findIndex(
+      item=>
+        item.type==='model_validation'
+    );
+
+  const issue={
+    type:'model_validation',
+    label:'Validaciones internas',
+    count:data.modelChecks.length,
+    severity:
+      data.modelChecks.length
+        ? 'bad'
+        : 'ok',
+    detail:
+      data.modelChecks.length
+        ? 'El modelo detectó diferencias internas que deben revisarse.'
+        : 'KPIs, filas y vinculaciones son consistentes.'
+  };
+
+  if(existingIndex>=0){
+    data.quality.issues[existingIndex]=issue;
+  }else{
+    data.quality.issues.unshift(issue);
+  }
+
+  data.quality.totalIssues=
+    data.quality.issues.reduce(
+      (sum,item)=>
+        sum+Number(item.count||0),
+      0
+    );
+}
+
+
 function _dd4_buildAgents(data){
-  const employees=data.employees||[]; const current=data.current.rows||[]; const hist=data.history90?.rows||[];
+  const employees=data.employees||[];
+  const current=data.current.rows||[];
+  const history=data.history90?.rows||[];
+
+  const actionsAvailable=
+    data.historyActionsAvailable!==false;
+
   const allMap=new Map();
-  employees.forEach(e=>allMap.set(String(e.id||'').trim().toUpperCase(),{...e}));
-  current.forEach(r=>{const id=String(r.employee_id||'').trim().toUpperCase();if(id&&!allMap.has(id))allMap.set(id,{id:r.employee_id,full_name:r.employee_name,status:'unknown',campaign_id:r.campaign_id,supervisor_id:r.supervisor_id});});
-  const supNames={}; [...current,...hist].forEach(r=>{if(r.supervisor_id)supNames[r.supervisor_id]=r.supervisor_name||r.supervisor_id;});
-  const agents=[];
-  allMap.forEach((e,id)=>{
-    const cr=current.filter(r=>String(r.employee_id||'').trim().toUpperCase()===id);
-    const hr=hist.filter(r=>String(r.employee_id||'').trim().toUpperCase()===id);
-    const actionable90=_dd4_actionableRows(hr);
-    const i30=_dd4_windowCount(hr,data.to,30,r=>_dd4_actionableRows([r]).length>0);
-    const i60=_dd4_windowCount(hr,data.to,60,r=>_dd4_actionableRows([r]).length>0);
-    const i90=actionable90.length;
-    const faltas90=hr.filter(r=>r.audit_status==='falta_injustificada').length;
-    const retardos90=hr.filter(r=>r.audit_status==='retardo'&&!['pending','approved'].includes(_dd_norm(r.late_justification_status))).length;
-    const sinSalida90=hr.filter(r=>r.audit_status==='sin_salida').length;
-    const actions=(data.current.actionRowsAll||[]).filter(a=>String(_dd_actionEmployee(a)||'').trim().toUpperCase()===id);
-    const tickets=(data.current.ticketRows||[]).filter(t=>String(_dd_firstValue(t,['employee_id','requester_id','affected_employee_id'])||'').trim().toUpperCase()===id);
-    const riskScore=faltas90*4+retardos90*2+sinSalida90+Math.max(0,i90-actions.length)*2;
-    const recurrence=i90>=4?'Crónico':i90>=2?'Reincidente':i90===1?'Primera incidencia':'Sin incidencias';
-    const warning=data.warningRisk?.byEmployee?.[id]||null;
-    const warningLevel=warning?.warning_level||'other';
-    agents.push({id:e.id||id,name:e.full_name||cr[0]?.employee_name||id,status:e.status||'unknown',campaign:e.campaign_id||cr[0]?.campaign_id||'Sin campaña',supervisorId:e.supervisor_id||cr[0]?.supervisor_id||'',supervisor:supNames[e.supervisor_id||cr[0]?.supervisor_id]||e.supervisor_id||cr[0]?.supervisor_name||'Sin supervisor',position:e.position_title||'Agente',hireDate:e.hire_date||'',currentRows:cr,historyRows:hr,incidents30:i30,incidents60:i60,incidents90:i90,faltas90,retardos90,sinSalida90,actions:actions.length,tickets:tickets.length,riskScore,recurrence,warning,warningLevel,warningLabel:_dd4_warningLabel(warningLevel),warningDaysRemaining:warning?.days_remaining??null});
+
+  employees.forEach(employee=>
+    allMap.set(
+      String(employee.id||'')
+        .trim()
+        .toUpperCase(),
+      {...employee}
+    )
+  );
+
+  current.forEach(row=>{
+    const id=String(
+      row.employee_id||''
+    ).trim().toUpperCase();
+
+    if(id&&!allMap.has(id)){
+      allMap.set(id,{
+        id:row.employee_id,
+        full_name:row.employee_name,
+        status:'unknown',
+        campaign_id:row.campaign_id,
+        supervisor_id:row.supervisor_id,
+        position_title:'Colaborador'
+      });
+    }
   });
-  return agents.sort((a,b)=>b.riskScore-a.riskScore||b.incidents90-a.incidents90||a.name.localeCompare(b.name));
+
+  const supervisorNames={};
+
+  [...current,...history].forEach(row=>{
+    if(row.supervisor_id){
+      supervisorNames[row.supervisor_id]=
+        row.supervisor_name||
+        row.supervisor_id;
+    }
+  });
+
+  const people=[];
+
+  allMap.forEach((employee,id)=>{
+    const currentRows=current.filter(row=>
+      String(row.employee_id||'')
+        .trim()
+        .toUpperCase()===id
+    );
+
+    const historyRows=history.filter(row=>
+      String(row.employee_id||'')
+        .trim()
+        .toUpperCase()===id
+    );
+
+    const actionable90=
+      _dd4_actionableRows(
+        historyRows
+      );
+
+    const incidents30=
+      _dd4_windowCount(
+        historyRows,
+        data.to,
+        30,
+        row=>
+          _dd4_actionableRows([row])
+            .length>0
+      );
+
+    const incidents60=
+      _dd4_windowCount(
+        historyRows,
+        data.to,
+        60,
+        row=>
+          _dd4_actionableRows([row])
+            .length>0
+      );
+
+    const incidents90=
+      actionable90.length;
+
+    const faltas90=
+      actionable90.filter(row=>
+        _dd_norm(row.audit_status)===
+          'falta_injustificada'
+      ).length;
+
+    const retardos90=
+      actionable90.filter(row=>
+        _dd4_isActionableLate(row)
+      ).length;
+
+    const sinSalida90=
+      historyRows.filter(row=>
+        _dd_norm(row.audit_status)===
+          'sin_salida'
+      ).length;
+
+    const linkedActions90=
+      actionsAvailable
+        ? actionable90.filter(row=>
+            Boolean(row.dd_action)
+          ).length
+        : null;
+
+    const onTimeActions90=
+      actionsAvailable
+        ? actionable90.filter(row=>
+            row.dd_action &&
+            row.dd_action_status==='on_time'
+          ).length
+        : null;
+
+    const lateActions90=
+      actionsAvailable
+        ? actionable90.filter(row=>
+            row.dd_action &&
+            row.dd_action_status==='late'
+          ).length
+        : null;
+
+    const missingActions90=
+      actionsAvailable
+        ? actionable90.filter(row=>
+            !row.dd_action
+          ).length
+        : null;
+
+    const warning=
+      data.warningRisk?.byEmployee?.[id]||
+      null;
+
+    const warningLevel=
+      warning?.warning_level||
+      'other';
+
+    const warningWeight=
+      _dd4_warningRank(warningLevel)*2;
+
+    const riskScore=
+      faltas90*4+
+      retardos90*2+
+      sinSalida90+
+      Number(missingActions90||0)*3+
+      warningWeight;
+
+    const riskBand=
+      riskScore>=12
+        ? 'Alto'
+        : riskScore>=6
+          ? 'Medio'
+          : 'Controlado';
+
+    const recurrence=
+      incidents90>=4
+        ? 'Crónico'
+        : incidents90>=2
+          ? 'Reincidente'
+          : incidents90===1
+            ? 'Primera incidencia'
+            : 'Sin incidencias';
+
+    const supervisorId=
+      employee.supervisor_id||
+      currentRows[0]?.supervisor_id||
+      historyRows[0]?.supervisor_id||
+      '';
+
+    people.push({
+      id:employee.id||id,
+      name:
+        employee.full_name||
+        currentRows[0]?.employee_name||
+        historyRows[0]?.employee_name||
+        id,
+      status:employee.status||'unknown',
+      campaign:
+        employee.campaign_id||
+        currentRows[0]?.campaign_id||
+        historyRows[0]?.campaign_id||
+        'Sin campaña',
+      supervisorId,
+      supervisor:
+        supervisorNames[supervisorId]||
+        employee.supervisor_name||
+        currentRows[0]?.supervisor_name||
+        historyRows[0]?.supervisor_name||
+        supervisorId||
+        'Sin supervisor',
+      position:
+        employee.position_title||
+        'Colaborador',
+      hireDate:employee.hire_date||'',
+      currentRows,
+      historyRows,
+      incidents30,
+      incidents60,
+      incidents90,
+      faltas90,
+      retardos90,
+      sinSalida90,
+      linkedActions90,
+      onTimeActions90,
+      lateActions90,
+      missingActions90,
+      actionsDataAvailable:
+        actionsAvailable,
+      riskScore,
+      riskBand,
+      recurrence,
+      warning,
+      warningLevel,
+      warningLabel:
+        _dd4_warningLabel(
+          warningLevel
+        ),
+      warningDaysRemaining:
+        warning?.days_remaining??
+        null
+    });
+  });
+
+  return people.sort((a,b)=>
+    ({Alto:0,Medio:1,Controlado:2}[a.riskBand]-
+     ({Alto:0,Medio:1,Controlado:2}[b.riskBand])) ||
+    Number(b.missingActions90||0)-
+      Number(a.missingActions90||0) ||
+    b.incidents90-a.incidents90 ||
+    a.name.localeCompare(b.name)
+  );
 }
 
 function _dd4_supervisors(rows=[],actions=[],tickets=[]){
@@ -19318,10 +19995,14 @@ async function _dd_retryOperationalData(
   _dd_OPERATIONAL_RETRYING = true;
 
   try {
-    await _dd_loadOperationalData({
-      retry: true,
-      preserveCurrent: true
-    });
+    if(_dd_isOperationalAccess()){
+      await _dd_loadOperationalData({
+        retry: true,
+        preserveCurrent: true
+      });
+    }else{
+      await _dd_loadData();
+    }
   } finally {
     _dd_OPERATIONAL_RETRYING = false;
   }
@@ -19848,150 +20529,1293 @@ async function _dd_loadOperationalData(
   _dd_render();
 }
 
+
+async function _dd4_fetchAuditRange(
+  from,
+  to,
+  label,
+  retries=2
+){
+  let lastError=null;
+
+  for(
+    let attempt=0;
+    attempt<=retries;
+    attempt+=1
+  ){
+    if(!navigator.onLine){
+      lastError=
+        new TypeError(
+          'Sin conexión a internet'
+        );
+      break;
+    }
+
+    if(attempt>0){
+      await _dd_wait(
+        attempt===1
+          ? 900
+          : 2200
+      );
+    }
+
+    try{
+      const response=await _a_sb.rpc(
+        'attendance_audit_range',
+        {
+          p_from:from,
+          p_to:to
+        }
+      );
+
+      if(response.error){
+        lastError=response.error;
+
+        if(
+          !_dd_isOperationalTransportError(
+            response.error
+          )
+        ){
+          return {
+            ok:false,
+            retryable:false,
+            kind:'database',
+            message:
+              response.error.message||
+              `No fue posible cargar ${label}.`,
+            detail:
+              response.error.details||
+              null
+          };
+        }
+
+        continue;
+      }
+
+      return {
+        ok:true,
+        data:response.data||[],
+        attempts:attempt+1
+      };
+
+    }catch(error){
+      lastError=error;
+
+      if(
+        !_dd_isOperationalTransportError(
+          error
+        )
+      ){
+        return {
+          ok:false,
+          retryable:false,
+          kind:'unexpected',
+          message:
+            error?.message||
+            `No fue posible cargar ${label}.`,
+          detail:null
+        };
+      }
+    }
+  }
+
+  return {
+    ok:false,
+    retryable:true,
+    kind:navigator.onLine
+      ? 'network'
+      : 'offline',
+    message:navigator.onLine
+      ? `La conexión se interrumpió al cargar ${label}.`
+      : `Impulse está sin conexión al cargar ${label}.`,
+    detail:
+      'Los datos no fueron modificados. Puedes volver a intentar.',
+    technical:
+      String(
+        lastError?.message||
+        lastError||
+        ''
+      )
+  };
+}
+
+
 async function _dd_loadData(){
-  if(_dd_isOperationalAccess()) return _dd_loadOperationalData();
+  if(_dd_isOperationalAccess()){
+    return _dd_loadOperationalData();
+  }
+
   _dd4_HISTORY90_READY=false;
   _dd4_HISTORY90_LOADING=false;
-  _dd_LOADING=true;_dd_render();
-  const {from,to,prevFrom,prevTo}=_dd_FILTERS;
-  const toAction=_dd4_dateAdd(to,7),prevToAction=_dd4_dateAdd(prevTo,7),historyFrom=_dd4_dateAdd(to,-89);
+  _dd_OPERATIONAL_LOAD_ERROR=null;
+  _dd_LOADING=true;
+  _dd_render();
 
-  // attendance_audit_range es la consulta más pesada. Se ejecuta de forma
-  // secuencial para evitar que tres auditorías compitan entre sí y agoten el
-  // statement_timeout del proyecto.
-  const attCur=await _a_sb.rpc('attendance_audit_range',{p_from:from,p_to:to});
-  if(attCur.error){
-    console.error('Deep Dive · auditoría actual:',attCur.error);
-    alert('No se pudo cargar Deep Dive:\n\n'+attCur.error.message);
-    _dd_LOADING=false;_dd_render();return;
+  const requested={
+    ..._dd_FILTERS
+  };
+
+  const from=_dd4_maxYmd(
+    requested.from,
+    _DD_ATTENDANCE_DATA_START
+  );
+
+  const to=requested.to;
+
+  if(from!==requested.from){
+    _dd_FILTERS.from=from;
   }
-  const attPrev=await _a_sb.rpc('attendance_audit_range',{p_from:prevFrom,p_to:prevTo});
-  if(attPrev.error){
-    console.error('Deep Dive · auditoría anterior:',attPrev.error);
-    alert('No se pudo cargar la comparación de Deep Dive:\n\n'+attPrev.error.message);
-    _dd_LOADING=false;_dd_render();return;
+
+  const prevFrom=_dd4_maxYmd(
+    requested.prevFrom,
+    _DD_ATTENDANCE_DATA_START
+  );
+
+  const prevTo=requested.prevTo;
+
+  const comparisonHasData=
+    prevTo>=_DD_ATTENDANCE_DATA_START;
+
+  const comparisonPartial=
+    comparisonHasData &&
+    prevFrom!==requested.prevFrom;
+
+  const historyFrom=_dd4_maxYmd(
+    _DD_ATTENDANCE_DATA_START,
+    _dd4_dateAdd(to,-89)
+  );
+
+  const toAction=
+    _dd4_dateAdd(to,7);
+
+  const prevToAction=
+    _dd4_dateAdd(prevTo,7);
+
+  const warnings=[];
+
+  if(from!==requested.from){
+    warnings.push(
+      `El periodo actual se ajustó al ${fmtDateShort(from)}, fecha inicial de la información evaluable.`
+    );
   }
 
-  // El histórico de 90 días se carga bajo demanda al abrir Agentes 360 o
-  // Reincidencias. Para la carga inicial usamos actual + anterior.
-  const att90={data:[...(attPrev.data||[]),...(attCur.data||[])],error:null,_partial:true};
+  const currentAudit=
+    await _dd4_fetchAuditRange(
+      from,
+      to,
+      'el periodo actual'
+    );
 
-  const [ticketsCur,ticketsPrev,actionsCur,actionsPrev,excCur,excPrev,exc90,historyCur,historyPrev,employeeDirectory,activeWarningCases,matrixDirectory]=await Promise.all([
-    _a_sb.from('hr_tickets').select('*').gte('created_at',from+'T00:00:00').lte('created_at',to+'T23:59:59'),
-    _a_sb.from('hr_tickets').select('*').gte('created_at',prevFrom+'T00:00:00').lte('created_at',prevTo+'T23:59:59'),
-    _a_sb.from('people_action_cases').select('*').gte('created_at',from+'T00:00:00').lte('created_at',toAction+'T23:59:59'),
-    _a_sb.from('people_action_cases').select('*').gte('created_at',prevFrom+'T00:00:00').lte('created_at',prevToAction+'T23:59:59'),
-    _a_sb.from('attendance_exceptions').select('*').gte('exception_date',from).lte('exception_date',to),
-    _a_sb.from('attendance_exceptions').select('*').gte('exception_date',prevFrom).lte('exception_date',prevTo),
-    _a_sb.from('attendance_exceptions').select('*').gte('exception_date',historyFrom).lte('exception_date',to),
-    _a_sb.from('employment_history').select('*').gte('termination_date',from).lte('termination_date',to),
-    _a_sb.from('employment_history').select('*').gte('termination_date',prevFrom).lte('termination_date',prevTo),
-    _a_sb.from('employees').select('id,status,full_name,campaign_id,supervisor_id,supervisor_name,position_title,hire_date,system_role'),
-    _a_sb.from('people_action_cases').select('*').eq('status','approved'),
-    _a_sb.from('people_action_matrix').select('id,matrix_no,rule_title,infraction_type,default_level,sanction_duration_days,sanction_duration_text')
+  if(!currentAudit.ok){
+    _dd_OPERATIONAL_LOAD_ERROR={
+      title:
+        currentAudit.kind==='offline'
+          ? 'Deep Dive está esperando conexión'
+          : 'No se pudo cargar Deep Dive',
+      message:[
+        currentAudit.message,
+        currentAudit.detail
+      ].filter(Boolean).join('\n\n'),
+      retryable:
+        Boolean(
+          currentAudit.retryable
+        ),
+      kind:currentAudit.kind
+    };
+
+    _dd_LOADING=false;
+    _dd_render();
+    return;
+  }
+
+  let previousAudit={
+    ok:false,
+    data:[]
+  };
+
+  if(comparisonHasData){
+    previousAudit=
+      await _dd4_fetchAuditRange(
+        prevFrom,
+        prevTo,
+        'el periodo anterior'
+      );
+
+    if(!previousAudit.ok){
+      warnings.push(
+        'El periodo actual cargó correctamente, pero la comparación anterior no está disponible.'
+      );
+    }else if(comparisonPartial){
+      warnings.push(
+        `La comparación anterior es parcial: ${fmtDateShort(prevFrom)} al ${fmtDateShort(prevTo)}.`
+      );
+    }
+  }else{
+    warnings.push(
+      `El periodo anterior es previo al inicio evaluable del ${fmtDateShort(_DD_ATTENDANCE_DATA_START)}.`
+    );
+  }
+
+  const comparisonAvailable=
+    Boolean(previousAudit.ok);
+
+  const emptyResult=()=>Promise.resolve({
+    data:[],
+    error:null
+  });
+
+  const [
+    ticketsCur,
+    ticketsPrev,
+    actionsCur,
+    actionsPrev,
+    actionsHistory,
+    excCur,
+    excPrev,
+    exc90,
+    historyCur,
+    historyPrev,
+    employeeDirectory,
+    activeWarningCases,
+    matrixDirectory
+  ]=await Promise.all([
+    _a_sb
+      .from('hr_tickets')
+      .select('*')
+      .gte(
+        'created_at',
+        from+'T00:00:00'
+      )
+      .lte(
+        'created_at',
+        to+'T23:59:59'
+      ),
+
+    comparisonAvailable
+      ? _a_sb
+          .from('hr_tickets')
+          .select('*')
+          .gte(
+            'created_at',
+            prevFrom+'T00:00:00'
+          )
+          .lte(
+            'created_at',
+            prevTo+'T23:59:59'
+          )
+      : emptyResult(),
+
+    _a_sb
+      .from('people_action_cases')
+      .select('*')
+      .gte(
+        'created_at',
+        from+'T00:00:00'
+      )
+      .lte(
+        'created_at',
+        toAction+'T23:59:59'
+      ),
+
+    comparisonAvailable
+      ? _a_sb
+          .from('people_action_cases')
+          .select('*')
+          .gte(
+            'created_at',
+            prevFrom+'T00:00:00'
+          )
+          .lte(
+            'created_at',
+            prevToAction+'T23:59:59'
+          )
+      : emptyResult(),
+
+    _a_sb
+      .from('people_action_cases')
+      .select('*')
+      .gte(
+        'created_at',
+        historyFrom+'T00:00:00'
+      )
+      .lte(
+        'created_at',
+        toAction+'T23:59:59'
+      ),
+
+    _a_sb
+      .from('attendance_exceptions')
+      .select('*')
+      .gte('exception_date',from)
+      .lte('exception_date',to),
+
+    comparisonAvailable
+      ? _a_sb
+          .from('attendance_exceptions')
+          .select('*')
+          .gte(
+            'exception_date',
+            prevFrom
+          )
+          .lte(
+            'exception_date',
+            prevTo
+          )
+      : emptyResult(),
+
+    _a_sb
+      .from('attendance_exceptions')
+      .select('*')
+      .gte(
+        'exception_date',
+        historyFrom
+      )
+      .lte(
+        'exception_date',
+        to
+      ),
+
+    _a_sb
+      .from('employment_history')
+      .select('*')
+      .gte(
+        'termination_date',
+        from
+      )
+      .lte(
+        'termination_date',
+        to
+      ),
+
+    comparisonAvailable
+      ? _a_sb
+          .from('employment_history')
+          .select('*')
+          .gte(
+            'termination_date',
+            prevFrom
+          )
+          .lte(
+            'termination_date',
+            prevTo
+          )
+      : emptyResult(),
+
+    _a_sb
+      .from('employees')
+      .select(
+        'id,status,full_name,campaign_id,supervisor_id,supervisor_name,position_title,hire_date,system_role'
+      ),
+
+    _a_sb
+      .from('people_action_cases')
+      .select('*')
+      .eq('status','approved'),
+
+    _a_sb
+      .from('people_action_matrix')
+      .select(
+        'id,matrix_no,rule_title,infraction_type,default_level,sanction_duration_days,sanction_duration_text'
+      )
   ]);
-  const required=[ticketsCur,ticketsPrev,actionsCur,actionsPrev];const errors=required.map(x=>x.error).filter(Boolean);
-  [excCur,excPrev,exc90,historyCur,historyPrev,employeeDirectory,activeWarningCases,matrixDirectory].forEach(x=>{if(x?.error)console.warn('Deep Dive V4 fuente complementaria:',x.error);});
-  if(errors.length){console.error('Deep Dive V4 errors:',errors);alert('No se pudo cargar Deep Dive:\n\n'+errors.map(e=>e.message).join('\n'));_dd_LOADING=false;_dd_render();return;}
 
-  // Directorio completo: es la fuente para decidir quién sí está sujeto a asistencia.
-  const directoryRows=employeeDirectory?.data||[];
-  const activeDirectoryRows=directoryRows.filter(e=>_dd_norm(e.status)==='active');
+  const requiredErrors=[
+    ticketsCur.error,
+    actionsCur.error,
+    employeeDirectory.error
+  ].filter(Boolean);
+
+  if(requiredErrors.length){
+    console.error(
+      'Deep Dive · fuentes requeridas:',
+      requiredErrors
+    );
+
+    _dd_OPERATIONAL_LOAD_ERROR={
+      title:'No se pudo completar Deep Dive',
+      message:
+        requiredErrors
+          .map(error=>error.message)
+          .join('\n'),
+      retryable:false,
+      kind:'database'
+    };
+
+    _dd_LOADING=false;
+    _dd_render();
+    return;
+  }
+
+  [
+    ticketsPrev,
+    actionsPrev,
+    actionsHistory,
+    excCur,
+    excPrev,
+    exc90,
+    historyCur,
+    historyPrev,
+    activeWarningCases,
+    matrixDirectory
+  ].forEach(result=>{
+    if(result?.error){
+      console.warn(
+        'Deep Dive · fuente complementaria:',
+        result.error
+      );
+    }
+  });
+
+  const historyActionsAvailable=
+    !actionsHistory?.error;
+
+  if(!historyActionsAvailable){
+    warnings.push(
+      'El histórico de People Actions no está disponible; las reincidencias sí se calculan, pero la columna “Sin acción” queda pendiente.'
+    );
+  }
+
+  const directoryRows=
+    employeeDirectory.data||[];
+
+  const activeDirectoryRows=
+    directoryRows.filter(employee=>
+      _dd_norm(employee.status)==='active'
+    );
+
   const employeeById=new Map();
   const supervisorNameById=new Map();
-  directoryRows.forEach(e=>{
-    const id=String(e.id||'').trim().toUpperCase();
-    if(id) employeeById.set(id,e);
-    if(id&&e.full_name) supervisorNameById.set(id,e.full_name);
-    const sid=String(e.supervisor_id||'').trim().toUpperCase();
-    if(sid&&e.supervisor_name) supervisorNameById.set(sid,e.supervisor_name);
+
+  directoryRows.forEach(employee=>{
+    const id=String(
+      employee.id||''
+    ).trim().toUpperCase();
+
+    if(id){
+      employeeById.set(id,employee);
+    }
+
+    if(id&&employee.full_name){
+      supervisorNameById.set(
+        id,
+        employee.full_name
+      );
+    }
+
+    const supervisorId=String(
+      employee.supervisor_id||''
+    ).trim().toUpperCase();
+
+    if(
+      supervisorId &&
+      employee.supervisor_name
+    ){
+      supervisorNameById.set(
+        supervisorId,
+        employee.supervisor_name
+      );
+    }
   });
-  const attendanceUniverse=_dd4_buildAttendanceUniverse(activeDirectoryRows);
 
-  // People, Managers, CEO, Training, QA y Marketing no alimentan los KPIs de asistencia.
-  const curRawMarked=_dd_markLateJustifications(attCur.data||[],excCur?.data||[]).filter(r=>_dd4_includeAttendanceRow(r,employeeById));
-  const prevRawMarked=_dd_markLateJustifications(attPrev.data||[],excPrev?.data||[]).filter(r=>_dd4_includeAttendanceRow(r,employeeById));
-  const histRawMarked=_dd_markLateJustifications(att90?.data||[],exc90?.data||[]).filter(r=>_dd4_includeAttendanceRow(r,employeeById));
-  const curD=_dd4_dedupeAttendance(curRawMarked),prevD=_dd4_dedupeAttendance(prevRawMarked),histD=_dd4_dedupeAttendance(histRawMarked);
-  const curAttached=_dd4_attachExceptions(curD.rows,excCur?.data||[]),prevAttached=_dd4_attachExceptions(prevD.rows,excPrev?.data||[]),histAttached=_dd4_attachExceptions(histD.rows,exc90?.data||[]);
-  const campaigns=[...new Set(curD.rows.map(r=>r.campaign_id).filter(Boolean))].sort();
-  const supervisorSource=curD.rows.filter(r=>_dd_FILTERS.campaign==='all'||r.campaign_id===_dd_FILTERS.campaign);const supervisorsMap={};supervisorSource.forEach(r=>{if(r.supervisor_id)supervisorsMap[r.supervisor_id]=r.supervisor_name||r.supervisor_id;});
-  if(_dd_FILTERS.supervisor!=='all'&&!supervisorsMap[_dd_FILTERS.supervisor])_dd_FILTERS.supervisor='all';
-  const curRows=_dd_filterAttendanceRows(curAttached),prevRows=_dd_filterAttendanceRows(prevAttached),historyRows=_dd_filterAttendanceRows(histAttached);
+  const attendanceUniverse=
+    _dd4_buildAttendanceUniverse(
+      activeDirectoryRows
+    );
 
-  // Última asignación visible en asistencia, priorizando la fecha más cercana a la baja.
+  const currentRaw=
+    _dd_markLateJustifications(
+      currentAudit.data||[],
+      excCur?.data||[]
+    ).filter(row=>
+      _dd4_includeAttendanceRow(
+        row,
+        employeeById
+      )
+    );
+
+  const previousRaw=
+    _dd_markLateJustifications(
+      previousAudit.data||[],
+      excPrev?.data||[]
+    ).filter(row=>
+      _dd4_includeAttendanceRow(
+        row,
+        employeeById
+      )
+    );
+
+  /*
+   * Hasta que termine la consulta histórica, no publicamos
+   * reincidencia como un dato definitivo.
+   */
+  const provisionalHistoryRaw=[
+    ...previousRaw,
+    ...currentRaw
+  ];
+
+  const currentDedupe=
+    _dd4_dedupeAttendance(
+      currentRaw
+    );
+
+  const previousDedupe=
+    _dd4_dedupeAttendance(
+      previousRaw
+    );
+
+  const provisionalHistoryDedupe=
+    _dd4_dedupeAttendance(
+      provisionalHistoryRaw
+    );
+
+  const currentAttached=
+    _dd4_attachExceptions(
+      currentDedupe.rows,
+      excCur?.data||[]
+    );
+
+  const previousAttached=
+    _dd4_attachExceptions(
+      previousDedupe.rows,
+      excPrev?.data||[]
+    );
+
+  const provisionalHistoryAttached=
+    _dd4_attachExceptions(
+      provisionalHistoryDedupe.rows,
+      exc90?.data||[]
+    );
+
+  const campaigns=[
+    ...new Set(
+      currentDedupe.rows
+        .map(row=>row.campaign_id)
+        .filter(Boolean)
+    )
+  ].sort();
+
+  const supervisorSource=
+    currentDedupe.rows.filter(row=>
+      _dd_FILTERS.campaign==='all' ||
+      row.campaign_id===
+        _dd_FILTERS.campaign
+    );
+
+  const supervisorsMap={};
+
+  supervisorSource.forEach(row=>{
+    if(row.supervisor_id){
+      supervisorsMap[row.supervisor_id]=
+        row.supervisor_name||
+        row.supervisor_id;
+    }
+  });
+
+  if(
+    _dd_FILTERS.supervisor!=='all' &&
+    !supervisorsMap[
+      _dd_FILTERS.supervisor
+    ]
+  ){
+    _dd_FILTERS.supervisor='all';
+  }
+
+  const currentRows=
+    _dd_filterAttendanceRows(
+      currentAttached
+    );
+
+  const previousRows=
+    _dd_filterAttendanceRows(
+      previousAttached
+    );
+
+  const provisionalHistoryRows=
+    _dd_filterAttendanceRows(
+      provisionalHistoryAttached
+    );
+
   const rosterByEmployee={};
-  historyRows.slice().sort((a,b)=>String(a.work_date||'').localeCompare(String(b.work_date||''))).forEach(r=>{
-    const id=String(r.employee_id||'').trim().toUpperCase();
-    if(id) rosterByEmployee[id]=r;
-  });
 
-  const enrichHistoryRows=(rows=[])=>(rows||[]).map(r=>{
-    const id=String(_dd_firstValue(r,['employee_id','id'])||'').trim().toUpperCase();
-    const emp=employeeById.get(id)||{};
-    const roster=rosterByEmployee[id]||{};
-    const supervisorId=_dd_firstValue(r,['supervisor_id','manager_id'])||roster.supervisor_id||emp.supervisor_id||'';
-    const supervisorName=_dd_firstValue(r,['supervisor_name','manager_name'])||roster.supervisor_name||emp.supervisor_name||supervisorNameById.get(String(supervisorId||'').trim().toUpperCase())||supervisorId||'';
-    return {
-      ...r,
-      employee_name:_dd_firstValue(r,['employee_name','full_name','name'])||emp.full_name||roster.employee_name||'',
-      campaign_id:_dd_firstValue(r,['campaign_id','campaign'])||roster.campaign_id||emp.campaign_id||'',
-      supervisor_id:supervisorId,
-      supervisor_name:supervisorName
-    };
-  });
+  provisionalHistoryRows
+    .slice()
+    .sort((a,b)=>
+      String(a.work_date||'')
+        .localeCompare(
+          String(b.work_date||'')
+        )
+    )
+    .forEach(row=>{
+      const id=String(
+        row.employee_id||''
+      ).trim().toUpperCase();
 
-  const historyCurRows=enrichHistoryRows(historyCur?.data||[]);
-  const historyPrevRows=enrichHistoryRows(historyPrev?.data||[]);
-  const employees=_dd4_filterEmployees(attendanceUniverse.includedEmployees);
-  const allActiveEmployees=_dd4_filterEmployees(activeDirectoryRows);
-  const employeeIds=new Set(employees.map(e=>String(e.id||'').trim().toUpperCase()));
-  const allEmployeeIds=new Set(allActiveEmployees.map(e=>String(e.id||'').trim().toUpperCase()));
-  const curScope=_dd_buildScope([...curRows,...employees.map(e=>({...e,employee_id:e.id}))]),prevScope=_dd_buildScope(prevRows);
-  const curTickets=_dd_filterRowsByScope(ticketsCur.data||[],curScope,'ticket');const prevTickets=_dd_filterRowsByScope(ticketsPrev.data||[],prevScope,'ticket');
-  const curActionsAll=_dd_filterRowsByScope(actionsCur.data||[],curScope,'action');const prevActionsAll=_dd_filterRowsByScope(actionsPrev.data||[],prevScope,'action');
-  const curActions=curActionsAll.filter(a=>_dd_inRangeTs(_dd_actionDate(a),from,to));const prevActions=prevActionsAll.filter(a=>_dd_inRangeTs(_dd_actionDate(a),prevFrom,prevTo));
-  const curExceptions=_dd_filterRowsByScope(excCur?.data||[],curScope,'exception');const prevExceptions=_dd_filterRowsByScope(excPrev?.data||[],prevScope,'exception');
-  const curHistory=_dd4_filterHistory(historyCurRows,employeeIds);const prevHistory=_dd4_filterHistory(historyPrevRows,employeeIds);
-  const rotationHistoryCur=_dd4_filterHistory(historyCurRows,allEmployeeIds);const rotationHistoryPrev=_dd4_filterHistory(historyPrevRows,allEmployeeIds);
-  _dd4_matchActions(curRows,curActionsAll);_dd4_matchActions(prevRows,prevActionsAll);
-  const warningRisk=_dd4_buildWarningRisk(activeWarningCases?.data||[],matrixDirectory?.data||[],employees);
-  const data={from,to,prevFrom,prevTo,historyFrom,campaigns,supervisors:[],supervisorsOptions:Object.entries(supervisorsMap).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name)),employees,allActiveEmployees,directoryRows,attendanceUniverse,warningRisk,matrixRows:matrixDirectory?.data||[],
-    current:{rawRows:_dd_filterAttendanceRows(curRawMarked),rows:curRows,duplicates:curD.duplicateGroups.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),conflicts:curD.conflicts.filter(g=>curRows.some(r=>_dd4_rowKey(r)===g.key)),attendance:_dd_attendanceSummary(curRows),expectedActions:_dd_expectedActions(curRows),tickets:_dd_ticketSummary(curTickets,from,to),ticketRows:curTickets,actions:curActions,actionRowsAll:curActionsAll,exceptions:curExceptions,absenceSources:_dd4_absenceSourceSummary(curExceptions,employeeById),rotation:_dd4_rotationSummary(rotationHistoryCur,allActiveEmployees)},
-    previous:{rawRows:_dd_filterAttendanceRows(prevRawMarked),rows:prevRows,duplicates:prevD.duplicateGroups,conflicts:prevD.conflicts,attendance:_dd_attendanceSummary(prevRows),expectedActions:_dd_expectedActions(prevRows),tickets:_dd_ticketSummary(prevTickets,prevFrom,prevTo),ticketRows:prevTickets,actions:prevActions,actionRowsAll:prevActionsAll,exceptions:prevExceptions,absenceSources:_dd4_absenceSourceSummary(prevExceptions,employeeById),rotation:_dd4_rotationSummary(rotationHistoryPrev,allActiveEmployees)},
-    history90:{rawRows:histRawMarked,rows:historyRows,duplicates:histD.duplicateGroups,conflicts:histD.conflicts},historyExceptions:exc90?.data||[],payrollTickets:[]};
-  data.supervisors=_dd4_supervisors(curRows,curActionsAll,curTickets);data.actionCompliance=_dd4_matchActions(curRows,curActionsAll);data.quality=_dd4_buildQuality(data);data.agents=_dd4_buildAgents(data);data.recurrence=data.agents.filter(a=>a.incidents90>=2);data.narrative=_dd_generateNarrative(data);data.recommendations=_dd_generateRecommendations(data);
-  try{const{data:payrollRows,error}=await _a_sb.rpc('payroll_ticket_deepdive',{p_from:from,p_to:to});if(error)console.warn('No se pudo cargar Deep Dive Nómina:',error);else data.payrollTickets=_dd_filterRowsByScope(payrollRows||[],curScope,'payroll');}catch(e){console.warn('Error cargando Deep Dive Nómina:',e);}
-  _dd_DATA=data;_dd_LOADING=false;_dd_render();
+      if(id){
+        rosterByEmployee[id]=row;
+      }
+    });
+
+  const enrichHistoryRows=(rows=[]) =>
+    (rows||[]).map(row=>{
+      const id=String(
+        _dd_firstValue(
+          row,
+          ['employee_id','id']
+        )||''
+      ).trim().toUpperCase();
+
+      const employee=
+        employeeById.get(id)||{};
+
+      const roster=
+        rosterByEmployee[id]||{};
+
+      const supervisorId=
+        _dd_firstValue(
+          row,
+          ['supervisor_id','manager_id']
+        )||
+        roster.supervisor_id||
+        employee.supervisor_id||
+        '';
+
+      const supervisorName=
+        _dd_firstValue(
+          row,
+          ['supervisor_name','manager_name']
+        )||
+        roster.supervisor_name||
+        employee.supervisor_name||
+        supervisorNameById.get(
+          String(supervisorId||'')
+            .trim()
+            .toUpperCase()
+        )||
+        supervisorId||
+        '';
+
+      return {
+        ...row,
+        employee_name:
+          _dd_firstValue(
+            row,
+            [
+              'employee_name',
+              'full_name',
+              'name'
+            ]
+          )||
+          employee.full_name||
+          roster.employee_name||
+          '',
+        campaign_id:
+          _dd_firstValue(
+            row,
+            ['campaign_id','campaign']
+          )||
+          roster.campaign_id||
+          employee.campaign_id||
+          '',
+        supervisor_id:supervisorId,
+        supervisor_name:supervisorName
+      };
+    });
+
+  const historyCurrentRows=
+    enrichHistoryRows(
+      historyCur?.data||[]
+    );
+
+  const historyPreviousRows=
+    enrichHistoryRows(
+      historyPrev?.data||[]
+    );
+
+  const employees=
+    _dd4_filterEmployees(
+      attendanceUniverse.includedEmployees
+    );
+
+  const allActiveEmployees=
+    _dd4_filterEmployees(
+      activeDirectoryRows
+    );
+
+  const employeeIds=
+    new Set(
+      employees.map(employee=>
+        String(employee.id||'')
+          .trim()
+          .toUpperCase()
+      )
+    );
+
+  const allEmployeeIds=
+    new Set(
+      allActiveEmployees.map(employee=>
+        String(employee.id||'')
+          .trim()
+          .toUpperCase()
+      )
+    );
+
+  const currentScope=
+    _dd_buildScope([
+      ...currentRows,
+      ...employees.map(employee=>({
+        ...employee,
+        employee_id:employee.id
+      }))
+    ]);
+
+  const previousScope=
+    _dd_buildScope(
+      previousRows
+    );
+
+  const currentTickets=
+    _dd_filterRowsByScope(
+      ticketsCur.data||[],
+      currentScope,
+      'ticket'
+    );
+
+  const previousTickets=
+    _dd_filterRowsByScope(
+      ticketsPrev.data||[],
+      previousScope,
+      'ticket'
+    );
+
+  const currentActionsAll=
+    _dd_filterRowsByScope(
+      actionsCur.data||[],
+      currentScope,
+      'action'
+    );
+
+  const previousActionsAll=
+    _dd_filterRowsByScope(
+      actionsPrev.data||[],
+      previousScope,
+      'action'
+    );
+
+  const historyActionRows=
+    _dd_filterRowsByScope(
+      actionsHistory?.data||[],
+      currentScope,
+      'action'
+    );
+
+  const currentActions=
+    currentActionsAll.filter(action=>
+      _dd_inRangeTs(
+        _dd_actionDate(action),
+        from,
+        to
+      )
+    );
+
+  const previousActions=
+    previousActionsAll.filter(action=>
+      _dd_inRangeTs(
+        _dd_actionDate(action),
+        prevFrom,
+        prevTo
+      )
+    );
+
+  const currentExceptions=
+    _dd_filterRowsByScope(
+      excCur?.data||[],
+      currentScope,
+      'exception'
+    );
+
+  const previousExceptions=
+    _dd_filterRowsByScope(
+      excPrev?.data||[],
+      previousScope,
+      'exception'
+    );
+
+  const currentHistory=
+    _dd4_filterHistory(
+      historyCurrentRows,
+      employeeIds
+    );
+
+  const previousHistory=
+    _dd4_filterHistory(
+      historyPreviousRows,
+      employeeIds
+    );
+
+  const rotationHistoryCurrent=
+    _dd4_filterHistory(
+      historyCurrentRows,
+      allEmployeeIds
+    );
+
+  const rotationHistoryPrevious=
+    _dd4_filterHistory(
+      historyPreviousRows,
+      allEmployeeIds
+    );
+
+  _dd4_matchActions(
+    currentRows,
+    currentActionsAll
+  );
+
+  _dd4_matchActions(
+    previousRows,
+    previousActionsAll
+  );
+
+  _dd4_matchActions(
+    provisionalHistoryRows,
+    historyActionRows
+  );
+
+  const warningRisk=
+    _dd4_buildWarningRisk(
+      activeWarningCases?.data||[],
+      matrixDirectory?.data||[],
+      employees
+    );
+
+  const data={
+    mode:'people',
+    role:currentRole,
+    from,
+    to,
+    prevFrom,
+    prevTo,
+    comparisonAvailable,
+    comparisonPartial,
+    comparisonLabel:comparisonAvailable
+      ? (
+          comparisonPartial
+            ? `${fmtDateShort(prevFrom)} al ${fmtDateShort(prevTo)} · parcial`
+            : `${fmtDateShort(prevFrom)} al ${fmtDateShort(prevTo)}`
+        )
+      : 'No disponible',
+    operationalWarning:warnings.length
+      ? {
+          title:'Cobertura de datos',
+          message:warnings.join('\n'),
+          retryable:false,
+          kind:'coverage'
+        }
+      : null,
+    historyFrom,
+    historyDays:
+      Math.max(
+        1,
+        (_dd4_daysBetweenYmd(
+          historyFrom,
+          to
+        )||0)+1
+      ),
+    historyStatus:'loading',
+    historyError:null,
+    historyActionsAvailable,
+    historyActionRows,
+    campaigns,
+    supervisors:[],
+    supervisorsOptions:
+      Object.entries(supervisorsMap)
+        .map(([id,name])=>({
+          id,
+          name
+        }))
+        .sort((a,b)=>
+          a.name.localeCompare(b.name)
+        ),
+    employees,
+    allActiveEmployees,
+    directoryRows,
+    attendanceUniverse,
+    warningRisk,
+    matrixRows:
+      matrixDirectory?.data||[],
+    current:{
+      rawRows:
+        _dd_filterAttendanceRows(
+          currentRaw
+        ),
+      rows:currentRows,
+      duplicates:
+        currentDedupe.duplicateGroups
+          .filter(group=>
+            currentRows.some(row=>
+              _dd4_rowKey(row)===
+                group.key
+            )
+          ),
+      conflicts:
+        currentDedupe.conflicts
+          .filter(group=>
+            currentRows.some(row=>
+              _dd4_rowKey(row)===
+                group.key
+            )
+          ),
+      attendance:
+        _dd_attendanceSummary(
+          currentRows
+        ),
+      expectedActions:
+        _dd_expectedActions(
+          currentRows
+        ),
+      tickets:
+        _dd_ticketSummary(
+          currentTickets,
+          from,
+          to
+        ),
+      ticketRows:currentTickets,
+      actions:currentActions,
+      actionRowsAll:
+        currentActionsAll,
+      exceptions:
+        currentExceptions,
+      absenceSources:
+        _dd4_absenceSourceSummary(
+          currentExceptions,
+          employeeById
+        ),
+      rotation:
+        _dd4_rotationSummary(
+          rotationHistoryCurrent,
+          allActiveEmployees
+        )
+    },
+    previous:{
+      rawRows:
+        _dd_filterAttendanceRows(
+          previousRaw
+        ),
+      rows:previousRows,
+      duplicates:
+        previousDedupe.duplicateGroups,
+      conflicts:
+        previousDedupe.conflicts,
+      attendance:
+        _dd_attendanceSummary(
+          previousRows
+        ),
+      expectedActions:
+        _dd_expectedActions(
+          previousRows
+        ),
+      tickets:
+        _dd_ticketSummary(
+          previousTickets,
+          prevFrom,
+          prevTo
+        ),
+      ticketRows:previousTickets,
+      actions:previousActions,
+      actionRowsAll:
+        previousActionsAll,
+      exceptions:
+        previousExceptions,
+      absenceSources:
+        _dd4_absenceSourceSummary(
+          previousExceptions,
+          employeeById
+        ),
+      rotation:
+        _dd4_rotationSummary(
+          rotationHistoryPrevious,
+          allActiveEmployees
+        )
+    },
+    history90:{
+      rawRows:
+        provisionalHistoryRaw,
+      rows:
+        provisionalHistoryRows,
+      duplicates:
+        provisionalHistoryDedupe
+          .duplicateGroups,
+      conflicts:
+        provisionalHistoryDedupe
+          .conflicts
+    },
+    historyExceptions:
+      exc90?.data||[],
+    payrollTickets:[]
+  };
+
+  data.supervisors=
+    _dd4_supervisors(
+      currentRows,
+      currentActionsAll,
+      currentTickets
+    );
+
+  data.actionCompliance=
+    _dd4_matchActions(
+      currentRows,
+      currentActionsAll
+    );
+
+  data.quality=
+    _dd4_buildQuality(data);
+
+  data.agents=
+    _dd4_buildAgents(data);
+
+  data.recurrence=[];
+
+  data.narrative=
+    _dd_generateNarrative(data);
+
+  data.recommendations=
+    _dd_generateRecommendations(data);
+
+  _dd4_appendModelChecks(data);
+
+  try{
+    const {
+      data:payrollRows,
+      error
+    }=await _a_sb.rpc(
+      'payroll_ticket_deepdive',
+      {
+        p_from:from,
+        p_to:to
+      }
+    );
+
+    if(error){
+      console.warn(
+        'No se pudo cargar Deep Dive Nómina:',
+        error
+      );
+    }else{
+      data.payrollTickets=
+        _dd_filterRowsByScope(
+          payrollRows||[],
+          currentScope,
+          'payroll'
+        );
+    }
+  }catch(error){
+    console.warn(
+      'Error cargando Deep Dive Nómina:',
+      error
+    );
+  }
+
+  _dd_DATA=data;
+  _dd_LOADING=false;
+  _dd_render();
+
+  /*
+   * Se calcula en segundo plano, pero el dashboard no publica
+   * reincidencia hasta terminar el histórico completo.
+   */
+  setTimeout(
+    ()=>_dd4_ensureHistory90(),
+    0
+  );
 }
 
 let _dd4_HISTORY90_LOADING=false;
 let _dd4_HISTORY90_READY=false;
-async function _dd4_ensureHistory90(){
-  if(_dd_isOperationalAccess()||_dd4_HISTORY90_READY||_dd4_HISTORY90_LOADING||!_dd_DATA)return;
+async function _dd4_ensureHistory90(force=false){
+  if(
+    _dd_isOperationalAccess() ||
+    !_dd_DATA
+  ){
+    return;
+  }
+
+  if(
+    !force &&
+    (
+      _dd4_HISTORY90_READY ||
+      _dd4_HISTORY90_LOADING
+    )
+  ){
+    return;
+  }
+
   _dd4_HISTORY90_LOADING=true;
+  _dd_DATA.historyStatus='loading';
+  _dd_DATA.historyError=null;
+  _dd_render();
+
   try{
-    const from=_dd_DATA.historyFrom||_dd4_dateAdd(_dd_DATA.to,-89);
+    const from=_dd4_maxYmd(
+      _DD_ATTENDANCE_DATA_START,
+      _dd_DATA.historyFrom||
+      _dd4_dateAdd(
+        _dd_DATA.to,
+        -89
+      )
+    );
+
     const to=_dd_DATA.to;
-    const res=await _a_sb.rpc('attendance_audit_range',{p_from:from,p_to:to});
-    if(res.error)throw res.error;
-    const employeeById=new Map((_dd_DATA.directoryRows||[]).map(e=>[String(e.id||'').trim().toUpperCase(),e]));
-    const marked=_dd_markLateJustifications(res.data||[],_dd_DATA.historyExceptions||[]).filter(r=>_dd4_includeAttendanceRow(r,employeeById));
-    const dedupe=_dd4_dedupeAttendance(marked);
-    _dd_DATA.history90={rawRows:marked,rows:_dd_filterAttendanceRows(_dd4_attachExceptions(dedupe.rows,_dd_DATA.historyExceptions||[])),duplicates:dedupe.duplicateGroups,conflicts:dedupe.conflicts};
-    _dd_DATA.agents=_dd4_buildAgents(_dd_DATA);
-    _dd_DATA.recurrence=(_dd_DATA.agents||[]).filter(a=>a.incidents90>=2);
+
+    const result=
+      await _dd4_fetchAuditRange(
+        from,
+        to,
+        'el histórico de Personas 360'
+      );
+
+    if(!result.ok){
+      throw new Error(
+        [
+          result.message,
+          result.detail
+        ].filter(Boolean).join(' ')
+      );
+    }
+
+    const employeeById=
+      new Map(
+        (_dd_DATA.directoryRows||[])
+          .map(employee=>[
+            String(employee.id||'')
+              .trim()
+              .toUpperCase(),
+            employee
+          ])
+      );
+
+    const marked=
+      _dd_markLateJustifications(
+        result.data||[],
+        _dd_DATA.historyExceptions||[]
+      ).filter(row=>
+        _dd4_includeAttendanceRow(
+          row,
+          employeeById
+        )
+      );
+
+    const dedupe=
+      _dd4_dedupeAttendance(marked);
+
+    const attached=
+      _dd4_attachExceptions(
+        dedupe.rows,
+        _dd_DATA.historyExceptions||[]
+      );
+
+    const rows=
+      _dd_filterAttendanceRows(
+        attached
+      );
+
+    _dd4_matchActions(
+      rows,
+      _dd_DATA.historyActionRows||[]
+    );
+
+    _dd_DATA.history90={
+      rawRows:marked,
+      rows,
+      duplicates:
+        dedupe.duplicateGroups,
+      conflicts:
+        dedupe.conflicts
+    };
+
+    _dd_DATA.historyFrom=from;
+
+    _dd_DATA.historyDays=
+      Math.max(
+        1,
+        (_dd4_daysBetweenYmd(
+          from,
+          to
+        )||0)+1
+      );
+
+    _dd_DATA.historyStatus=
+      _dd_DATA.historyActionsAvailable
+        ? 'ready'
+        : 'partial';
+
+    _dd_DATA.agents=
+      _dd4_buildAgents(
+        _dd_DATA
+      );
+
+    _dd_DATA.recurrence=
+      (_dd_DATA.agents||[])
+        .filter(person=>
+          person.incidents90>=2
+        );
+
     _dd4_HISTORY90_READY=true;
-    if(['agents','recurrence'].includes(_dd4_UI.tab))_dd_render();
-  }catch(err){
-    console.warn('Deep Dive · histórico 90 días no disponible:',err);
-    if(typeof _rt_showToast==='function')_rt_showToast('El detalle de 90 días no pudo cargarse; el resto de Deep Dive sigue disponible.');
-  }finally{_dd4_HISTORY90_LOADING=false;}
+
+    _dd_DATA.quality=
+      _dd4_buildQuality(
+        _dd_DATA
+      );
+
+    _dd4_appendModelChecks(
+      _dd_DATA
+    );
+
+    _dd_render();
+
+  }catch(error){
+    console.warn(
+      'Deep Dive · histórico no disponible:',
+      error
+    );
+
+    _dd_DATA.historyStatus='error';
+    _dd_DATA.historyError=
+      error?.message||
+      'No se pudo cargar el histórico.';
+
+    _dd4_HISTORY90_READY=false;
+
+    _dd_render();
+
+    if(
+      typeof _rt_showToast==='function'
+    ){
+      _rt_showToast(
+        'El histórico de Personas 360 no pudo cargarse; el resto de Deep Dive sigue disponible.'
+      );
+    }
+
+  }finally{
+    _dd4_HISTORY90_LOADING=false;
+  }
 }
 function _dd4_setTab(tab){
-  if(_dd_isOperationalAccess()&&!_dd_allowedOperationalTabs().has(tab))tab='overview';
-  _dd4_UI.tab=tab;_dd_render();
-  if(['agents','recurrence'].includes(tab))_dd4_ensureHistory90();
+  if(tab==='agents'||tab==='recurrence'){
+    tab='people360';
+  }
+
+  if(
+    _dd_isOperationalAccess() &&
+    !_dd_allowedOperationalTabs()
+      .has(tab)
+  ){
+    tab='overview';
+  }
+
+  _dd4_UI.tab=tab;
+  _dd_render();
+
+  if(tab==='people360'){
+    _dd4_ensureHistory90();
+  }
 }
 function _dd4_setUI(key,value){_dd4_UI[key]=value;_dd_render();setTimeout(()=>{const el=document.getElementById('dd4-search');if(el&&key==='search'){el.focus();el.setSelectionRange(el.value.length,el.value.length);}},0);}
 
@@ -20214,82 +22038,1949 @@ function _dd4_renderOperationalCampaigns(d){
   return `<div class="dd4-alert blue">Haz clic en una campaña para revisar entradas, salidas, faltas, retardos y accountability. No se muestran expedientes disciplinarios.</div>${_dd_renderCampaignTable(d.current.rows||[])}`;
 }
 
+
+function _dd4_renderAbsenceReconciliationPanel(d){
+  const q=d.quality;
+
+  return `
+    <div class="dd4-panel">
+      <div class="dd4-panel-head">
+        <div>
+          <div class="dd4-panel-title">
+            Reconciliación de faltas
+          </div>
+          <div class="dd4-panel-copy">
+            Auditoría contra el registro administrativo final.
+            Los valores no se suman.
+          </div>
+        </div>
+
+        <span class="dd4-chip ${
+          q.auditWithoutException.length ||
+          q.exceptionWithoutAudit.length
+            ? 'amber'
+            : 'green'
+        }">
+          ${
+            q.auditWithoutException.length ||
+            q.exceptionWithoutAudit.length
+              ? 'Revisar diferencias'
+              : 'Conciliado'
+          }
+        </span>
+      </div>
+
+      <div class="dd4-panel-body">
+        <div class="dd4-reconcile">
+          <div class="dd4-reconcile-item">
+            <div class="dd4-reconcile-label">
+              Detectadas
+            </div>
+            <div class="dd4-reconcile-value">
+              ${q.auditFaltas.length}
+            </div>
+            <div class="dd4-reconcile-note">
+              Una persona-fecha.
+            </div>
+          </div>
+
+          <div class="dd4-reconcile-item">
+            <div class="dd4-reconcile-label">
+              Registro final
+            </div>
+            <div class="dd4-reconcile-value">
+              ${q.finalEx.length}
+            </div>
+            <div class="dd4-reconcile-note">
+              Excepciones aprobadas.
+            </div>
+          </div>
+
+          <div class="dd4-reconcile-item">
+            <div class="dd4-reconcile-label">
+              Falta por cargar
+            </div>
+            <div
+              class="dd4-reconcile-value"
+              style="color:#D97706"
+            >
+              ${q.auditWithoutException.length}
+            </div>
+            <div class="dd4-reconcile-note">
+              Detectada sin registro final.
+            </div>
+          </div>
+
+          <div class="dd4-reconcile-item">
+            <div class="dd4-reconcile-label">
+              Carga por revisar
+            </div>
+            <div
+              class="dd4-reconcile-value"
+              style="color:#DC2626"
+            >
+              ${q.exceptionWithoutAudit.length}
+            </div>
+            <div class="dd4-reconcile-note">
+              Registro sin falta auditada.
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="dd4-alert blue"
+          style="margin-top:12px;margin-bottom:0"
+        >
+          <b>Pendientes:</b>
+          ${q.pending.length}
+          ·
+          <b>Canceladas/rechazadas:</b>
+          ${q.cancelled.length}.
+          Ninguna alimenta el KPI de faltas confirmadas.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _dd4_renderPeopleCampaigns(d){
+  const rows=d.current.rows||[];
+
+  const groups=_dd_groupBy(
+    rows,
+    row=>row.campaign_id||'Sin campaña'
+  );
+
+  const summaries=Object.entries(groups)
+    .map(([campaign,campaignRows])=>{
+      const summary=
+        _dd_attendanceSummary(
+          campaignRows
+        );
+
+      return {
+        campaign,
+        hc:_dd_uniqueCount(
+          campaignRows,
+          'employee_id'
+        ),
+        expected:
+          summary.expectedDays,
+        punctuality:
+          summary.operationalPunctuality,
+        faltas:summary.falta,
+        retardos:summary.retardo,
+        issues:
+          summary.falta+
+          summary.retardo+
+          summary.sinSalida+
+          summary.sinEntrada
+      };
+    })
+    .sort((a,b)=>
+      b.issues-a.issues ||
+      a.campaign.localeCompare(
+        b.campaign
+      )
+    );
+
+  const top=summaries[0];
+
+  return `
+    <div class="dd4-grid">
+      ${_dd4_kpi(
+        'Campañas analizadas',
+        summaries.length,
+        `${rows.length} días-persona visibles`,
+        '#2563EB'
+      )}
+
+      ${_dd4_kpi(
+        'Mayor volumen',
+        top?.campaign||'—',
+        top
+          ? `${top.issues} incidencias operativas`
+          : 'Sin información',
+        '#7C3AED'
+      )}
+
+      ${_dd4_kpi(
+        'Faltas',
+        summaries.reduce(
+          (sum,item)=>
+            sum+item.faltas,
+          0
+        ),
+        'Total del alcance',
+        '#DC2626'
+      )}
+
+      ${_dd4_kpi(
+        'Retardos',
+        summaries.reduce(
+          (sum,item)=>
+            sum+item.retardos,
+          0
+        ),
+        'Solo retardos accionables',
+        '#D97706'
+      )}
+    </div>
+
+    <div class="dd4-alert blue">
+      Las campañas se comparan por volumen y puntualidad.
+      Para evaluar desempeño, revisa también el headcount y
+      los días-persona esperados.
+    </div>
+
+    ${_dd_renderCampaignTable(rows)}
+  `;
+}
+
+function _dd4_qualityCommonRow(row,type){
+  if(type==='duplicates'||type==='conflicts'){
+    return {
+      person:
+        row.employee_name||
+        row.employee_id||
+        '—',
+      employeeId:
+        row.employee_id||
+        '—',
+      date:
+        row.work_date||
+        '—',
+      campaign:
+        row.campaign_id||
+        row.rows?.[0]?.campaign_id||
+        '—',
+      supervisor:
+        row.supervisor_name||
+        row.rows?.[0]?.supervisor_name||
+        '—',
+      detail:
+        type==='duplicates'
+          ? `${row.count||0} filas · ${(row.statuses||[]).join(', ')}`
+          : `Estados: ${(row.statuses||[]).join(', ')}`
+    };
+  }
+
+  return {
+    person:
+      row.employee_name||
+      row.full_name||
+      row.name||
+      row.employee_id||
+      row.id||
+      '—',
+    employeeId:
+      row.employee_id||
+      row.id||
+      '—',
+    date:
+      row.work_date||
+      row.exception_date||
+      row.punch_date||
+      '—',
+    campaign:
+      row.campaign_id||
+      row.campaign||
+      '—',
+    supervisor:
+      row.supervisor_name||
+      row.supervisor_id||
+      '—',
+    detail:
+      row.message||
+      row.type||
+      row.audit_status||
+      row.status||
+      row.check||
+      'Revisar registro'
+  };
+}
+
+function _dd4_renderQualityDetailTable(
+  rows=[],
+  type=''
+){
+  const normalized=(rows||[])
+    .slice(0,100)
+    .map(row=>
+      _dd4_qualityCommonRow(
+        row,
+        type
+      )
+    );
+
+  return `
+    <div class="dd4-table-wrap">
+      <div class="dd4-table-scroll">
+        <table
+          class="dd4-table"
+          style="min-width:1050px"
+        >
+          <thead>
+            <tr>
+              <th>Persona</th>
+              <th>ID</th>
+              <th>Fecha</th>
+              <th>Campaña</th>
+              <th>Supervisor</th>
+              <th>Detalle</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${
+              normalized.length
+                ? normalized.map(row=>`
+                  <tr>
+                    <td>
+                      <div class="dd4-strong">
+                        ${_dd_escape(row.person)}
+                      </div>
+                    </td>
+                    <td class="dd4-mono">
+                      ${_dd_escape(row.employeeId)}
+                    </td>
+                    <td class="dd4-mono">
+                      ${
+                        /^\d{4}-\d{2}-\d{2}/
+                          .test(row.date)
+                          ? fmtDateShort(row.date)
+                          : _dd_escape(row.date)
+                      }
+                    </td>
+                    <td>
+                      ${_dd_escape(row.campaign)}
+                    </td>
+                    <td>
+                      ${_dd_escape(row.supervisor)}
+                    </td>
+                    <td style="white-space:normal">
+                      ${_dd_escape(row.detail)}
+                    </td>
+                  </tr>
+                `).join('')
+                : `
+                  <tr>
+                    <td colspan="6">
+                      <div class="dd4-empty">
+                        No hay registros para esta alerta.
+                      </div>
+                    </td>
+                  </tr>
+                `
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+
 function _dd4_renderOverview(d){
-  const a=d.current.attendance,p=d.previous.attendance,q=d.quality,ac=d.actionCompliance,r=d.current.rotation;
-  const risk=d.warningRisk||{activeLastWarnings:[],red:0,yellow:0,green:0};
-  const recurring=d.recurrence.length;const affected=new Set(_dd4_actionableRows(d.current.rows).map(x=>x.employee_id).filter(Boolean)).size;
-  return `<div class="dd4-grid">
-    ${_dd4_kpi('HC sujeto a asistencia',d.employees.length,`${d.attendanceUniverse?.excluded||0} activos excluidos por rol`,'#2563EB',"_dd4_openRoleUniverse()")}
-    ${_dd4_kpi('Días-persona esperados',a.expectedDays,`${a.operationalPunctuality}% puntualidad operativa`,'#0E7490',"_dd4_setTab('attendance')")}
-    ${_dd4_kpi('Faltas confirmadas',a.falta,`${_dd_delta(a.falta,p.falta).label} vs anterior · ${new Set(q.auditFaltas.map(x=>x.employee_id)).size} personas`,'#DC2626',"_dd_openIncidentDrawer('falta_injustificada')")}
-    ${_dd4_kpi('Retardos accionables',a.retardo,`${affected} personas con falta o retardo`,'#D97706',"_dd_openIncidentDrawer('retardo')")}
-    ${_dd4_kpi('Últimas advertencias activas',risk.activeLastWarnings?.length||0,`${Object.keys(risk.byCampaign||{}).length} campañas`,'#BE123C',"_dd4_openRiskList('all','last_warning')")}
-    ${_dd4_kpi('Risk List roja',risk.red||0,`${risk.yellow||0} personas en amarillo`,'#B91C1C',"_dd4_openRiskList()")}
-    ${_dd4_kpi('Incidencias sin acción',ac.missing,`${ac.coverage}% cobertura · ${ac.late} tardías`,'#7C3AED',"_dd4_setTab('supervisors')")}
-    ${_dd4_kpi('Rotación estimada',r.rate+'%',`${r.bajas} bajas · HC promedio ${r.avgHC}`,'#0891B2',"_dd4_setTab('rotation')")}
-  </div>
-  <div class="dd4-two">
-    ${_dd4_renderAttendanceUniversePanel(d)}
-    ${_dd4_renderAbsenceOriginPanel(d)}
-  </div>
-  <div class="dd4-two">
-    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Reconciliación de faltas</div><div class="dd4-panel-copy">Compara faltas detectadas por auditoría contra faltas registradas administrativamente. No se suman entre sí.</div></div><span class="dd4-chip ${q.auditWithoutException.length||q.exceptionWithoutAudit.length?'amber':'green'}">${q.auditWithoutException.length||q.exceptionWithoutAudit.length?'Revisar diferencia':'Conciliado'}</span></div><div class="dd4-panel-body"><div class="dd4-reconcile"><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Faltas detectadas</div><div class="dd4-reconcile-value">${q.auditFaltas.length}</div><div class="dd4-reconcile-note">Auditoría limpia, una persona-fecha.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Faltas registradas</div><div class="dd4-reconcile-value">${q.finalEx.length}</div><div class="dd4-reconcile-note">Registros finales aprobados.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Detectadas no cargadas</div><div class="dd4-reconcile-value" style="color:#D97706">${q.auditWithoutException.length}</div><div class="dd4-reconcile-note">Auditoría sin registro final.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Cargadas sin evidencia</div><div class="dd4-reconcile-value" style="color:#DC2626">${q.exceptionWithoutAudit.length}</div><div class="dd4-reconcile-note">Registro final sin falta auditada.</div></div></div><div class="dd4-alert blue" style="margin-top:12px;margin-bottom:0"><b>Pendientes:</b> ${q.pending.length} · <b>Canceladas/rechazadas:</b> ${q.cancelled.length}. Ninguna alimenta el KPI de faltas confirmadas.</div></div></div>
-    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Accountability de liderazgo</div><div class="dd4-panel-copy">Cada falta o retardo se vincula con máximo una People Action del mismo agente.</div></div><span class="dd4-chip ${ac.coverage<50?'red':ac.coverage<80?'amber':'green'}">${ac.coverage}% cobertura</span></div><div class="dd4-panel-body"><div class="dd4-reconcile"><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Esperadas</div><div class="dd4-reconcile-value">${ac.incidents.length}</div><div class="dd4-reconcile-note">Faltas + retardos reales.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">A tiempo</div><div class="dd4-reconcile-value" style="color:#15803D">${ac.onTime}</div><div class="dd4-reconcile-note">Cargada el mismo día.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Tardías</div><div class="dd4-reconcile-value" style="color:#D97706">${ac.late}</div><div class="dd4-reconcile-note">De 1 a 7 días después.</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Sin acción</div><div class="dd4-reconcile-value" style="color:#BE123C">${ac.missing}</div><div class="dd4-reconcile-note">Sin caso vinculable en 7 días.</div></div></div><button class="btn-primary" style="margin-top:12px" onclick="_dd4_setTab('supervisors')">Revisar supervisores</button></div></div>
-  </div>
-  <div class="dd4-two">${_dd4_renderLastWarningsByCampaign(d)}<div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Reincidencia operativa</div><div class="dd4-panel-copy">Faltas y retardos de los últimos 90 días.</div></div><span class="dd4-chip ${recurring?'amber':'green'}">${recurring} reincidentes</span></div><div class="dd4-panel-body"><div class="dd4-reconcile"><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Crónicos</div><div class="dd4-reconcile-value" style="color:#DC2626">${d.agents.filter(x=>x.recurrence==='Crónico').length}</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Reincidentes</div><div class="dd4-reconcile-value" style="color:#D97706">${d.agents.filter(x=>x.recurrence==='Reincidente').length}</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Primera incidencia</div><div class="dd4-reconcile-value">${d.agents.filter(x=>x.recurrence==='Primera incidencia').length}</div></div><div class="dd4-reconcile-item"><div class="dd4-reconcile-label">Sin incidencias</div><div class="dd4-reconcile-value" style="color:#15803D">${d.agents.filter(x=>x.recurrence==='Sin incidencias').length}</div></div></div><button class="btn-primary" style="margin-top:12px" onclick="_dd4_setTab('recurrence')">Abrir reincidencias</button></div></div></div>
-  ${_dd4_renderRiskListPanel(d)}
-  ${_dd_renderCampaignTable(d.current.rows)}`;
+  const current=d.current.attendance;
+  const previous=d.previous.attendance;
+  const quality=d.quality;
+  const accountability=d.actionCompliance;
+  const risk=d.warningRisk||{
+    activeLastWarnings:[],
+    red:0,
+    yellow:0,
+    green:0
+  };
+
+  const historyReady=
+    _dd4_historyUsable(d);
+
+  const recurrenceCount=
+    historyReady
+      ? d.recurrence.length
+      : '…';
+
+  const recurrenceNote=
+    historyReady
+      ? _dd4_historyWindowLabel(d)
+      : d.historyStatus==='error'
+        ? 'Histórico no disponible'
+        : 'Calculando histórico completo';
+
+  const affected=
+    new Set(
+      _dd4_actionableRows(
+        d.current.rows
+      )
+        .map(row=>row.employee_id)
+        .filter(Boolean)
+    ).size;
+
+  return `
+    <div class="dd4-grid">
+      ${_dd4_kpi(
+        'HC sujeto a asistencia',
+        d.employees.length,
+        `${d.attendanceUniverse?.excluded||0} activos excluidos por rol`,
+        '#2563EB',
+        "_dd4_setTab('quality')"
+      )}
+
+      ${_dd4_kpi(
+        'Puntualidad operativa',
+        current.operationalPunctuality+'%',
+        `${current.operationalOnTime} de ${current.withEntry} entradas puntuales`,
+        '#0E7490',
+        "_dd4_setTab('attendance')"
+      )}
+
+      ${_dd4_kpi(
+        'Faltas confirmadas',
+        current.falta,
+        `${_dd4_comparisonText(d,current.falta,previous.falta)} · ${new Set(quality.auditFaltas.map(row=>row.employee_id)).size} personas`,
+        '#DC2626',
+        "_dd_openIncidentDrawer('falta_injustificada')"
+      )}
+
+      ${_dd4_kpi(
+        'Retardos accionables',
+        current.retardo,
+        `${affected} personas con falta o retardo`,
+        '#D97706',
+        "_dd_openIncidentDrawer('retardo')"
+      )}
+
+      ${_dd4_kpi(
+        'Incidencias sin acción',
+        accountability.missing,
+        `${accountability.coverage}% cobertura · ${accountability.late} tardías`,
+        '#7C3AED',
+        "_dd4_setTab('supervisors')"
+      )}
+
+      ${_dd4_kpi(
+        'Personas reincidentes',
+        recurrenceCount,
+        recurrenceNote,
+        '#BE123C',
+        "_dd4_setTab('people360')"
+      )}
+    </div>
+
+    <div class="dd4-two">
+      <div class="dd4-panel">
+        <div class="dd4-panel-head">
+          <div>
+            <div class="dd4-panel-title">
+              Accountability de liderazgo
+            </div>
+            <div class="dd4-panel-copy">
+              Cada falta o retardo se vincula con máximo
+              una Acción People del mismo evento.
+            </div>
+          </div>
+
+          <span class="dd4-chip ${
+            accountability.coverage<50
+              ? 'red'
+              : accountability.coverage<80
+                ? 'amber'
+                : 'green'
+          }">
+            ${accountability.coverage}% cobertura
+          </span>
+        </div>
+
+        <div class="dd4-panel-body">
+          <div class="dd4-reconcile">
+            <div class="dd4-reconcile-item">
+              <div class="dd4-reconcile-label">
+                Esperadas
+              </div>
+              <div class="dd4-reconcile-value">
+                ${accountability.incidents.length}
+              </div>
+            </div>
+
+            <div class="dd4-reconcile-item">
+              <div class="dd4-reconcile-label">
+                A tiempo
+              </div>
+              <div
+                class="dd4-reconcile-value"
+                style="color:#15803D"
+              >
+                ${accountability.onTime}
+              </div>
+            </div>
+
+            <div class="dd4-reconcile-item">
+              <div class="dd4-reconcile-label">
+                Tardías
+              </div>
+              <div
+                class="dd4-reconcile-value"
+                style="color:#D97706"
+              >
+                ${accountability.late}
+              </div>
+            </div>
+
+            <div class="dd4-reconcile-item">
+              <div class="dd4-reconcile-label">
+                Sin acción
+              </div>
+              <div
+                class="dd4-reconcile-value"
+                style="color:#BE123C"
+              >
+                ${accountability.missing}
+              </div>
+            </div>
+          </div>
+
+          <button
+            class="btn-primary"
+            style="margin-top:12px"
+            onclick="_dd4_setTab('supervisors')"
+          >
+            Revisar liderazgo
+          </button>
+        </div>
+      </div>
+
+      <div class="dd4-panel">
+        <div class="dd4-panel-head">
+          <div>
+            <div class="dd4-panel-title">
+              Personas y riesgo
+            </div>
+            <div class="dd4-panel-copy">
+              Reincidencia, acciones pendientes y advertencias vigentes.
+            </div>
+          </div>
+
+          <span class="dd4-chip ${
+            risk.red||recurrenceCount>0
+              ? 'amber'
+              : 'green'
+          }">
+            ${risk.red||0} rojas
+          </span>
+        </div>
+
+        <div class="dd4-panel-body">
+          ${
+            historyReady
+              ? `
+                <div class="dd4-reconcile">
+                  <div class="dd4-reconcile-item">
+                    <div class="dd4-reconcile-label">
+                      Crónicos
+                    </div>
+                    <div
+                      class="dd4-reconcile-value"
+                      style="color:#DC2626"
+                    >
+                      ${d.agents.filter(person=>person.recurrence==='Crónico').length}
+                    </div>
+                  </div>
+
+                  <div class="dd4-reconcile-item">
+                    <div class="dd4-reconcile-label">
+                      Reincidentes
+                    </div>
+                    <div
+                      class="dd4-reconcile-value"
+                      style="color:#D97706"
+                    >
+                      ${d.agents.filter(person=>person.recurrence==='Reincidente').length}
+                    </div>
+                  </div>
+
+                  <div class="dd4-reconcile-item">
+                    <div class="dd4-reconcile-label">
+                      Última advertencia
+                    </div>
+                    <div
+                      class="dd4-reconcile-value"
+                      style="color:#BE123C"
+                    >
+                      ${risk.activeLastWarnings?.length||0}
+                    </div>
+                  </div>
+
+                  <div class="dd4-reconcile-item">
+                    <div class="dd4-reconcile-label">
+                      Risk List roja
+                    </div>
+                    <div
+                      class="dd4-reconcile-value"
+                      style="color:#B91C1C"
+                    >
+                      ${risk.red||0}
+                    </div>
+                  </div>
+                </div>
+              `
+              : `
+                <div class="dd4-alert blue">
+                  ${
+                    d.historyStatus==='error'
+                      ? 'El histórico no pudo cargarse. El resto de Deep Dive permanece disponible.'
+                      : 'Calculando el histórico completo antes de publicar reincidencia.'
+                  }
+                </div>
+              `
+          }
+
+          <div
+            style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"
+          >
+            <button
+              class="btn-primary"
+              onclick="_dd4_setTab('people360')"
+            >
+              Abrir Personas 360
+            </button>
+
+            <button
+              class="btn-ghost"
+              onclick="_dd4_openRiskList()"
+            >
+              Abrir Risk List
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dd4-two">
+      ${_dd4_renderAbsenceReconciliationPanel(d)}
+      ${_dd4_renderLastWarningsByCampaign(d)}
+    </div>
+
+    ${_dd_renderCampaignTable(d.current.rows)}
+  `;
 }
 
 
 function _dd4_filteredAttendance(d){const q=_dd_norm(_dd4_UI.search);return(d.current.rows||[]).filter(r=>{if(_dd4_UI.attendanceStatus!=='all'&&r.audit_status!==_dd4_UI.attendanceStatus)return false;if(q&&!_dd_norm([r.employee_name,r.employee_id,r.supervisor_name,r.campaign_id,r.audit_status,r.work_date].join(' ')).includes(q))return false;return true;});}
 function _dd4_renderAttendance(d){
-  const rows=_dd4_filteredAttendance(d);const statuses=[...new Set((d.current.rows||[]).map(r=>r.audit_status).filter(Boolean))].sort();
-  if(_dd_isOperationalAccess()){return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todos los estados</option>${statuses.map(s=>`<option value="${_dd_escape(s)}" ${_dd4_UI.attendanceStatus===s?'selected':''}>${_dd_escape(s.replaceAll('_',' '))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} filas</span></div><div class="dd4-alert blue">Una fila por persona-fecha. Esta vista es solo lectura y no contiene People Actions ni datos disciplinarios.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1180px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Horario</th><th>Entrada</th><th>Salida</th><th class="dd4-center">Min. tarde</th><th>Estado final</th><th>Incidencia</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td class="dd4-mono">${_dd_timeValue(r,['shift_start'])||'—'}–${_dd_timeValue(r,['shift_end'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${
-  _dd4_actionableRows([r]).length
-    ? '<span class="dd4-status warn">Accionable</span>'
-    : _dd_norm(r.audit_status) === 'retardo'
-      ? '<span class="dd4-status ok">Dentro de tolerancia / no disciplinario</span>'
-      : ['sin_entrada','sin_salida'].includes(_dd_norm(r.audit_status))
-        ? '<span class="dd4-status warn">Revisar asistencia</span>'
-        : '<span class="dd4-status neutral">No aplica</span>'
-}</td></tr>`).join(''):`<tr><td colspan="10"><div class="dd4-empty">No hay registros con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;}
-  return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todos los estados</option>${statuses.map(s=>`<option value="${_dd_escape(s)}" ${_dd4_UI.attendanceStatus===s?'selected':''}>${_dd_escape(s.replaceAll('_',' '))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} filas únicas</span></div>
-  <div class="dd4-alert blue"><b>Regla del explorador:</b> cada renglón representa una sola persona en una sola fecha. Cuando el RPC devuelve duplicados, Deep Dive conserva la fila con mayor evidencia de asistencia y manda el conflicto a Calidad de datos.</div>
-  <div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1350px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Estado final</th><th class="dd4-center">Min. tarde</th><th>Entrada</th><th>Salida</th><th>Registro final</th><th>People Action</th><th>Calidad</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td>${r.dd_has_final_exception?'<span class="dd4-status ok">Encontrado</span>':r.audit_status==='falta_injustificada'?'<span class="dd4-status warn">Sin registro</span>':'<span class="dd4-status neutral">No aplica</span>'}</td><td>${_dd4_actionableRows([r]).length?(r.dd_action?`<span class="dd4-status ${r.dd_action_status==='on_time'?'ok':'warn'}">${r.dd_action_status==='on_time'?'A tiempo':'Tardía'}</span>`:'<span class="dd4-status bad">Sin acción</span>'):'<span class="dd4-status neutral">No aplica</span>'}</td><td>${r.dd_duplicate_count>1?`<span class="dd4-status bad">${r.dd_duplicate_count} duplicados</span>`:'<span class="dd4-status ok">OK</span>'}</td></tr>`).join(''):`<tr><td colspan="11"><div class="dd4-empty">No hay registros con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
+  const rows=
+    _dd4_filteredAttendance(d);
+
+  const summary=
+    d.current.attendance;
+
+  const statuses=[
+    ...new Set(
+      (d.current.rows||[])
+        .map(row=>row.audit_status)
+        .filter(Boolean)
+    )
+  ].sort();
+
+  if(_dd_isOperationalAccess()){
+    return `
+      <div class="dd4-filters">
+        <input
+          id="dd4-search"
+          class="dd4-search"
+          placeholder="Buscar agente, ID, supervisor, campaña o fecha..."
+          value="${_dd_escape(_dd4_UI.search)}"
+          oninput="_dd4_setUI('search',this.value)"
+        >
+
+        <select
+          class="dd4-select"
+          onchange="_dd4_setUI('attendanceStatus',this.value)"
+        >
+          <option value="all">
+            Todos los estados
+          </option>
+
+          ${statuses.map(status=>`
+            <option
+              value="${_dd_escape(status)}"
+              ${_dd4_UI.attendanceStatus===status?'selected':''}
+            >
+              ${_dd_escape(status.replaceAll('_',' '))}
+            </option>
+          `).join('')}
+        </select>
+
+        <span class="dd4-chip blue">
+          ${rows.length} filas
+        </span>
+      </div>
+
+      <div class="dd4-alert blue">
+        Una fila por persona-fecha. Vista de solo lectura,
+        sin información disciplinaria.
+      </div>
+
+      <div class="dd4-table-wrap">
+        <div class="dd4-table-scroll">
+          <table
+            class="dd4-table"
+            style="min-width:1180px"
+          >
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Agente</th>
+                <th>Campaña</th>
+                <th>Supervisor</th>
+                <th>Horario</th>
+                <th>Entrada</th>
+                <th>Salida</th>
+                <th class="dd4-center">
+                  Min. tarde
+                </th>
+                <th>Estado final</th>
+                <th>Incidencia</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              ${
+                rows.length
+                  ? rows.map(row=>`
+                    <tr
+                      class="clickable"
+                      onclick="_dd4_openAgent('${String(row.employee_id||'').replaceAll("'","\\'")}')"
+                    >
+                      <td class="dd4-mono">
+                        ${fmtDateShort(row.work_date)}
+                      </td>
+
+                      <td>
+                        <div class="dd4-strong">
+                          ${_dd_escape(row.employee_name||row.employee_id||'—')}
+                        </div>
+                        <div class="dd-secondary">
+                          ${_dd_escape(row.employee_id||'—')}
+                        </div>
+                      </td>
+
+                      <td>
+                        ${_dd_escape(row.campaign_id||'Sin campaña')}
+                      </td>
+
+                      <td>
+                        ${_dd_escape(row.supervisor_name||'Sin supervisor')}
+                      </td>
+
+                      <td class="dd4-mono">
+                        ${_dd_timeValue(row,['shift_start'])||'—'}–${_dd_timeValue(row,['shift_end'])||'—'}
+                      </td>
+
+                      <td class="dd4-mono">
+                        ${_dd_timeValue(row,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}
+                      </td>
+
+                      <td class="dd4-mono">
+                        ${_dd_timeValue(row,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}
+                      </td>
+
+                      <td class="dd4-center dd4-mono">
+                        ${_dd4_isActionableLate(row)?Number(row.minutes_late||0):'—'}
+                      </td>
+
+                      <td>
+                        ${_dd4_statusPill(row.audit_status)}
+                      </td>
+
+                      <td>
+                        ${
+                          _dd4_actionableRows([row]).length
+                            ? '<span class="dd4-status warn">Accionable</span>'
+                            : _dd_norm(row.audit_status)==='retardo'
+                              ? '<span class="dd4-status ok">En tolerancia / no disciplinario</span>'
+                              : ['sin_entrada','sin_salida'].includes(_dd_norm(row.audit_status))
+                                ? '<span class="dd4-status warn">Revisar asistencia</span>'
+                                : '<span class="dd4-status neutral">No aplica</span>'
+                        }
+                      </td>
+                    </tr>
+                  `).join('')
+                  : `
+                    <tr>
+                      <td colspan="10">
+                        <div class="dd4-empty">
+                          No hay registros con estos filtros.
+                        </div>
+                      </td>
+                    </tr>
+                  `
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="dd4-grid">
+      ${_dd4_kpi(
+        'Días-persona esperados',
+        summary.expectedDays,
+        `${summary.withEntry} entradas registradas`,
+        '#2563EB'
+      )}
+
+      ${_dd4_kpi(
+        'Puntualidad operativa',
+        summary.operationalPunctuality+'%',
+        `${summary.operationalOnTime} entradas a tiempo o en tolerancia`,
+        '#0E7490'
+      )}
+
+      ${_dd4_kpi(
+        'Faltas confirmadas',
+        summary.falta,
+        'Auditoría accionable',
+        '#DC2626'
+      )}
+
+      ${_dd4_kpi(
+        'Retardos accionables',
+        summary.retardo,
+        `${summary.retardoPendiente} con justificación pendiente`,
+        '#D97706'
+      )}
+
+      ${_dd4_kpi(
+        'Cumplimiento de salida',
+        summary.checkoutCompliance+'%',
+        `${summary.sinSalida} cierres incompletos`,
+        '#7C3AED'
+      )}
+    </div>
+
+    <div class="dd4-two">
+      ${_dd4_renderAbsenceReconciliationPanel(d)}
+      ${_dd4_renderAbsenceOriginPanel(d)}
+    </div>
+
+    <div class="dd4-filters">
+      <input
+        id="dd4-search"
+        class="dd4-search"
+        placeholder="Buscar persona, ID, supervisor, campaña o fecha..."
+        value="${_dd_escape(_dd4_UI.search)}"
+        oninput="_dd4_setUI('search',this.value)"
+      >
+
+      <select
+        class="dd4-select"
+        onchange="_dd4_setUI('attendanceStatus',this.value)"
+      >
+        <option value="all">
+          Todos los estados
+        </option>
+
+        ${statuses.map(status=>`
+          <option
+            value="${_dd_escape(status)}"
+            ${_dd4_UI.attendanceStatus===status?'selected':''}
+          >
+            ${_dd_escape(status.replaceAll('_',' '))}
+          </option>
+        `).join('')}
+      </select>
+
+      <span class="dd4-chip blue">
+        ${rows.length} filas únicas
+      </span>
+    </div>
+
+    <div class="dd4-alert blue">
+      Cada renglón representa una persona en una fecha.
+      Retardos dentro de tolerancia no alimentan disciplina
+      ni el KPI de retardos accionables.
+    </div>
+
+    <div class="dd4-table-wrap">
+      <div class="dd4-table-scroll">
+        <table
+          class="dd4-table"
+          style="min-width:1480px"
+        >
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Persona</th>
+              <th>Campaña</th>
+              <th>Supervisor</th>
+              <th>Horario</th>
+              <th>Estado final</th>
+              <th class="dd4-center">
+                Min. tarde
+              </th>
+              <th>Entrada</th>
+              <th>Salida</th>
+              <th>Registro final</th>
+              <th>Acción People</th>
+              <th>Calidad</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${
+              rows.length
+                ? rows.map(row=>`
+                  <tr
+                    class="clickable"
+                    onclick="_dd4_openAgent('${String(row.employee_id||'').replaceAll("'","\\'")}')"
+                  >
+                    <td class="dd4-mono">
+                      ${fmtDateShort(row.work_date)}
+                    </td>
+
+                    <td>
+                      <div class="dd4-strong">
+                        ${_dd_escape(row.employee_name||row.employee_id||'—')}
+                      </div>
+                      <div class="dd-secondary">
+                        ${_dd_escape(row.employee_id||'—')}
+                      </div>
+                    </td>
+
+                    <td>
+                      ${_dd_escape(row.campaign_id||'Sin campaña')}
+                    </td>
+
+                    <td>
+                      ${_dd_escape(row.supervisor_name||'Sin supervisor')}
+                    </td>
+
+                    <td class="dd4-mono">
+                      ${_dd_timeValue(row,['shift_start'])||'—'}–${_dd_timeValue(row,['shift_end'])||'—'}
+                    </td>
+
+                    <td>
+                      ${_dd4_statusPill(row.audit_status)}
+                    </td>
+
+                    <td class="dd4-center dd4-mono">
+                      ${_dd4_isActionableLate(row)?Number(row.minutes_late||0):'—'}
+                    </td>
+
+                    <td class="dd4-mono">
+                      ${_dd_timeValue(row,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}
+                    </td>
+
+                    <td class="dd4-mono">
+                      ${_dd_timeValue(row,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}
+                    </td>
+
+                    <td>
+                      ${
+                        row.dd_has_final_exception
+                          ? '<span class="dd4-status ok">Encontrado</span>'
+                          : _dd_norm(row.audit_status)==='falta_injustificada'
+                            ? '<span class="dd4-status warn">Sin registro</span>'
+                            : '<span class="dd4-status neutral">No aplica</span>'
+                      }
+                    </td>
+
+                    <td>
+                      ${
+                        _dd4_actionableRows([row]).length
+                          ? row.dd_action
+                            ? `<span class="dd4-status ${row.dd_action_status==='on_time'?'ok':'warn'}">${row.dd_action_status==='on_time'?'A tiempo':'Tardía'}</span>`
+                            : '<span class="dd4-status bad">Sin acción</span>'
+                          : '<span class="dd4-status neutral">No aplica</span>'
+                      }
+                    </td>
+
+                    <td>
+                      ${
+                        row.dd_duplicate_count>1
+                          ? `<span class="dd4-status bad">${row.dd_duplicate_count} duplicados</span>`
+                          : '<span class="dd4-status ok">OK</span>'
+                      }
+                    </td>
+                  </tr>
+                `).join('')
+                : `
+                  <tr>
+                    <td colspan="12">
+                      <div class="dd4-empty">
+                        No hay registros con estos filtros.
+                      </div>
+                    </td>
+                  </tr>
+                `
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function _dd4_renderSupervisors(d){
-  if(_dd_isOperationalAccess())return _dd4_renderOperationalAccountability(d);
-  const rows=d.supervisors||[];return `<div class="dd4-alert blue">La cobertura ya no compara totales generales. Cada falta o retardo se vincula con máximo una People Action del mismo agente. Mismo día = a tiempo; de 1 a 7 días después = tardía; sin caso vinculable = sin acción.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Supervisor</th><th class="dd4-center">HC</th><th class="dd4-center">Retardos</th><th class="dd4-center">Faltas</th><th class="dd4-center">Faltas sin registro</th><th class="dd4-center">Acciones esperadas</th><th class="dd4-center">A tiempo</th><th class="dd4-center">Tardías</th><th class="dd4-center">Sin acción</th><th>Cobertura</th><th class="dd4-center">Tickets</th><th>Riesgo</th></tr></thead><tbody>${rows.length?rows.map(s=>`<tr class="clickable" onclick="_dd_openSupervisorDetail('${String(s.supervisor_id).replaceAll("'","\\'")}')"><td><div class="dd-name-cell"><div class="dd-avatar">${_dd_initials(s.supervisor_name)}</div><div><div class="dd-primary">${_dd_escape(s.supervisor_name)}</div><div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div></div></div></td><td class="dd4-center dd4-mono">${s.hc}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.retardo}</td><td class="dd4-center dd4-mono" style="color:#DC2626">${s.falta}</td><td class="dd4-center dd4-mono" style="color:${s.missingException?'#BE123C':'#15803D'}">${s.missingException}</td><td class="dd4-center dd4-mono">${s.expectedActions}</td><td class="dd4-center dd4-mono" style="color:#15803D">${s.onTime}</td><td class="dd4-center dd4-mono" style="color:#B45309">${s.lateActions}</td><td class="dd4-center dd4-mono" style="color:#BE123C">${s.missingActions}</td><td><div class="dd4-strong dd4-center">${s.compliance}%</div><div class="dd4-bar ${s.compliance<50?'danger':s.compliance<80?'warn':''}"><span style="width:${Math.min(100,s.compliance)}%"></span></div></td><td class="dd4-center dd4-mono">${s.tickets}</td><td>${_dd4_riskPill(s.risk)}</td></tr>`).join(''):`<tr><td colspan="12"><div class="dd4-empty">Sin supervisores para el filtro seleccionado.</div></td></tr>`}</tbody></table></div></div>`;
+  if(_dd_isOperationalAccess()){
+    return _dd4_renderOperationalAccountability(d);
+  }
+
+  const rows=d.supervisors||[];
+
+  const expected=rows.reduce(
+    (sum,row)=>
+      sum+Number(row.expectedActions||0),
+    0
+  );
+
+  const missing=rows.reduce(
+    (sum,row)=>
+      sum+Number(row.missingActions||0),
+    0
+  );
+
+  const late=rows.reduce(
+    (sum,row)=>
+      sum+Number(row.lateActions||0),
+    0
+  );
+
+  const highRisk=rows.filter(row=>
+    row.risk==='Alto'
+  ).length;
+
+  const weightedCoverage=expected
+    ? Math.round(
+        (
+          rows.reduce(
+            (sum,row)=>
+              sum+Number(row.actions||0),
+            0
+          )/
+          expected
+        )*100
+      )
+    : 100;
+
+  return `
+    <div class="dd4-grid">
+      ${_dd4_kpi(
+        'Supervisores',
+        rows.length,
+        'Dentro del alcance filtrado',
+        '#2563EB'
+      )}
+
+      ${_dd4_kpi(
+        'Acciones esperadas',
+        expected,
+        'Faltas + retardos accionables',
+        '#0E7490'
+      )}
+
+      ${_dd4_kpi(
+        'Sin acción',
+        missing,
+        'Sin caso vinculable',
+        '#BE123C'
+      )}
+
+      ${_dd4_kpi(
+        'Acciones tardías',
+        late,
+        'Cargadas después del evento',
+        '#D97706'
+      )}
+
+      ${_dd4_kpi(
+        'Cobertura',
+        weightedCoverage+'%',
+        `${highRisk} supervisores en riesgo alto`,
+        weightedCoverage<50
+          ? '#DC2626'
+          : weightedCoverage<80
+            ? '#D97706'
+            : '#16A34A'
+      )}
+    </div>
+
+    <div class="dd4-alert blue">
+      Cada falta o retardo se vincula con máximo una
+      Acción People del mismo evento.
+      Mismo día = a tiempo; de 1 a 7 días = tardía;
+      sin caso vinculable = sin acción.
+    </div>
+
+    <div class="dd4-table-wrap">
+      <div class="dd4-table-scroll">
+        <table
+          class="dd4-table"
+          style="min-width:1380px"
+        >
+          <thead>
+            <tr>
+              <th>Supervisor</th>
+              <th class="dd4-center">HC</th>
+              <th class="dd4-center">Retardos</th>
+              <th class="dd4-center">Faltas</th>
+              <th class="dd4-center">Faltas sin registro</th>
+              <th class="dd4-center">Acciones esperadas</th>
+              <th class="dd4-center">A tiempo</th>
+              <th class="dd4-center">Tardías</th>
+              <th class="dd4-center">Sin acción</th>
+              <th>Cobertura</th>
+              <th class="dd4-center">Tickets</th>
+              <th>Riesgo</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${
+              rows.length
+                ? rows.map(row=>`
+                  <tr
+                    class="clickable"
+                    onclick="_dd_openSupervisorDetail('${String(row.supervisor_id).replaceAll("'","\\'")}')"
+                  >
+                    <td>
+                      <div class="dd-name-cell">
+                        <div class="dd-avatar">
+                          ${_dd_initials(row.supervisor_name)}
+                        </div>
+                        <div>
+                          <div class="dd-primary">
+                            ${_dd_escape(row.supervisor_name)}
+                          </div>
+                          <div class="dd-secondary">
+                            ${_dd_escape(row.supervisor_id)}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td class="dd4-center dd4-mono">
+                      ${row.hc}
+                    </td>
+
+                    <td
+                      class="dd4-center dd4-mono"
+                      style="color:#D97706"
+                    >
+                      ${row.retardo}
+                    </td>
+
+                    <td
+                      class="dd4-center dd4-mono"
+                      style="color:#DC2626"
+                    >
+                      ${row.falta}
+                    </td>
+
+                    <td
+                      class="dd4-center dd4-mono"
+                      style="color:${row.missingException?'#BE123C':'#15803D'}"
+                    >
+                      ${row.missingException}
+                    </td>
+
+                    <td class="dd4-center dd4-mono">
+                      ${row.expectedActions}
+                    </td>
+
+                    <td
+                      class="dd4-center dd4-mono"
+                      style="color:#15803D"
+                    >
+                      ${row.onTime}
+                    </td>
+
+                    <td
+                      class="dd4-center dd4-mono"
+                      style="color:#B45309"
+                    >
+                      ${row.lateActions}
+                    </td>
+
+                    <td
+                      class="dd4-center dd4-mono"
+                      style="color:#BE123C"
+                    >
+                      ${row.missingActions}
+                    </td>
+
+                    <td>
+                      <div class="dd4-strong dd4-center">
+                        ${row.compliance}%
+                      </div>
+                      <div class="dd4-bar ${
+                        row.compliance<50
+                          ? 'danger'
+                          : row.compliance<80
+                            ? 'warn'
+                            : ''
+                      }">
+                        <span
+                          style="width:${Math.min(100,row.compliance)}%"
+                        ></span>
+                      </div>
+                    </td>
+
+                    <td class="dd4-center dd4-mono">
+                      ${row.tickets}
+                    </td>
+
+                    <td>
+                      ${_dd4_riskPill(row.risk)}
+                    </td>
+                  </tr>
+                `).join('')
+                : `
+                  <tr>
+                    <td colspan="12">
+                      <div class="dd4-empty">
+                        Sin supervisores para el filtro seleccionado.
+                      </div>
+                    </td>
+                  </tr>
+                `
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
-function _dd4_filteredAgents(d,recOnly=false){const q=_dd_norm(_dd4_UI.search);return(d.agents||[]).filter(a=>{if(recOnly&&a.incidents90<2)return false;if(_dd4_UI.recurrence!=='all'&&a.recurrence!==_dd4_UI.recurrence)return false;if(q&&!_dd_norm([a.name,a.id,a.campaign,a.supervisor,a.recurrence].join(' ')).includes(q))return false;return true;});}
-function _dd4_renderAgents(d,recOnly=false){
-  const rows=_dd4_filteredAgents(d,recOnly);return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, campaña o supervisor..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('recurrence',this.value)"><option value="all">Todos los niveles</option>${['Sin incidencias','Primera incidencia','Reincidente','Crónico'].map(x=>`<option value="${x}" ${_dd4_UI.recurrence===x?'selected':''}>${x}</option>`).join('')}</select><span class="dd4-chip purple">${rows.length} personas</span></div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1320px"><thead><tr><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Ingreso</th><th class="dd4-center">Inc. 30d</th><th class="dd4-center">Inc. 60d</th><th class="dd4-center">Inc. 90d</th><th class="dd4-center">Faltas 90d</th><th class="dd4-center">Retardos 90d</th><th class="dd4-center">Sin salida</th><th class="dd4-center">Acciones</th><th>Reincidencia</th></tr></thead><tbody>${rows.length?rows.map(a=>`<tr class="clickable" onclick="_dd4_openAgent('${String(a.id).replaceAll("'","\\'")}')"><td><div class="dd-name-cell"><div class="dd-avatar">${_dd_initials(a.name)}</div><div><div class="dd-primary">${_dd_escape(a.name)}</div><div class="dd-secondary">${_dd_escape(a.id)}</div></div></div></td><td>${_dd_escape(a.campaign)}</td><td>${_dd_escape(a.supervisor)}</td><td class="dd4-mono">${a.hireDate?fmtDateShort(a.hireDate):'—'}</td><td class="dd4-center dd4-mono">${a.incidents30}</td><td class="dd4-center dd4-mono">${a.incidents60}</td><td class="dd4-center dd4-mono"><b>${a.incidents90}</b></td><td class="dd4-center dd4-mono" style="color:#DC2626">${a.faltas90}</td><td class="dd4-center dd4-mono" style="color:#D97706">${a.retardos90}</td><td class="dd4-center dd4-mono" style="color:#7C3AED">${a.sinSalida90}</td><td class="dd4-center dd4-mono">${a.actions}</td><td>${_dd4_recurrencePill(a.recurrence)}</td></tr>`).join(''):`<tr><td colspan="12"><div class="dd4-empty">No hay personas con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
+function _dd4_filteredAgents(d){
+  const query=_dd_norm(
+    _dd4_UI.search
+  );
+
+  return (d.agents||[])
+    .filter(person=>{
+      if(
+        _dd4_UI.recurrence!=='all' &&
+        person.recurrence!==
+          _dd4_UI.recurrence
+      ){
+        return false;
+      }
+
+      if(
+        query &&
+        !_dd_norm([
+          person.name,
+          person.id,
+          person.campaign,
+          person.supervisor,
+          person.position,
+          person.recurrence,
+          person.riskBand
+        ].join(' ')).includes(query)
+      ){
+        return false;
+      }
+
+      return true;
+    });
+}
+function _dd4_renderAgents(d){
+  if(!_dd4_historyUsable(d)){
+    if(d.historyStatus==='error'){
+      return `
+        <div class="dd4-panel">
+          <div class="dd4-panel-head">
+            <div>
+              <div class="dd4-panel-title">
+                Personas 360
+              </div>
+              <div class="dd4-panel-copy">
+                No se pudo cargar el histórico completo.
+              </div>
+            </div>
+          </div>
+
+          <div class="dd4-panel-body">
+            <div class="dd4-alert amber">
+              ${_dd_escape(d.historyError||'Histórico no disponible.')}
+            </div>
+
+            <button
+              class="btn-primary"
+              onclick="_dd4_ensureHistory90(true)"
+            >
+              🔄 Reintentar histórico
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="dd4-panel">
+        <div class="dd4-panel-head">
+          <div>
+            <div class="dd4-panel-title">
+              Personas 360
+            </div>
+            <div class="dd4-panel-copy">
+              Calculando faltas, retardos, acciones y reincidencia.
+            </div>
+          </div>
+
+          <span class="dd4-chip blue">
+            Histórico en proceso
+          </span>
+        </div>
+
+        <div class="dd4-panel-body">
+          <div
+            style="text-align:center;padding:40px;color:#64748B"
+          >
+            <div
+              style="width:34px;height:34px;border:3px solid #E2E8F0;border-top-color:#38BDF8;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"
+            ></div>
+            Deep Dive no publicará reincidencia hasta terminar
+            el histórico completo.
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  const rows=
+    _dd4_filteredAgents(d);
+
+  const chronic=
+    (d.agents||[]).filter(person=>
+      person.recurrence==='Crónico'
+    ).length;
+
+  const recurrent=
+    (d.agents||[]).filter(person=>
+      person.recurrence==='Reincidente'
+    ).length;
+
+  const first=
+    (d.agents||[]).filter(person=>
+      person.recurrence==='Primera incidencia'
+    ).length;
+
+  const clean=
+    (d.agents||[]).filter(person=>
+      person.recurrence==='Sin incidencias'
+    ).length;
+
+  const missingActions=
+    d.historyActionsAvailable
+      ? (d.agents||[]).reduce(
+          (sum,person)=>
+            sum+
+            Number(
+              person.missingActions90||0
+            ),
+          0
+        )
+      : '—';
+
+  return `
+    <div class="dd4-grid">
+      ${_dd4_kpi(
+        'Personas analizadas',
+        d.agents.length,
+        _dd4_historyWindowLabel(d),
+        '#2563EB'
+      )}
+
+      ${_dd4_kpi(
+        'Crónicos',
+        chronic,
+        '4 o más incidencias accionables',
+        '#DC2626'
+      )}
+
+      ${_dd4_kpi(
+        'Reincidentes',
+        recurrent,
+        '2 o 3 incidencias accionables',
+        '#D97706'
+      )}
+
+      ${_dd4_kpi(
+        'Primera incidencia',
+        first,
+        '1 incidencia accionable',
+        '#7C3AED'
+      )}
+
+      ${_dd4_kpi(
+        'Sin incidencias',
+        clean,
+        'Sin faltas ni retardos accionables',
+        '#16A34A'
+      )}
+
+      ${_dd4_kpi(
+        'Incidencias sin acción',
+        missingActions,
+        d.historyActionsAvailable
+          ? 'Dentro del histórico disponible'
+          : 'Histórico de acciones no disponible',
+        '#BE123C'
+      )}
+    </div>
+
+    <div class="dd4-alert blue">
+      <b>Definición vigente:</b>
+      primera incidencia = 1;
+      reincidente = 2–3;
+      crónico = 4 o más.
+      Solo cuentan faltas injustificadas y retardos
+      disciplinarios fuera de tolerancia.
+    </div>
+
+    <div class="dd4-filters">
+      <input
+        id="dd4-search"
+        class="dd4-search"
+        placeholder="Buscar persona, ID, campaña, puesto o supervisor..."
+        value="${_dd_escape(_dd4_UI.search)}"
+        oninput="_dd4_setUI('search',this.value)"
+      >
+
+      <select
+        class="dd4-select"
+        onchange="_dd4_setUI('recurrence',this.value)"
+      >
+        <option value="all">
+          Todas las clasificaciones
+        </option>
+
+        ${[
+          'Sin incidencias',
+          'Primera incidencia',
+          'Reincidente',
+          'Crónico'
+        ].map(level=>`
+          <option
+            value="${level}"
+            ${_dd4_UI.recurrence===level?'selected':''}
+          >
+            ${level}
+          </option>
+        `).join('')}
+      </select>
+
+      <span class="dd4-chip purple">
+        ${rows.length} personas
+      </span>
+    </div>
+
+    <div class="dd4-table-wrap">
+      <div class="dd4-table-scroll">
+        <table
+          class="dd4-table"
+          style="min-width:1550px"
+        >
+          <thead>
+            <tr>
+              <th>Persona</th>
+              <th>Campaña</th>
+              <th>Supervisor</th>
+              <th>Puesto</th>
+              <th class="dd4-center">Inc. 30d</th>
+              <th class="dd4-center">Inc. 60d</th>
+              <th class="dd4-center">Inc. histórico</th>
+              <th class="dd4-center">Faltas</th>
+              <th class="dd4-center">Retardos</th>
+              <th class="dd4-center">Sin acción</th>
+              <th>Advertencia vigente</th>
+              <th>Riesgo</th>
+              <th>Clasificación</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${
+              rows.length
+                ? rows.map(person=>`
+                  <tr
+                    class="clickable"
+                    onclick="_dd4_openAgent('${String(person.id).replaceAll("'","\\'")}')"
+                  >
+                    <td>
+                      <div class="dd-name-cell">
+                        <div class="dd-avatar">
+                          ${_dd_initials(person.name)}
+                        </div>
+                        <div>
+                          <div class="dd-primary">
+                            ${_dd_escape(person.name)}
+                          </div>
+                          <div class="dd-secondary">
+                            ${_dd_escape(person.id)}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td>
+                      ${_dd_escape(person.campaign)}
+                    </td>
+
+                    <td>
+                      ${_dd_escape(person.supervisor)}
+                    </td>
+
+                    <td>
+                      ${_dd_escape(person.position)}
+                    </td>
+
+                    <td class="dd4-center dd4-mono">
+                      ${person.incidents30}
+                    </td>
+
+                    <td class="dd4-center dd4-mono">
+                      ${person.incidents60}
+                    </td>
+
+                    <td class="dd4-center dd4-mono">
+                      <b>${person.incidents90}</b>
+                    </td>
+
+                    <td
+                      class="dd4-center dd4-mono"
+                      style="color:#DC2626"
+                    >
+                      ${person.faltas90}
+                    </td>
+
+                    <td
+                      class="dd4-center dd4-mono"
+                      style="color:#D97706"
+                    >
+                      ${person.retardos90}
+                    </td>
+
+                    <td
+                      class="dd4-center dd4-mono"
+                      style="color:${
+                        Number(person.missingActions90||0)
+                          ? '#BE123C'
+                          : '#15803D'
+                      }"
+                    >
+                      ${
+                        person.actionsDataAvailable
+                          ? person.missingActions90
+                          : '—'
+                      }
+                    </td>
+
+                    <td>
+                      ${_dd4_warningPill(person.warningLevel)}
+                    </td>
+
+                    <td>
+                      ${_dd4_riskPill(person.riskBand)}
+                    </td>
+
+                    <td>
+                      ${_dd4_recurrencePill(person.recurrence)}
+                    </td>
+                  </tr>
+                `).join('')
+                : `
+                  <tr>
+                    <td colspan="13">
+                      <div class="dd4-empty">
+                        No hay personas con estos filtros.
+                      </div>
+                    </td>
+                  </tr>
+                `
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
-function _dd4_renderRotation(d){const r=d.current.rotation||{};const rows=r.rows||[];return `<div class="dd4-grid">${_dd4_kpi('Bajas',r.bajas,`${_dd_delta(r.bajas,d.previous.rotation?.bajas||0).label} vs anterior`,'#DC2626')}${_dd4_kpi('Tasa estimada',r.rate+'%',`Bajas / HC promedio estimado (${r.avgHC})`,'#D97706')}${_dd4_kpi('Voluntarias',r.voluntary,`${r.involuntary} involuntarias`,'#2563EB')}${_dd4_kpi('Early attrition <30d',r.early,`${r.earlyBands?.d60||0} entre 31–60d · ${r.earlyBands?.d90||0} entre 61–90d`,'#7C3AED')}</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1100px"><thead><tr><th>Persona</th><th>Ingreso</th><th>Baja</th><th>Antigüedad</th><th>Campaña</th><th>Supervisor</th><th>Tipo</th><th>Motivo</th></tr></thead><tbody>${rows.length?rows.map(x=>{const hd=x.hire_date&&x.termination_date?Math.max(0,Math.round((new Date(x.termination_date+'T12:00:00')-new Date(x.hire_date+'T12:00:00'))/86400000)):null;return`<tr><td><div class="dd4-strong">${_dd_escape(_dd_firstValue(x,['employee_name','full_name','name'])||_dd_firstValue(x,['employee_id','id'])||'—')}</div><div class="dd-secondary">${_dd_escape(_dd_firstValue(x,['employee_id','id'])||'—')}</div></td><td class="dd4-mono">${x.hire_date?fmtDateShort(x.hire_date):'—'}</td><td class="dd4-mono">${x.termination_date?fmtDateShort(x.termination_date):'—'}</td><td class="dd4-mono">${hd===null?'—':hd+' días'}</td><td>${_dd_escape(_dd_firstValue(x,['campaign_id','campaign'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['supervisor_name','manager_name','supervisor_id'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_type','type'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_reason','reason','notes'])||'—')}</td></tr>`;}).join(''):`<tr><td colspan="8"><div class="dd4-empty">No hubo bajas en el periodo.</div></td></tr>`}</tbody></table></div></div>`;}
+function _dd4_renderRotation(d){const r=d.current.rotation||{};const rows=r.rows||[];return `<div class="dd4-grid">${_dd4_kpi('Bajas',r.bajas,_dd4_comparisonText(d,r.bajas,d.previous.rotation?.bajas||0),'#DC2626')}${_dd4_kpi('Tasa estimada',r.rate+'%',`Bajas / HC promedio estimado (${r.avgHC})`,'#D97706')}${_dd4_kpi('Voluntarias',r.voluntary,`${r.involuntary} involuntarias`,'#2563EB')}${_dd4_kpi('Early attrition <30d',r.early,`${r.earlyBands?.d60||0} entre 31–60d · ${r.earlyBands?.d90||0} entre 61–90d`,'#7C3AED')}</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1100px"><thead><tr><th>Persona</th><th>Ingreso</th><th>Baja</th><th>Antigüedad</th><th>Campaña</th><th>Supervisor</th><th>Tipo</th><th>Motivo</th></tr></thead><tbody>${rows.length?rows.map(x=>{const hd=x.hire_date&&x.termination_date?Math.max(0,Math.round((new Date(x.termination_date+'T12:00:00')-new Date(x.hire_date+'T12:00:00'))/86400000)):null;return`<tr><td><div class="dd4-strong">${_dd_escape(_dd_firstValue(x,['employee_name','full_name','name'])||_dd_firstValue(x,['employee_id','id'])||'—')}</div><div class="dd-secondary">${_dd_escape(_dd_firstValue(x,['employee_id','id'])||'—')}</div></td><td class="dd4-mono">${x.hire_date?fmtDateShort(x.hire_date):'—'}</td><td class="dd4-mono">${x.termination_date?fmtDateShort(x.termination_date):'—'}</td><td class="dd4-mono">${hd===null?'—':hd+' días'}</td><td>${_dd_escape(_dd_firstValue(x,['campaign_id','campaign'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['supervisor_name','manager_name','supervisor_id'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_type','type'])||'—')}</td><td>${_dd_escape(_dd_firstValue(x,['termination_reason','reason','notes'])||'—')}</td></tr>`;}).join(''):`<tr><td colspan="8"><div class="dd4-empty">No hubo bajas en el periodo.</div></td></tr>`}</tbody></table></div></div>`;}
 
-function _dd4_qualityRows(d){const q=d.quality;const map={duplicates:q.auditFaltas.filter(r=>r.dd_duplicate_count>1),conflicts:q.auditFaltas.filter(r=>(r.dd_duplicate_statuses||[]).length>1),audit_without_exception:q.auditWithoutException,exception_without_audit:q.exceptionWithoutAudit,pending:q.pending,unknown_status:q.unknown,missing_supervisor:q.missingSupervisor,missing_campaign:q.missingCampaign,active_without_rows:q.activeWithoutRows,unknown_employee:q.unknownEmployees};return map[_dd4_UI.quality]||[];}
-function _dd4_renderQuality(d){const q=d.quality,detail=_dd4_qualityRows(d);return `<div class="dd4-grid">${q.issues.slice(0,8).map(x=>_dd4_kpi(x.label,x.count,x.detail,x.severity==='bad'?'#DC2626':x.severity==='warn'?'#D97706':'#16A34A',`_dd4_setUI('quality','${x.type}')`)).join('')}</div><div class="dd4-two"><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Control de duplicados</div><div class="dd4-panel-copy">El cálculo usa ${q.cleanCount} filas únicas a partir de ${q.rawCount} filas recibidas.</div></div><span class="dd4-chip ${d.current.duplicates.length?'red':'green'}">${d.current.duplicates.length} grupos</span></div><div class="dd4-panel-body">${d.current.duplicates.length?d.current.duplicates.slice(0,8).map(x=>`<div class="dd4-alert red"><b>${_dd_escape(x.employee_name||x.employee_id||'—')} · ${fmtDateShort(x.work_date)}</b><br>${x.count} filas: ${x.statuses.map(s=>_dd_escape(s)).join(', ')}</div>`).join(''):'<div class="dd4-alert green">No se detectaron duplicados agente-fecha en el universo filtrado.</div>'}</div></div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Reglas activas de confianza</div><div class="dd4-panel-copy">Lo que Deep Dive incluye y excluye automáticamente.</div></div></div><div class="dd4-panel-body"><div class="dd4-alert blue">1. Una fila por agente-fecha.<br>2. Pendientes y rechazadas no cuentan como faltas finales.<br>3. Evidencia de asistencia prevalece sobre una fila duplicada de ausencia.<br>4. Una People Action solo cubre una incidencia.<br>5. Todas las diferencias quedan visibles en esta pestaña.</div></div></div></div>${_dd4_UI.quality!=='all'?`<div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Detalle · ${_dd_escape(q.issues.find(x=>x.type===_dd4_UI.quality)?.label||_dd4_UI.quality)}</div><div class="dd4-panel-copy">Registros encontrados para la alerta seleccionada.</div></div><button class="btn-ghost" onclick="_dd4_setUI('quality','all')">Cerrar detalle</button></div><div class="dd4-panel-body"><pre style="white-space:pre-wrap;font:11px var(--fm);color:#334155;max-height:420px;overflow:auto;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px">${_dd_escape(JSON.stringify(detail.slice(0,100),null,2))}</pre></div></div>`:''}`;}
+function _dd4_qualityRows(d){
+  const q=d.quality;
+
+  const map={
+    model_validation:
+      d.modelChecks||[],
+    duplicates:
+      d.current.duplicates||[],
+    conflicts:
+      d.current.conflicts||[],
+    audit_without_exception:
+      q.auditWithoutException,
+    exception_without_audit:
+      q.exceptionWithoutAudit,
+    pending:
+      q.pending,
+    unknown_status:
+      q.unknown,
+    missing_supervisor:
+      q.missingSupervisor,
+    missing_campaign:
+      q.missingCampaign,
+    active_without_rows:
+      q.activeWithoutRows,
+    unknown_employee:
+      q.unknownEmployees
+  };
+
+  return map[_dd4_UI.quality]||[];
+}
+function _dd4_renderQuality(d){
+  const quality=d.quality;
+  const health=_dd4_dataHealth(d);
+  const detail=
+    _dd4_qualityRows(d);
+
+  return `
+    <div class="dd4-grid">
+      ${_dd4_kpi(
+        'Filas únicas',
+        quality.cleanCount,
+        `${quality.rawCount} filas recibidas`,
+        '#2563EB'
+      )}
+
+      ${_dd4_kpi(
+        'Duplicados',
+        d.current.duplicates.length,
+        'Eliminados del cálculo',
+        d.current.duplicates.length
+          ? '#DC2626'
+          : '#16A34A',
+        "_dd4_setUI('quality','duplicates')"
+      )}
+
+      ${_dd4_kpi(
+        'Sin supervisor',
+        quality.missingSupervisor.length,
+        'No pueden asignarse correctamente',
+        quality.missingSupervisor.length
+          ? '#DC2626'
+          : '#16A34A',
+        "_dd4_setUI('quality','missing_supervisor')"
+      )}
+
+      ${_dd4_kpi(
+        'Sin campaña',
+        quality.missingCampaign.length,
+        'Limitan el análisis operativo',
+        quality.missingCampaign.length
+          ? '#D97706'
+          : '#16A34A',
+        "_dd4_setUI('quality','missing_campaign')"
+      )}
+
+      ${_dd4_kpi(
+        'Validaciones internas',
+        d.modelChecks?.length||0,
+        'Consistencia entre KPIs y filas',
+        d.modelChecks?.length
+          ? '#DC2626'
+          : '#16A34A',
+        "_dd4_setUI('quality','model_validation')"
+      )}
+
+      ${_dd4_kpi(
+        'Histórico Personas 360',
+        _dd4_historyUsable(d)
+          ? 'Listo'
+          : d.historyStatus==='error'
+            ? 'Error'
+            : 'Cargando',
+        _dd4_historyWindowLabel(d),
+        _dd4_historyUsable(d)
+          ? '#16A34A'
+          : d.historyStatus==='error'
+            ? '#DC2626'
+            : '#2563EB'
+      )}
+    </div>
+
+    <div class="dd4-two">
+      ${_dd4_renderAttendanceUniversePanel(d)}
+
+      <div class="dd4-panel">
+        <div class="dd4-panel-head">
+          <div>
+            <div class="dd4-panel-title">
+              Estado general de confianza
+            </div>
+            <div class="dd4-panel-copy">
+              No se usa un porcentaje artificial:
+              se separan errores críticos y seguimientos.
+            </div>
+          </div>
+
+          <span class="dd4-chip ${health.tone}">
+            ${health.label}
+          </span>
+        </div>
+
+        <div class="dd4-panel-body">
+          <div class="dd4-reconcile">
+            <div class="dd4-reconcile-item">
+              <div class="dd4-reconcile-label">
+                Errores críticos
+              </div>
+              <div
+                class="dd4-reconcile-value"
+                style="color:${health.critical?'#DC2626':'#15803D'}"
+              >
+                ${health.critical}
+              </div>
+              <div class="dd4-reconcile-note">
+                Duplicados, conflictos, asignación o cálculo.
+              </div>
+            </div>
+
+            <div class="dd4-reconcile-item">
+              <div class="dd4-reconcile-label">
+                Seguimientos
+              </div>
+              <div
+                class="dd4-reconcile-value"
+                style="color:${health.followup?'#D97706':'#15803D'}"
+              >
+                ${health.followup}
+              </div>
+              <div class="dd4-reconcile-note">
+                Diferencias o cargas pendientes.
+              </div>
+            </div>
+
+            <div class="dd4-reconcile-item">
+              <div class="dd4-reconcile-label">
+                Comparación
+              </div>
+              <div class="dd4-reconcile-value">
+                ${d.comparisonAvailable?'Disponible':'No disponible'}
+              </div>
+              <div class="dd4-reconcile-note">
+                ${_dd_escape(d.comparisonLabel||'—')}
+              </div>
+            </div>
+
+            <div class="dd4-reconcile-item">
+              <div class="dd4-reconcile-label">
+                Acciones históricas
+              </div>
+              <div class="dd4-reconcile-value">
+                ${d.historyActionsAvailable?'Disponible':'Parcial'}
+              </div>
+              <div class="dd4-reconcile-note">
+                Para identificar incidencias sin acción.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dd4-grid">
+      ${quality.issues
+        .slice(0,12)
+        .map(issue=>
+          _dd4_kpi(
+            issue.label,
+            issue.count,
+            issue.detail,
+            issue.severity==='bad'
+              ? '#DC2626'
+              : issue.severity==='warn'
+                ? '#D97706'
+                : '#16A34A',
+            `_dd4_setUI('quality','${issue.type}')`
+          )
+        )
+        .join('')}
+    </div>
+
+    <div class="dd4-two">
+      <div class="dd4-panel">
+        <div class="dd4-panel-head">
+          <div>
+            <div class="dd4-panel-title">
+              Control de duplicados
+            </div>
+            <div class="dd4-panel-copy">
+              ${quality.cleanCount} filas únicas desde
+              ${quality.rawCount} filas recibidas.
+            </div>
+          </div>
+
+          <span class="dd4-chip ${
+            d.current.duplicates.length
+              ? 'red'
+              : 'green'
+          }">
+            ${d.current.duplicates.length} grupos
+          </span>
+        </div>
+
+        <div class="dd4-panel-body">
+          ${
+            d.current.duplicates.length
+              ? d.current.duplicates
+                  .slice(0,8)
+                  .map(group=>`
+                    <div class="dd4-alert red">
+                      <b>
+                        ${_dd_escape(group.employee_name||group.employee_id||'—')}
+                        ·
+                        ${fmtDateShort(group.work_date)}
+                      </b>
+                      <br>
+                      ${group.count} filas:
+                      ${group.statuses.map(_dd_escape).join(', ')}
+                    </div>
+                  `).join('')
+              : `
+                <div class="dd4-alert green">
+                  No se detectaron duplicados persona-fecha.
+                </div>
+              `
+          }
+        </div>
+      </div>
+
+      <div class="dd4-panel">
+        <div class="dd4-panel-head">
+          <div>
+            <div class="dd4-panel-title">
+              Reglas activas de confianza
+            </div>
+            <div class="dd4-panel-copy">
+              Criterios aplicados antes de publicar los KPIs.
+            </div>
+          </div>
+        </div>
+
+        <div class="dd4-panel-body">
+          <div class="dd4-alert blue">
+            1. Una fila por persona-fecha.<br>
+            2. Descansos históricos prevalecen.<br>
+            3. Retardos dentro de tolerancia no son disciplinarios.<br>
+            4. Una Acción People cubre máximo una incidencia compatible.<br>
+            5. Reincidencia se publica solo después de cargar el histórico completo.<br>
+            6. Comparaciones sin periodo anterior se muestran como no disponibles.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    ${
+      _dd4_UI.quality!=='all'
+        ? `
+          <div class="dd4-panel">
+            <div class="dd4-panel-head">
+              <div>
+                <div class="dd4-panel-title">
+                  Detalle ·
+                  ${_dd_escape(
+                    quality.issues.find(issue=>
+                      issue.type===_dd4_UI.quality
+                    )?.label||
+                    _dd4_UI.quality
+                  )}
+                </div>
+                <div class="dd4-panel-copy">
+                  Primeros 100 registros de la alerta seleccionada.
+                </div>
+              </div>
+
+              <button
+                class="btn-ghost"
+                onclick="_dd4_setUI('quality','all')"
+              >
+                Cerrar detalle
+              </button>
+            </div>
+
+            <div class="dd4-panel-body">
+              ${_dd4_renderQualityDetailTable(
+                detail,
+                _dd4_UI.quality
+              )}
+            </div>
+          </div>
+        `
+        : ''
+    }
+  `;
+}
 
 function _dd4_openAgent(id){
   const a=(_dd_DATA?.agents||[]).find(x=>String(x.id).toUpperCase()===String(id).toUpperCase());if(!a)return;
   if(_dd_isOperationalAccess()){
     const rows=(_dd_DATA?.history90?.rows||[]).filter(r=>String(r.employee_id||'').toUpperCase()===String(id).toUpperCase()).sort((x,y)=>String(y.work_date||'').localeCompare(String(x.work_date||'')));
     const incidentRows=rows.filter(r=>['retardo','falta_injustificada','sin_salida','sin_entrada'].includes(_dd_norm(r.audit_status)));
-    const html=`<div class="modal-backdrop" id="dd4-agent-modal" onclick="if(event.target===this)_dd4_closeAgent()"><div class="modal" style="width:1050px;max-width:96vw"><div class="modal-hd"><div><h3>${_dd_escape(a.name)}</h3><div class="sub">Detalle de asistencia · ${_dd_escape(a.id)} · ${_dd_escape(a.campaign)} · ${_dd_escape(a.supervisor)}</div></div><button class="modal-hd-close" onclick="_dd4_closeAgent()">×</button></div><div class="modal-body"><div class="dd4-alert blue">Ficha operativa de solo lectura. No contiene advertencias, People Actions, notas internas ni documentos.</div><div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('Registros',rows.length,'Últimos 90 días','#2563EB')}${_dd4_kpi('Faltas',rows.filter(r=>r.audit_status==='falta_injustificada').length,'Detectadas por auditoría','#DC2626')}${_dd4_kpi('Retardos',rows.filter(r=>r.audit_status==='retardo').length,'En el periodo ampliado','#D97706')}${_dd4_kpi('Sin salida',rows.filter(r=>r.audit_status==='sin_salida').length,'Cierres incompletos','#7C3AED')}</div><div class="modal-section"><div class="ms-title">Historial de asistencia</div><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:900px"><thead><tr><th>Fecha</th><th>Horario</th><th>Entrada</th><th>Salida</th><th class="dd4-center">Min. tarde</th><th>Estado</th></tr></thead><tbody>${rows.length?rows.slice(0,100).map(r=>`<tr><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td class="dd4-mono">${_dd_timeValue(r,['shift_start'])||'—'}–${_dd_timeValue(r,['shift_end'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td>${_dd4_statusPill(r.audit_status)}</td></tr>`).join(''):`<tr><td colspan="6"><div class="dd4-empty">Sin registros de asistencia.</div></td></tr>`}</tbody></table></div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="_dd4_closeAgent()">Cerrar</button></div></div></div>`;
+    const html=`<div class="modal-backdrop" id="dd4-agent-modal" onclick="if(event.target===this)_dd4_closeAgent()"><div class="modal" style="width:1050px;max-width:96vw"><div class="modal-hd"><div><h3>${_dd_escape(a.name)}</h3><div class="sub">Detalle de asistencia · ${_dd_escape(a.id)} · ${_dd_escape(a.campaign)} · ${_dd_escape(a.supervisor)}</div></div><button class="modal-hd-close" onclick="_dd4_closeAgent()">×</button></div><div class="modal-body"><div class="dd4-alert blue">Ficha operativa de solo lectura. No contiene advertencias, People Actions, notas internas ni documentos.</div><div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('Registros',rows.length,'Periodo actual + comparación','#2563EB')}${_dd4_kpi('Faltas',rows.filter(r=>r.audit_status==='falta_injustificada').length,'Detectadas por auditoría','#DC2626')}${_dd4_kpi('Retardos',rows.filter(r=>r.audit_status==='retardo').length,'Rango disponible','#D97706')}${_dd4_kpi('Sin salida',rows.filter(r=>r.audit_status==='sin_salida').length,'Cierres incompletos','#7C3AED')}</div><div class="modal-section"><div class="ms-title">Historial de asistencia</div><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:900px"><thead><tr><th>Fecha</th><th>Horario</th><th>Entrada</th><th>Salida</th><th class="dd4-center">Min. tarde</th><th>Estado</th></tr></thead><tbody>${rows.length?rows.slice(0,100).map(r=>`<tr><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td class="dd4-mono">${_dd_timeValue(r,['shift_start'])||'—'}–${_dd_timeValue(r,['shift_end'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td class="dd4-center dd4-mono">${r.audit_status==='retardo'?Number(r.minutes_late||0):'—'}</td><td>${_dd4_statusPill(r.audit_status)}</td></tr>`).join(''):`<tr><td colspan="6"><div class="dd4-empty">Sin registros de asistencia.</div></td></tr>`}</tbody></table></div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="_dd4_closeAgent()">Cerrar</button></div></div></div>`;
     document.getElementById('dd4-agent-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);return;
   }
   const events=[];(a.historyRows||[]).filter(r=>['retardo','falta_injustificada','sin_salida','sin_entrada'].includes(r.audit_status)).forEach(r=>events.push({date:r.work_date,title:_dd_incidentTypeLabel(r.audit_status),note:[r.minutes_late?`${r.minutes_late} min tarde`:'',r.supervisor_name,r.campaign_id].filter(Boolean).join(' · '),type:'attendance'}));
-  (_dd_DATA.current.actionRowsAll||[]).filter(x=>String(_dd_actionEmployee(x)||'').toUpperCase()===String(id).toUpperCase()).forEach(x=>events.push({date:String(_dd_actionDate(x)||'').slice(0,10),title:`People Action · ${_dd_actionLevelLabel(_dd_actionLevel(x))}`,note:_dd_actionStatusLabel(x),type:'action'}));
+  (_dd_DATA.historyActionRows||_dd_DATA.current.actionRowsAll||[]).filter(x=>String(_dd_actionEmployee(x)||'').toUpperCase()===String(id).toUpperCase()).forEach(x=>events.push({date:String(_dd_actionDate(x)||'').slice(0,10),title:`People Action · ${_dd_actionLevelLabel(_dd_actionLevel(x))}`,note:_dd_actionStatusLabel(x),type:'action'}));
   events.sort((x,y)=>String(y.date).localeCompare(String(x.date)));
-  const html=`<div class="modal-backdrop" id="dd4-agent-modal" onclick="if(event.target===this)_dd4_closeAgent()"><div class="modal" style="width:980px;max-width:96vw"><div class="modal-hd"><div><h3>${_dd_escape(a.name)}</h3><div class="sub">${_dd_escape(a.id)} · ${_dd_escape(a.campaign)} · ${_dd_escape(a.supervisor)}</div></div><button class="modal-hd-close" onclick="_dd4_closeAgent()">×</button></div><div class="modal-body"><div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('Incidencias 30d',a.incidents30,'Faltas + retardos','#D97706')}${_dd4_kpi('Incidencias 90d',a.incidents90,`${a.faltas90} faltas · ${a.retardos90} retardos`,'#DC2626')}${_dd4_kpi('People Actions',a.actions,'Cargadas en el rango ampliado','#2563EB')}${_dd4_kpi('Clasificación',a.recurrence,`Riesgo ${a.riskScore}`,'#7C3AED')}</div><div class="modal-section"><div class="ms-title">Perfil laboral</div><div class="kv"><span class="k">Estatus</span><span class="v">${_dd_escape(a.status)}</span></div><div class="kv"><span class="k">Puesto</span><span class="v">${_dd_escape(a.position)}</span></div><div class="kv"><span class="k">Ingreso</span><span class="v">${a.hireDate?fmtDateShort(a.hireDate):'—'}</span></div><div class="kv"><span class="k">Campaña / supervisor</span><span class="v">${_dd_escape(a.campaign)} · ${_dd_escape(a.supervisor)}</span></div><div class="kv"><span class="k">Advertencia vigente</span><span class="v">${_dd4_warningPill(a.warningLevel)}${a.warningDaysRemaining!==null?` · ${a.warningDaysRemaining===0?'vence hoy':a.warningDaysRemaining+' días restantes'}`:''}</span></div><div class="kv"><span class="k">Motivo de advertencia</span><span class="v" style="max-width:620px;white-space:normal">${a.warningLevel==='other'?'—':_dd_escape(a.warning?.reason_title||'Sin motivo registrado')}${a.warning?.reason_detail?`<div style="font-size:11px;color:#64748B;margin-top:3px;line-height:1.4">${_dd_escape(a.warning.reason_detail)}</div>`:''}</span></div></div><div class="modal-section"><div class="ms-title">Línea del tiempo · últimos 90 días</div><div class="dd4-timeline">${events.length?events.slice(0,80).map(e=>`<div class="dd4-timeline-item"><div class="dd4-timeline-date">${e.date?fmtDateShort(e.date):'—'}</div><div><div class="dd4-timeline-title">${_dd_escape(e.title)}</div><div class="dd4-timeline-note">${_dd_escape(e.note||'Sin detalle')}</div></div></div>`).join(''):'<div class="dd4-empty">Sin incidencias ni acciones en los últimos 90 días.</div>'}</div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="_dd4_closeAgent()">Cerrar</button></div></div></div>`;document.getElementById('dd4-agent-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);
+  const html=`<div class="modal-backdrop" id="dd4-agent-modal" onclick="if(event.target===this)_dd4_closeAgent()"><div class="modal" style="width:980px;max-width:96vw"><div class="modal-hd"><div><h3>${_dd_escape(a.name)}</h3><div class="sub">${_dd_escape(a.id)} · ${_dd_escape(a.campaign)} · ${_dd_escape(a.supervisor)}</div></div><button class="modal-hd-close" onclick="_dd4_closeAgent()">×</button></div><div class="modal-body"><div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('Incidencias 30d',a.incidents30,'Faltas + retardos accionables','#D97706')}${_dd4_kpi('Incidencias históricas',a.incidents90,`${a.faltas90} faltas · ${a.retardos90} retardos · ${_dd4_historyWindowLabel(_dd_DATA)}`,'#DC2626')}${_dd4_kpi('Sin acción',a.actionsDataAvailable?a.missingActions90:'—',a.actionsDataAvailable?`${a.linkedActions90} vinculadas · ${a.lateActions90} tardías`:'Histórico de acciones no disponible','#BE123C')}${_dd4_kpi('Clasificación',a.recurrence,`Riesgo ${a.riskBand}`,'#7C3AED')}</div><div class="modal-section"><div class="ms-title">Perfil laboral</div><div class="kv"><span class="k">Estatus</span><span class="v">${_dd_escape(a.status)}</span></div><div class="kv"><span class="k">Puesto</span><span class="v">${_dd_escape(a.position)}</span></div><div class="kv"><span class="k">Ingreso</span><span class="v">${a.hireDate?fmtDateShort(a.hireDate):'—'}</span></div><div class="kv"><span class="k">Campaña / supervisor</span><span class="v">${_dd_escape(a.campaign)} · ${_dd_escape(a.supervisor)}</span></div><div class="kv"><span class="k">Advertencia vigente</span><span class="v">${_dd4_warningPill(a.warningLevel)}${a.warningDaysRemaining!==null?` · ${a.warningDaysRemaining===0?'vence hoy':a.warningDaysRemaining+' días restantes'}`:''}</span></div><div class="kv"><span class="k">Motivo de advertencia</span><span class="v" style="max-width:620px;white-space:normal">${a.warningLevel==='other'?'—':_dd_escape(a.warning?.reason_title||'Sin motivo registrado')}${a.warning?.reason_detail?`<div style="font-size:11px;color:#64748B;margin-top:3px;line-height:1.4">${_dd_escape(a.warning.reason_detail)}</div>`:''}</span></div></div><div class="modal-section"><div class="ms-title">Línea del tiempo · histórico disponible</div><div class="dd4-timeline">${events.length?events.slice(0,80).map(e=>`<div class="dd4-timeline-item"><div class="dd4-timeline-date">${e.date?fmtDateShort(e.date):'—'}</div><div><div class="dd4-timeline-title">${_dd_escape(e.title)}</div><div class="dd4-timeline-note">${_dd_escape(e.note||'Sin detalle')}</div></div></div>`).join(''):'<div class="dd4-empty">Sin incidencias ni acciones en el histórico disponible.</div>'}</div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="_dd4_closeAgent()">Cerrar</button></div></div></div>`;document.getElementById('dd4-agent-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);
 }
 function _dd4_closeAgent(){document.getElementById('dd4-agent-modal')?.remove();}
 
-function _dd4_tabContent(d){if(_dd_isOperationalAccess()){switch(_dd4_UI.tab){case'attendance':return _dd4_renderAttendance(d);case'incidents':return _dd4_renderOperationalIncidents(d);case'campaigns':return _dd4_renderOperationalCampaigns(d);case'accountability':return _dd4_renderOperationalAccountability(d);default:return _dd4_renderOperationalOverview(d);}}switch(_dd4_UI.tab){case'attendance':return _dd4_renderAttendance(d);case'supervisors':return _dd4_renderSupervisors(d);case'agents':return _dd4_renderAgents(d,false);case'recurrence':return _dd4_renderAgents(d,true);case'rotation':return _dd4_renderRotation(d);case'quality':return _dd4_renderQuality(d);case'tickets':return `${_dd_renderTicketCommandCenter(d)}${_dd_renderDetalleCorreccionesAsistencia(d.current.ticketRows||[])}${_dd_renderPayrollDeepDive(d.payrollTickets||[])}`;default:return _dd4_renderOverview(d);}}
+function _dd4_tabContent(d){
+  if(_dd_isOperationalAccess()){
+    switch(_dd4_UI.tab){
+      case'attendance':
+        return _dd4_renderAttendance(d);
+      case'incidents':
+        return _dd4_renderOperationalIncidents(d);
+      case'campaigns':
+        return _dd4_renderOperationalCampaigns(d);
+      case'accountability':
+        return _dd4_renderOperationalAccountability(d);
+      default:
+        return _dd4_renderOperationalOverview(d);
+    }
+  }
+
+  switch(_dd4_UI.tab){
+    case'attendance':
+      return _dd4_renderAttendance(d);
+    case'supervisors':
+      return _dd4_renderSupervisors(d);
+    case'people360':
+      return _dd4_renderAgents(d);
+    case'campaigns':
+      return _dd4_renderPeopleCampaigns(d);
+    case'rotation':
+      return _dd4_renderRotation(d);
+    case'quality':
+      return _dd4_renderQuality(d);
+    case'tickets':
+      return `
+        ${_dd_renderTicketCommandCenter(d)}
+        ${_dd_renderDetalleCorreccionesAsistencia(d.current.ticketRows||[])}
+        ${_dd_renderPayrollDeepDive(d.payrollTickets||[])}
+      `;
+    default:
+      return _dd4_renderOverview(d);
+  }
+}
 
 
 // ════════════════════════════════════════════════════════════
@@ -20452,15 +24143,19 @@ function _dd5_buildPulse(data){
   const topCampaign=Object.entries(campaignCounts)
     .sort((a,b)=>b[1]-a[1])[0];
 
-  const incidentDelta=_dd_delta(
-    Number(cur.retardo||0)+Number(cur.falta||0),
-    Number(prev.retardo||0)+Number(prev.falta||0)
-  );
+  const incidentDeltaLabel=
+    _dd4_comparisonText(
+      data,
+      Number(cur.retardo||0)+Number(cur.falta||0),
+      Number(prev.retardo||0)+Number(prev.falta||0)
+    );
 
-  const ticketDelta=_dd_delta(
-    Number(tickets.created||0),
-    Number(prevTickets.created||0)
-  );
+  const ticketDeltaLabel=
+    _dd4_comparisonText(
+      data,
+      Number(tickets.created||0),
+      Number(prevTickets.created||0)
+    );
 
   return [
     _dd5_makeItem({
@@ -20470,7 +24165,7 @@ function _dd5_buildPulse(data){
         Number(cur.falta||0)>0?'high':'medium',
       entityName:'Asistencia',
       fact:`Durante el periodo se detectaron ${Number(cur.retardo||0)} retardos disciplinarios y ${Number(cur.falta||0)} faltas injustificadas.`,
-      interpretation:`El volumen total de incidencias fue ${incidentDelta.label} frente al periodo anterior.`,
+      interpretation:`El volumen total de incidencias fue ${incidentDeltaLabel}.`,
       recommendation:'Usar el detalle de offenders para separar reincidencia, casos sin gestión y eventos ya documentados.',
       metadata:{
         retardos:Number(cur.retardo||0),
@@ -20498,7 +24193,7 @@ function _dd5_buildPulse(data){
       entityName:'Carga de tickets',
       severity:Number(tickets.open||0)>0?'medium':'positive',
       fact:`Se crearon ${Number(tickets.created||0)} tickets; ${Number(tickets.resolved||0)} se resolvieron y ${Number(tickets.open||0)} permanecen abiertos.`,
-      interpretation:`El volumen fue ${ticketDelta.label} frente al periodo anterior y el tiempo promedio de resolución fue de ${Number(tickets.avgResolution||0)} horas.`,
+      interpretation:`El volumen fue ${ticketDeltaLabel} y el tiempo promedio de resolución fue de ${Number(tickets.avgResolution||0)} horas.`,
       recommendation:'Abrir Tickets y nómina para identificar las categorías que generan trabajo repetitivo.',
       metadata:{
         created:Number(tickets.created||0),
@@ -20578,7 +24273,7 @@ function _dd5_buildOffenders(data){
           ? 'high'
           : 'medium',
       fact:`${agent.name||stats.rows[0]?.employee_name||id} registró ${stats.total} incidencia${stats.total===1?'':'s'} disciplinaria${stats.total===1?'':'s'} en la semana: ${stats.retardos} retardo${stats.retardos===1?'':'s'} y ${stats.faltas} falta${stats.faltas===1?'':'s'}.`,
-      interpretation:`Clasificación de 90 días: ${recurrence}.${stats.missing?` ${stats.missing} caso${stats.missing===1?'':'s'} no tiene${stats.missing===1?'':'n'} Acción People vinculada.`:''}${warning?` Advertencia vigente: ${warning}.`:''}`,
+      interpretation:`Clasificación del histórico disponible (${_dd4_historyWindowLabel(data)}): ${recurrence}.${stats.missing?` ${stats.missing} caso${stats.missing===1?'':'s'} no tiene${stats.missing===1?'':'n'} Acción People vinculada.`:''}${warning?` Advertencia vigente: ${warning}.`:''}`,
       recommendation:stats.missing
         ? `Confirmar con ${agent.supervisor||'el Supervisor'} la amonestación o justificación faltante.`
         : Number(agent.incidents90||0)>=2
@@ -20892,6 +24587,18 @@ async function _dd5_openReview(){
     alert(
       'Carga primero Deep Dive con acceso People para preparar la revisión.'
     );
+    return;
+  }
+
+  if(!_dd4_historyUsable(_dd_DATA)){
+    _dd4_ensureHistory90(true);
+
+    alert(
+      _dd_DATA.historyStatus==='error'
+        ? 'El histórico de Personas 360 no está disponible. Reintenta antes de preparar la revisión.'
+        : 'Impulse está terminando el histórico de Personas 360. Espera a que finalice para evitar un borrador incompleto.'
+    );
+
     return;
   }
 
@@ -21230,7 +24937,7 @@ function _dd5_pulseContent(){
       </div>
       <div class="dd5-kpi">
         <div class="dd5-kpi-value">${recurrent}</div>
-        <div class="dd5-kpi-label">Reincidentes 90 días</div>
+        <div class="dd5-kpi-label">Reincidentes históricos</div>
       </div>
     </div>
 
@@ -21243,7 +24950,7 @@ function _dd5_peopleContent(){
     <div class="dd5-title">Offenders y personas que requieren intervención</div>
     <div class="dd5-help">
       No toda incidencia convierte a una persona en reincidente.
-      Revisa el historial de 90 días, la acción vinculada y la advertencia vigente.
+      Revisa el histórico disponible, la acción vinculada y la advertencia vigente.
     </div>
 
     <div class="dd5-note dd5-warning">
@@ -21848,33 +25555,67 @@ window._dd5_openSaved=_dd5_openSaved;
 
 
 function _dd_render(){
-  const c=document.getElementById('content');if(!c)return;
-  if(!_dd_canAccess()){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><div style="font-size:13px;color:#64748B">No tienes permiso para acceder a este módulo.</div></div>';return;}
-  if(_dd_LOADING){c.innerHTML='<div style="text-align:center;padding:60px;color:#94A3B8"><div style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando Deep Dive...</div>';return;}
+  const container=
+    document.getElementById('content');
+
+  if(!container)return;
+
+  if(!_dd_canAccess()){
+    container.innerHTML=`
+      <div
+        class="card"
+        style="max-width:760px;margin:0 auto"
+      >
+        <div class="card-title">
+          📊 Deep Dive
+        </div>
+        <div
+          style="font-size:13px;color:#64748B"
+        >
+          No tienes permiso para acceder a este módulo.
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if(_dd_LOADING){
+    container.innerHTML=`
+      <div
+        style="text-align:center;padding:60px;color:#94A3B8"
+      >
+        <div
+          style="width:36px;height:36px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"
+        ></div>
+        Cargando Deep Dive...
+      </div>
+    `;
+    return;
+  }
 
   if(_dd_OPERATIONAL_LOAD_ERROR){
-    const issue=_dd_OPERATIONAL_LOAD_ERROR;
+    const issue=
+      _dd_OPERATIONAL_LOAD_ERROR;
 
-    c.innerHTML=`
-      <div class="card" style="max-width:780px;margin:28px auto">
-        <div class="card-title">📊 ${
-          _dd_escape(
-            issue.title ||
-            'No se pudo cargar Deep Dive'
-          )
-        }</div>
+    container.innerHTML=`
+      <div
+        class="card"
+        style="max-width:780px;margin:28px auto"
+      >
+        <div class="card-title">
+          📊 ${_dd_escape(issue.title||'No se pudo cargar Deep Dive')}
+        </div>
 
         <div
           class="dd4-alert amber"
           style="margin-top:14px;white-space:pre-line"
-        >${
-          _dd_escape(
-            issue.message ||
-            'Verifica tu conexión y vuelve a intentarlo.'
-          )
-        }</div>
+        >
+          ${_dd_escape(issue.message||'Verifica tu conexión y vuelve a intentarlo.')}
+        </div>
 
-        <div style="display:flex;gap:10px;margin-top:16px">
+        <div
+          style="display:flex;gap:10px;margin-top:16px"
+        >
           <button
             class="btn-primary"
             onclick="_dd_retryOperationalData(false)"
@@ -21888,15 +25629,96 @@ function _dd_render(){
     return;
   }
 
-  const d=_dd_DATA;if(!d){c.innerHTML='<div class="card" style="max-width:760px;margin:0 auto"><div class="card-title">📊 Deep Dive</div><button class="btn-primary" onclick="_dd_loadData()">Cargar análisis</button></div>';return;}
-  const operational=_dd_isOperationalAccess();
-  if(operational&&!_dd_allowedOperationalTabs().has(_dd4_UI.tab))_dd4_UI.tab='overview';
-  const trust=operational?100:Math.max(0,100-Math.min(100,Math.round((d.quality.totalIssues/Math.max(1,d.current.attendance.expectedDays))*100)));
-  const tabs=operational?[['overview','Control Tower'],['attendance','Asistencia'],['incidents','Incidencias'],['campaigns','Campañas'],['accountability','Accountability']]:[['overview','Control Tower'],['attendance','Asistencia'],['supervisors','Supervisores'],['agents','Agentes 360'],['recurrence','Reincidencias'],['rotation','Rotación'],['tickets','Tickets y nómina'],['quality','Calidad de datos']];
-  const modeLabel=operational?(currentRole==='ceo'?'Vista ejecutiva':'Vista operativa'):'People Intelligence · Investigation Workspace';
-  const subtitleScope=operational?(d.scope_label||_dd_operationalScopeLabel()):'Cada número puede rastrearse hasta las personas y registros que lo forman.';
+  const data=_dd_DATA;
+
+  if(!data){
+    container.innerHTML=`
+      <div
+        class="card"
+        style="max-width:760px;margin:0 auto"
+      >
+        <div class="card-title">
+          📊 Deep Dive
+        </div>
+        <button
+          class="btn-primary"
+          onclick="_dd_loadData()"
+        >
+          Cargar análisis
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  const operational=
+    _dd_isOperationalAccess();
+
+  if(
+    operational &&
+    !_dd_allowedOperationalTabs()
+      .has(_dd4_UI.tab)
+  ){
+    _dd4_UI.tab='overview';
+  }
+
+  if(
+    !operational &&
+    ['agents','recurrence'].includes(
+      _dd4_UI.tab
+    )
+  ){
+    _dd4_UI.tab='people360';
+  }
+
+  const health=
+    operational
+      ? null
+      : _dd4_dataHealth(data);
+
+  const tabs=operational
+    ? [
+        ['overview','Control Tower'],
+        ['attendance','Asistencia'],
+        ['incidents','Incidencias'],
+        ['campaigns','Campañas'],
+        ['accountability','Accountability']
+      ]
+    : [
+        ['overview','Control Tower'],
+        ['attendance','Asistencia'],
+        ['supervisors','Liderazgo'],
+        ['people360','Personas 360'],
+        ['campaigns','Campañas'],
+        ['rotation','Rotación'],
+        ['tickets','Tickets y nómina'],
+        ['quality','Calidad de datos']
+      ];
+
+  const modeLabel=operational
+    ? (
+        currentRole==='ceo'
+          ? 'Vista ejecutiva'
+          : 'Vista operativa'
+      )
+    : 'People Intelligence · Investigation Workspace';
+
+  const subtitleScope=operational
+    ? (
+        data.scope_label||
+        _dd_operationalScopeLabel()
+      )
+    : 'Cada KPI puede rastrearse hasta las personas y registros que lo forman.';
+
   const controlsRight=operational
-    ? `<button class="btn-ghost" onclick="_dd_loadData()">🔄 Actualizar</button>`
+    ? `
+      <button
+        class="btn-ghost"
+        onclick="_dd_loadData()"
+      >
+        🔄 Actualizar
+      </button>
+    `
     : `
       ${
         _dd5_canPrepare()
@@ -21910,6 +25732,7 @@ function _dd_render(){
           `
           : ''
       }
+
       <button
         class="btn-ghost"
         onclick="_dd_loadData()"
@@ -21917,44 +25740,201 @@ function _dd_render(){
         🔄 Actualizar
       </button>
     `;
-  c.innerHTML=`<div class="dd4-shell"><div class="dd4-toolbar"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input class="df-input" type="date" id="ddFrom" value="${_dd_FILTERS.from}"><span style="color:#94A3B8">→</span><input class="df-input" type="date" id="ddTo" value="${_dd_FILTERS.to}"><button class="df-apply" onclick="_dd_applyPeriod()">Aplicar</button><select class="df-input" onchange="_dd_setFilter('campaign',this.value)"><option value="all">Todas las campañas</option>${d.campaigns.map(x=>`<option value="${_dd_escape(x)}" ${_dd_FILTERS.campaign===x?'selected':''}>${_dd_escape(x)}</option>`).join('')}</select><select class="df-input" onchange="_dd_setFilter('supervisor',this.value)"><option value="all">Todos los supervisores</option>${d.supervisorsOptions.map(x=>`<option value="${_dd_escape(x.id)}" ${_dd_FILTERS.supervisor===x.id?'selected':''}>${_dd_escape(x.name)}</option>`).join('')}</select></div><div style="display:flex;gap:8px">${controlsRight}</div></div><div class="dd4-header"><div class="dd4-header-main"><div><div class="dd-eyebrow">${modeLabel}</div><div class="dd4-title">Deep Dive</div><div class="dd4-subtitle">${fmtDateShort(d.from)} al ${fmtDateShort(d.to)} · ${_dd_FILTERS.campaign==='all'?'Todas las campañas':_dd_escape(_dd_FILTERS.campaign)} · ${_dd_FILTERS.supervisor==='all'?'Todos los supervisores':_dd_escape(d.supervisorsOptions.find(x=>x.id===_dd_FILTERS.supervisor)?.name||_dd_FILTERS.supervisor)}<br>${_dd_escape(subtitleScope)}</div></div><div class="dd4-trust"><div class="dd4-trust-label">${operational?'Acceso':'Confianza del universo'}</div><div class="dd4-trust-value">${operational?'Solo lectura':trust+'%'}</div><div class="dd4-trust-note">${operational?'Sin información disciplinaria o de nómina':`${d.quality.totalIssues} alertas visibles · ${d.current.rows.length} filas únicas analizadas`}</div></div></div></div><div class="dd4-tabs">${tabs.map(([k,l])=>`<button class="dd4-tab ${_dd4_UI.tab===k?'on':''}" onclick="_dd4_setTab('${k}')">${l}</button>`).join('')}</div>${
-    d.operationalWarning
-      ? `
+
+  container.innerHTML=`
+    <div class="dd4-shell">
+      <div class="dd4-toolbar">
         <div
-          class="dd4-alert amber"
-          style="margin-bottom:14px"
+          style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"
         >
-          <b>${_dd_escape(
-            d.operationalWarning.title ||
-            'Comparación no disponible'
-          )}</b>
-          <div style="margin-top:4px;white-space:pre-line">
-            ${_dd_escape(
-              d.operationalWarning.message ||
-              ''
-            )}
+          <input
+            class="df-input"
+            type="date"
+            id="ddFrom"
+            value="${_dd_FILTERS.from}"
+          >
+
+          <span style="color:#94A3B8">
+            →
+          </span>
+
+          <input
+            class="df-input"
+            type="date"
+            id="ddTo"
+            value="${_dd_FILTERS.to}"
+          >
+
+          <button
+            class="df-apply"
+            onclick="_dd_applyPeriod()"
+          >
+            Aplicar
+          </button>
+
+          <select
+            class="df-input"
+            onchange="_dd_setFilter('campaign',this.value)"
+          >
+            <option value="all">
+              Todas las campañas
+            </option>
+
+            ${data.campaigns.map(campaign=>`
+              <option
+                value="${_dd_escape(campaign)}"
+                ${_dd_FILTERS.campaign===campaign?'selected':''}
+              >
+                ${_dd_escape(campaign)}
+              </option>
+            `).join('')}
+          </select>
+
+          <select
+            class="df-input"
+            onchange="_dd_setFilter('supervisor',this.value)"
+          >
+            <option value="all">
+              Todos los supervisores
+            </option>
+
+            ${data.supervisorsOptions.map(supervisor=>`
+              <option
+                value="${_dd_escape(supervisor.id)}"
+                ${_dd_FILTERS.supervisor===supervisor.id?'selected':''}
+              >
+                ${_dd_escape(supervisor.name)}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+
+        <div
+          style="display:flex;gap:8px"
+        >
+          ${controlsRight}
+        </div>
+      </div>
+
+      <div class="dd4-header">
+        <div class="dd4-header-main">
+          <div>
+            <div class="dd-eyebrow">
+              ${modeLabel}
+            </div>
+
+            <div class="dd4-title">
+              Deep Dive
+            </div>
+
+            <div class="dd4-subtitle">
+              ${fmtDateShort(data.from)}
+              al
+              ${fmtDateShort(data.to)}
+              ·
+              ${
+                _dd_FILTERS.campaign==='all'
+                  ? 'Todas las campañas'
+                  : _dd_escape(_dd_FILTERS.campaign)
+              }
+              ·
+              ${
+                _dd_FILTERS.supervisor==='all'
+                  ? 'Todos los supervisores'
+                  : _dd_escape(
+                      data.supervisorsOptions
+                        .find(supervisor=>
+                          supervisor.id===
+                          _dd_FILTERS.supervisor
+                        )?.name||
+                      _dd_FILTERS.supervisor
+                    )
+              }
+              <br>
+              ${_dd_escape(subtitleScope)}
+            </div>
           </div>
 
-          ${
-            d.operationalWarning.retryable
-              ? `
-                <button
-                  class="btn-ghost"
-                  style="margin-top:10px;background:white"
-                  onclick="_dd_retryOperationalData(false)"
-                >
-                  🔄 Reintentar comparación
-                </button>
-              `
-              : ''
-          }
+          <div class="dd4-trust">
+            <div class="dd4-trust-label">
+              ${
+                operational
+                  ? 'Acceso'
+                  : 'Calidad de datos'
+              }
+            </div>
+
+            <div class="dd4-trust-value">
+              ${
+                operational
+                  ? 'Solo lectura'
+                  : health.label
+              }
+            </div>
+
+            <div class="dd4-trust-note">
+              ${
+                operational
+                  ? 'Sin información disciplinaria o de nómina'
+                  : `${health.critical} críticas · ${health.followup} seguimientos · ${data.current.rows.length} filas únicas`
+              }
+            </div>
+          </div>
         </div>
-      `
-      : ''
-  }${_dd4_tabContent(d)}</div>`;
+      </div>
+
+      <div class="dd4-tabs">
+        ${tabs.map(([key,label])=>`
+          <button
+            class="dd4-tab ${_dd4_UI.tab===key?'on':''}"
+            onclick="_dd4_setTab('${key}')"
+          >
+            ${label}
+          </button>
+        `).join('')}
+      </div>
+
+      ${
+        data.operationalWarning
+          ? `
+            <div
+              class="dd4-alert amber"
+              style="margin-bottom:14px"
+            >
+              <b>
+                ${_dd_escape(data.operationalWarning.title||'Cobertura de datos')}
+              </b>
+
+              <div
+                style="margin-top:4px;white-space:pre-line"
+              >
+                ${_dd_escape(data.operationalWarning.message||'')}
+              </div>
+
+              ${
+                data.operationalWarning.retryable
+                  ? `
+                    <button
+                      class="btn-ghost"
+                      style="margin-top:10px;background:white"
+                      onclick="_dd_retryOperationalData(false)"
+                    >
+                      🔄 Reintentar
+                    </button>
+                  `
+                  : ''
+              }
+            </div>
+          `
+          : ''
+      }
+
+      ${_dd4_tabContent(data)}
+    </div>
+  `;
 }
 
-window._dd4_setTab=_dd4_setTab;window._dd4_setUI=_dd4_setUI;window._dd4_openAgent=_dd4_openAgent;window._dd4_closeAgent=_dd4_closeAgent;
+window._dd4_setTab=_dd4_setTab;window._dd4_setUI=_dd4_setUI;window._dd4_openAgent=_dd4_openAgent;window._dd4_closeAgent=_dd4_closeAgent;window._dd4_ensureHistory90=_dd4_ensureHistory90;
 
 async function _init_deepdive() {
   updateSidebarUser();
