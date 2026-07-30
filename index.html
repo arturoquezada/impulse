@@ -1931,7 +1931,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.60';
+const APP_VERSION   = '1.0.61';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3229,9 +3229,65 @@ function _a_mismaSemanaLunesDomingo(fechaA, fechaB) {
 
 // ── DATE ──
 
-function _a_fmtTime(iso){if(!iso)return'—';return new Date(iso).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit',hour12:true,timeZone:'America/Mexico_City'})}
-function _a_secsHHMM(s){if(!s)return'0:00';return`${Math.floor(s/3600)}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}`}
-function _a_secsMin(s){if(!s||s<=0)return'0 min';const m=Math.floor(s/60);return m+'min'}
+function _a_fmtTime(iso){
+  if(!iso)return'—';
+
+  const date=
+    iso instanceof Date
+      ? iso
+      : new Date(iso);
+
+  if(Number.isNaN(date.getTime())){
+    return'—';
+  }
+
+  return date.toLocaleTimeString(
+    'es-MX',
+    {
+      hour:'2-digit',
+      minute:'2-digit',
+      hour12:true,
+      timeZone:'America/Mexico_City'
+    }
+  );
+}
+
+function _a_secsHHMM(seconds){
+  if(
+    seconds===null ||
+    seconds===undefined ||
+    Number.isNaN(Number(seconds))
+  ){
+    return'—';
+  }
+
+  const value=Math.max(
+    0,
+    Number(seconds)
+  );
+
+  return`${Math.floor(value/3600)}:${String(
+    Math.floor((value%3600)/60)
+  ).padStart(2,'0')}`;
+}
+
+function _a_secsMin(seconds){
+  if(
+    seconds===null ||
+    seconds===undefined ||
+    Number.isNaN(Number(seconds))
+  ){
+    return'—';
+  }
+
+  if(Number(seconds)<=0){
+    return'0 min';
+  }
+
+  return Math.floor(
+    Number(seconds)/60
+  )+' min';
+}
 // ── FILTRO DE FECHAS ──
 // _a_dateFilter.mode: 'today' | 'week' | 'quincena' | 'month' | 'custom'
 const _a_dateFilter = {
@@ -4204,6 +4260,184 @@ function _a_timeMinutes(value) {
     seconds / 60
   );
 }
+
+function _a_normalizePunchTime(value) {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  const raw = String(value).trim();
+
+  if (!raw) {
+    return null;
+  }
+
+  const match = raw.match(
+    /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  const seconds = Number(
+    match[3] || 0
+  );
+
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes) ||
+    !Number.isInteger(seconds) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59 ||
+    seconds < 0 ||
+    seconds > 59
+  ) {
+    return null;
+  }
+
+  return [
+    String(hours).padStart(2, '0'),
+    String(minutes).padStart(2, '0'),
+    String(seconds).padStart(2, '0')
+  ].join(':');
+}
+
+function _a_isMidnightPunchValue(value) {
+  const normalized =
+    _a_normalizePunchTime(value);
+
+  return normalized === '00:00:00';
+}
+
+function _a_summaryStatusText(row = {}) {
+  return _a_normText(
+    [
+      row.attendance_status,
+      row.audit_status,
+      row.status,
+      row.estatus,
+      row.pending_issue,
+      row.detail_label
+    ].filter(Boolean).join(' ')
+  );
+}
+
+function _a_summarySignalsMissingEntry(row = {}) {
+  const status =
+    _a_summaryStatusText(row);
+
+  return [
+    'sin entrada',
+    'sin_entrada',
+    'missing entry',
+    'missing_entry',
+    'sin punch',
+    'sin_punch',
+    'missing punch',
+    'missing_punch',
+    'absent',
+    'ausente'
+  ].some(token =>
+    status.includes(
+      _a_normText(token)
+    )
+  );
+}
+
+function _a_summarySignalsMissingExit(row = {}) {
+  const status =
+    _a_summaryStatusText(row);
+
+  return [
+    'sin salida',
+    'sin_salida',
+    'missing checkout',
+    'missing_checkout',
+    'missing exit',
+    'missing_exit'
+  ].some(token =>
+    status.includes(
+      _a_normText(token)
+    )
+  );
+}
+
+function _a_summaryPunchFallback(
+  value,
+  row = {},
+  kind = 'entry'
+) {
+  const normalized =
+    _a_normalizePunchTime(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  /*
+   * 00:00 puede ser una marca real válida, pero solamente
+   * cuando existe en attendance_punches o en una corrección.
+   * Nunca confiamos en 00:00 heredado únicamente del resumen.
+   */
+  if (_a_isMidnightPunchValue(normalized)) {
+    return null;
+  }
+
+  if (
+    kind === 'entry' &&
+    _a_summarySignalsMissingEntry(row)
+  ) {
+    return null;
+  }
+
+  if (
+    kind === 'exit' &&
+    _a_summarySignalsMissingExit(row)
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function _a_typeDoesNotRequirePunch(type) {
+  const normalized =
+    _a_normText(type || '');
+
+  return [
+    'descanso',
+    'permuta_descanso',
+    'vacaciones',
+    'vacacion',
+    'permiso',
+    'incapacidad',
+    'falta_justificada',
+    'falta_injustificada',
+    'absence_justified',
+    'absence_unjustified'
+  ].includes(normalized);
+}
+
+function _a_missingPunchLabel(day = {}) {
+  if (day.missing_entry) {
+    return 'Sin entrada';
+  }
+
+  if (day.missing_exit) {
+    return 'Sin salida';
+  }
+
+  return null;
+}
+
 
 function _a_earlyDaysElapsed(workDate) {
   const start = new Date(
@@ -6340,11 +6574,14 @@ async function _a_cargarQDAYS(empId, from, to) {
 
     _a_sb
       .from('attendance_punches')
-      .select('punch_date, notes')
+      .select(
+        'id,punch_date,punch_type,punch_time,punched_at,notes'
+      )
       .eq('employee_id', empId)
-      .eq('punch_type', 'entrada')
       .gte('punch_date', from)
-      .lte('punch_date', to),
+      .lte('punch_date', to)
+      .order('punch_date')
+      .order('punch_time'),
 
     _a_sb
       .from('attendance_exceptions')
@@ -6407,7 +6644,21 @@ async function _a_cargarQDAYS(empId, from, to) {
 
   const daysOff = empRes.data?.days_off || [];
   const summary = summaryRes.data || [];
-  const notesData = notesRes.data || [];
+  const punchesData =
+    notesRes.data || [];
+
+  const notesData =
+    punchesData.filter(
+      punch =>
+        punch.punch_type === 'entrada'
+    );
+
+  if (notesRes.error) {
+    console.warn(
+      '[Impulse Punches] No se pudieron validar las marcas reales:',
+      notesRes.error
+    );
+  }
   const excep = excepRes.data || [];
   const vacaciones = vacRes.data || [];
   const punchCorrections = punchCorrectionRes.data || [];
@@ -6610,15 +6861,91 @@ async function _a_cargarQDAYS(empId, from, to) {
         x => x.work_date === fecha
       ) || null;
 
+    const dayPunches =
+      punchesData.filter(
+        punch =>
+          String(
+            punch.punch_date || ''
+          ).slice(0, 10) === fecha
+      );
+
+    const actualEntryPunch =
+      dayPunches.find(
+        punch =>
+          punch.punch_type === 'entrada'
+      ) || null;
+
+    const actualExitPunch =
+      [...dayPunches]
+        .reverse()
+        .find(
+          punch =>
+            punch.punch_type === 'salida'
+        ) || null;
+
+    const correctedTimeIn =
+      _a_normalizePunchTime(
+        punchCorrection?.corrected_time_in
+      );
+
+    const correctedTimeOut =
+      _a_normalizePunchTime(
+        punchCorrection?.corrected_time_out
+      );
+
+    const actualTimeIn =
+      _a_normalizePunchTime(
+        actualEntryPunch?.punch_time
+      );
+
+    const actualTimeOut =
+      _a_normalizePunchTime(
+        actualExitPunch?.punch_time
+      );
+
+    const summaryTimeIn =
+      _a_summaryPunchFallback(
+        s?.time_in,
+        s || {},
+        'entry'
+      );
+
+    const summaryTimeOut =
+      _a_summaryPunchFallback(
+        s?.time_out,
+        s || {},
+        'exit'
+      );
+
     const rawTimeIn =
-      punchCorrection?.corrected_time_in ||
-      s?.time_in ||
+      correctedTimeIn ||
+      actualTimeIn ||
+      summaryTimeIn ||
       null;
 
     const effectiveTimeOut =
-      punchCorrection?.corrected_time_out ||
-      s?.time_out ||
+      correctedTimeOut ||
+      actualTimeOut ||
+      summaryTimeOut ||
       null;
+
+    const timeInSource =
+      correctedTimeIn
+        ? 'correction'
+        : actualTimeIn
+          ? 'punch'
+          : summaryTimeIn
+            ? 'summary'
+            : null;
+
+    const timeOutSource =
+      correctedTimeOut
+        ? 'correction'
+        : actualTimeOut
+          ? 'punch'
+          : summaryTimeOut
+            ? 'summary'
+            : null;
 
     const earlyEntryReview =
       earlyEntryReviews.find(
@@ -6661,6 +6988,22 @@ async function _a_cargarQDAYS(empId, from, to) {
     const estadoFalta = esVacacion
       ? 'approved'
       : ex?.status || s?.exception_status || null;
+
+    const punchExpected =
+      !esDescanso &&
+      !esVacacion &&
+      !_a_typeDoesNotRequirePunch(
+        tipoFalta
+      );
+
+    const missingEntry =
+      punchExpected &&
+      !rawTimeIn;
+
+    const missingExit =
+      punchExpected &&
+      Boolean(rawTimeIn) &&
+      !effectiveTimeOut;
 
     const estatus = esVacacion
       ? 'Vacaciones'
@@ -6818,8 +7161,10 @@ async function _a_cargarQDAYS(empId, from, to) {
         ? 'day_off'
         : esVacacion
           ? 'vacation'
-          : !rawTimeIn
-            ? s?.attendance_status || null
+          : missingEntry
+            ? 'sin_punch'
+          : missingExit
+            ? 'missing_checkout'
 
             : lateRegApproved &&
               lateRegularization?.resolution_type ===
@@ -6873,10 +7218,14 @@ async function _a_cargarQDAYS(empId, from, to) {
             )
           : esDescanso
             ? 'Descanso'
-            : (
-                effectiveAttendanceStatus ||
-                (s ? 'Normal' : 'Sin registro')
-              );
+            : missingEntry
+              ? 'Sin entrada'
+              : missingExit
+                ? 'Sin salida'
+                : (
+                    effectiveAttendanceStatus ||
+                    (s ? 'Normal' : 'Sin registro')
+                  );
 
     dias.push({
       fecha,
@@ -6947,19 +7296,35 @@ async function _a_cargarQDAYS(empId, from, to) {
           ? `${fecha}T${effectiveTimeOut}-06:00`
           : null,
 
-      segundos_trabajados: esDescanso || esVacacion
-        ? 0
-        : effectiveTimeIn && effectiveTimeOut
-          ? (() => {
-              const toM = value => {
-                const [hh, mm] = String(value || '00:00').split(':').map(Number);
-                return (hh || 0) * 60 + (mm || 0);
-              };
-              let mins = toM(effectiveTimeOut) - toM(effectiveTimeIn);
-              if (mins < 0) mins += 24 * 60;
-              return mins * 60;
-            })()
-          : 0,
+      segundos_trabajados:
+        esDescanso || esVacacion
+          ? 0
+          : effectiveTimeIn &&
+            effectiveTimeOut &&
+            recognizedTimeMinutes != null
+            ? (() => {
+                const endMinutes =
+                  _a_timeMinutes(
+                    effectiveTimeOut
+                  );
+
+                if (endMinutes == null) {
+                  return null;
+                }
+
+                let minutes =
+                  endMinutes -
+                  recognizedTimeMinutes;
+
+                if (minutes < 0) {
+                  minutes += 24 * 60;
+                }
+
+                return Math.floor(
+                  minutes * 60
+                );
+              })()
+            : null,
 
       segundos_tarde:
         effectiveMinutesLate * 60,
@@ -7087,7 +7452,35 @@ async function _a_cargarQDAYS(empId, from, to) {
         null,
 
       punch_corrected: !!punchCorrection,
-      punch_correction_reason: punchCorrection?.reason || null
+      punch_correction_reason:
+        punchCorrection?.reason || null,
+
+      punch_expected:
+        punchExpected,
+
+      has_entry_punch:
+        Boolean(rawTimeIn),
+
+      has_exit_punch:
+        Boolean(effectiveTimeOut),
+
+      missing_entry:
+        missingEntry,
+
+      missing_exit:
+        missingExit,
+
+      time_in_source:
+        timeInSource,
+
+      time_out_source:
+        timeOutSource,
+
+      worked_time_available:
+        Boolean(
+          effectiveTimeIn &&
+          effectiveTimeOut
+        )
     });
 
     cur.setDate(cur.getDate() + 1);
@@ -9999,9 +10392,122 @@ function _a_auditStatusBadge(status) {
   return `<span class="pill ${cls}"><span class="dot"></span>${label}</span>`;
 }
 
-function _a_fmtAuditTime(v) {
-  if (!v) return '—';
-  return String(v).slice(0, 5);
+function _a_fmtAuditTime(
+  value,
+  row = null,
+  kind = 'generic'
+) {
+  const normalized =
+    _a_normalizePunchTime(value);
+
+  if (!normalized) {
+    return '—';
+  }
+
+  if (
+    kind === 'entry' &&
+    (
+      _a_summarySignalsMissingEntry(
+        row || {}
+      ) ||
+      (
+        _a_isMidnightPunchValue(
+          normalized
+        ) &&
+        !_a_auditHasConfirmedPunch(
+          row,
+          'entry'
+        )
+      )
+    )
+  ) {
+    return '—';
+  }
+
+  if (
+    kind === 'exit' &&
+    (
+      _a_summarySignalsMissingExit(
+        row || {}
+      ) ||
+      (
+        _a_isMidnightPunchValue(
+          normalized
+        ) &&
+        !_a_auditHasConfirmedPunch(
+          row,
+          'exit'
+        )
+      )
+    )
+  ) {
+    return '—';
+  }
+
+  return normalized.slice(0, 5);
+}
+
+function _a_auditHasConfirmedPunch(
+  row,
+  kind
+) {
+  if (!row) {
+    return false;
+  }
+
+  const sourceKeys =
+    kind === 'entry'
+      ? [
+          'entry_punch_id',
+          'time_in_punch_id',
+          'clock_in_id',
+          'punch_in_id',
+          'corrected_time_in'
+        ]
+      : [
+          'exit_punch_id',
+          'time_out_punch_id',
+          'clock_out_id',
+          'punch_out_id',
+          'corrected_time_out'
+        ];
+
+  return sourceKeys.some(
+    key =>
+      row[key] !== null &&
+      row[key] !== undefined &&
+      String(row[key]).trim() !== ''
+  );
+}
+
+function _a_auditWorkedHours(row) {
+  const entry =
+    _a_fmtAuditTime(
+      row?.time_in,
+      row,
+      'entry'
+    );
+
+  const exit =
+    _a_fmtAuditTime(
+      row?.time_out,
+      row,
+      'exit'
+    );
+
+  if (
+    entry === '—' ||
+    exit === '—'
+  ) {
+    return '—';
+  }
+
+  const hours =
+    Number(row?.hours_worked);
+
+  return Number.isFinite(hours)
+    ? hours
+    : '—';
 }
 
 function _a_exportAuditoriaCSV() {
@@ -10029,10 +10535,10 @@ function _a_exportAuditoriaCSV() {
     r.campaign_id || '',
     r.supervisor_name || '',
     `${_a_fmtAuditTime(r.shift_start)}-${_a_fmtAuditTime(r.shift_end)}`,
-    _a_fmtAuditTime(r.time_in),
-    _a_fmtAuditTime(r.time_out),
+    _a_fmtAuditTime(r.time_in, r, 'entry'),
+    _a_fmtAuditTime(r.time_out, r, 'exit'),
     r.minutes_late || 0,
-    r.hours_worked || 0,
+    _a_auditWorkedHours(r),
     r.audit_status || '',
     r.pending_issue || ''
   ]);
@@ -10133,8 +10639,8 @@ function _a_auditTableRowsHTML(rows) {
           ${_a_fmtAuditTime(r.shift_start)}–${_a_fmtAuditTime(r.shift_end)}
         </td>
 
-        <td style="font-family:'DM Mono',monospace">${_a_fmtAuditTime(r.time_in)}</td>
-        <td style="font-family:'DM Mono',monospace">${_a_fmtAuditTime(r.time_out)}</td>
+        <td style="font-family:'DM Mono',monospace">${_a_fmtAuditTime(r.time_in, r, 'entry')}</td>
+        <td style="font-family:'DM Mono',monospace">${_a_fmtAuditTime(r.time_out, r, 'exit')}</td>
 
         <td style="font-family:'DM Mono',monospace;text-align:center;color:${Number(r.minutes_late || 0) > 0 ? '#D97706' : '#64748B'}">
           ${r.minutes_late || 0}
@@ -11383,6 +11889,28 @@ function _a_statusBadge(d) {
 
   const agenteCtx = _a_agenteContextoQDAYS();
   const statusFinal = _a_statusDiaConTolerancia(d, agenteCtx);
+
+  if (d.missing_entry) {
+    return `
+      <span
+        class="pill pill-red"
+        title="Existe horario o salida, pero no se encontró una entrada real ni corregida."
+      >
+        <span class="dot"></span>Sin entrada
+      </span>
+    `;
+  }
+
+  if (d.missing_exit) {
+    return `
+      <span
+        class="pill pill-amber"
+        title="Existe entrada, pero no se encontró una salida real ni corregida."
+      >
+        <span class="dot"></span>Sin salida
+      </span>
+    `;
+  }
 
   if (
     d.late_regularization_status === 'approved' &&
@@ -14032,7 +14560,23 @@ function _a_openDayModal(idx){
 
       <div class="kv"><span class="k">Salida</span><span class="v" style="font-family:'DM Mono',monospace">${_a_fmtTime(d.salida_at)}</span></div>
       <div class="kv"><span class="k">Horas trabajadas</span><span class="v" style="font-family:'DM Mono',monospace">${_a_secsHHMM(d.segundos_trabajados)}</span></div>
-      <div class="kv"><span class="k">Tiempo tarde</span><span class="v" style="font-family:'DM Mono',monospace;color:${d.segundos_tarde>0?'#B45309':'#64748B'}">${_a_secsMin(d.segundos_tarde)}</span></div>
+
+      ${
+        d.missing_entry || d.missing_exit
+          ? `
+            <div
+              class="alert alert-amber"
+              style="margin-top:10px;margin-bottom:10px"
+            >
+              <b>${d.missing_entry ? 'Falta la entrada.' : 'Falta la salida.'}</b>
+              No se calcularon horas trabajadas, tiempo extra ni puntualidad
+              con una marca incompleta.
+            </div>
+          `
+          : ''
+      }
+
+      <div class="kv"><span class="k">Tiempo tarde</span><span class="v" style="font-family:'DM Mono',monospace;color:${d.segundos_tarde>0?'#B45309':'#64748B'}">${d.missing_entry ? '—' : _a_secsMin(d.segundos_tarde)}</span></div>
       ${d.tiempoExtraMin>0?`<div class="kv"><span class="k">Tiempo extra</span><span class="v" style="font-family:'DM Mono',monospace;color:#6366F1;font-weight:700">+${d.tiempoExtraMin} min</span></div>`:''}
     </div>
 
@@ -16918,16 +17462,111 @@ function _dd_incidentConfig(type) {
 }
 
 function _dd_timeValue(row, keys) {
-  for (const k of keys) {
-    const v = row?.[k];
-    if (!v) continue;
-    const raw = String(v);
-    if (/^\d{2}:\d{2}/.test(raw)) return raw.slice(0,5);
-    const d = new Date(v);
-    if (!Number.isNaN(d.getTime())) {
-      return fmtTimeCDMX(d);
+  const normalizedKeys =
+    (keys || []).map(key =>
+      String(key).toLowerCase()
+    );
+
+  const isEntry =
+    normalizedKeys.some(key =>
+      [
+        'clock_in',
+        'check_in',
+        'punch_in',
+        'entry_time',
+        'actual_start',
+        'first_punch',
+        'time_in'
+      ].includes(key)
+    );
+
+  const isExit =
+    normalizedKeys.some(key =>
+      [
+        'clock_out',
+        'check_out',
+        'punch_out',
+        'exit_time',
+        'actual_end',
+        'last_punch',
+        'time_out'
+      ].includes(key)
+    );
+
+  for (const key of keys || []) {
+    const value = row?.[key];
+
+    if (
+      value === null ||
+      value === undefined ||
+      String(value).trim() === ''
+    ) {
+      continue;
+    }
+
+    const raw = String(value).trim();
+
+    if (
+      /^\d{1,2}:\d{2}(?::\d{2})?$/
+        .test(raw)
+    ) {
+      const normalized =
+        _a_normalizePunchTime(raw);
+
+      if (!normalized) {
+        continue;
+      }
+
+      if (
+        isEntry &&
+        (
+          _a_summarySignalsMissingEntry(
+            row || {}
+          ) ||
+          (
+            _a_isMidnightPunchValue(
+              normalized
+            ) &&
+            !_a_auditHasConfirmedPunch(
+              row,
+              'entry'
+            )
+          )
+        )
+      ) {
+        continue;
+      }
+
+      if (
+        isExit &&
+        (
+          _a_summarySignalsMissingExit(
+            row || {}
+          ) ||
+          (
+            _a_isMidnightPunchValue(
+              normalized
+            ) &&
+            !_a_auditHasConfirmedPunch(
+              row,
+              'exit'
+            )
+          )
+        )
+      ) {
+        continue;
+      }
+
+      return normalized.slice(0, 5);
+    }
+
+    const date = new Date(value);
+
+    if (!Number.isNaN(date.getTime())) {
+      return fmtTimeCDMX(date);
     }
   }
+
   return '—';
 }
 
