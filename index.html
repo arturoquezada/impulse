@@ -1931,7 +1931,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.61';
+const APP_VERSION   = '1.0.62';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2637,7 +2637,7 @@ async function _rt_refreshActiveModule() {
       }
 
       if (
-        ['supervisor','manager','people','head_people'].includes(currentRole) &&
+        ['supervisor','manager','people','head_people','ceo'].includes(currentRole) &&
         typeof _a_cargarOTRecords === 'function'
       ) {
         await _a_cargarOTRecords({ sync: false });
@@ -3378,8 +3378,30 @@ async function _a_applyCustom(){
   _a_dateFilter.to    = ti.value;
   const dias = Math.round((new Date(ti.value)-new Date(fi.value))/(1000*60*60*24))+1;
   _a_dateFilter.label = `${fmtDateShort(fi.value)} → ${fmtDateShort(ti.value)} (${dias}d)`;
-  const empId = _a_QDAYS_EMPLEADO_ID || ROLES[currentRole].id;
-  await _a_cargarQDAYS(empId, fi.value, ti.value);
+  const empId =
+    _a_QDAYS_EMPLEADO_ID ||
+    ROLES[currentRole].id;
+
+  await _a_cargarQDAYS(
+    empId,
+    fi.value,
+    ti.value
+  );
+
+  if (
+    [
+      'supervisor',
+      'manager',
+      'people',
+      'head_people',
+      'ceo'
+    ].includes(currentRole)
+  ) {
+    await _a_cargarOTRecords({
+      sync: false
+    });
+  }
+
   _a_render();
 }
 
@@ -8734,6 +8756,7 @@ let _a_OT_PAYROLL = {};
 let _a_vistaEspecial = null;
 let _a_otTab = 'pendientes';
 let _a_otLoading = false;
+let _a_otLoadError = null;
 
 function _a_otEsc(value) {
   return String(value ?? '')
@@ -8906,12 +8929,16 @@ function _a_otBreakdown(r, approved = false) {
 }
 
 function _a_otRegistrosPorRol() {
-  let records = [...(_a_OT_RECORDS || [])];
-  const ro = ROLES[currentRole] || {};
-  if (currentRole === 'supervisor') {
-    records = records.filter(r => !r.supervisor_id || r.supervisor_id === ro.id);
-  }
-  return records;
+  /*
+   * La visibilidad ya fue validada por
+   * list_visible_overtime_records().
+   *
+   * No se vuelve a filtrar por supervisor_id en el navegador porque:
+   * - un registro histórico puede conservar al Supervisor original;
+   * - el colaborador puede haber cambiado de equipo;
+   * - el Manager necesita todos sus descendientes.
+   */
+  return [...(_a_OT_RECORDS || [])];
 }
 
 function _a_otCanReview(r) {
@@ -8941,42 +8968,137 @@ async function _a_syncOvertimeCandidates(showMessage = false) {
 }
 
 async function _a_cargarOTRecords(options = {}) {
-  // Cargar datos nunca debe recalcular ni escribir en Supabase de forma oculta.
-  // La detección explícita vive en “Detectar ahora” y en el trigger de salida.
+  /*
+   * La lectura se realiza por RPC para aplicar alcance real:
+   * - Supervisor: equipo directo y registros donde fue responsable.
+   * - Manager: jerarquía completa y Supervisores descendientes.
+   * - People / Head People / CEO: todos los registros.
+   *
+   * Cargar nunca recalcula ni modifica OT.
+   */
   const { sync = false } = options;
+
   _a_otLoading = true;
+  _a_otLoadError = null;
+
   try {
-    if (sync) await _a_syncOvertimeCandidates(false);
-
-    const { data, error } = await _a_sb
-      .from('overtime_records')
-      .select('*, employees!overtime_records_employee_id_fkey(full_name, campaign_id, supervisor_id)')
-      .gte('work_date', _a_dateFilter.from)
-      .lte('work_date', _a_dateFilter.to)
-      .order('work_date', { ascending: false });
-
-    if (error) throw error;
-
-    _a_OT_RECORDS = (data || []).map(r => ({
-      ...r,
-      agent_name: r.employees?.full_name || r.employee_id,
-      agent_camp: r.campaign_id || r.employees?.campaign_id || '—',
-      supervisor_id: r.supervisor_id || r.employees?.supervisor_id || null
-    }));
-
-    const ids = _a_OT_RECORDS.map(r => String(r.id));
-    _a_OT_PAYROLL = {};
-    if (ids.length) {
-      const { data: adjustments, error: adjustmentError } = await _a_sb
-        .from('payroll_adjustments')
-        .select('*')
-        .eq('source_table', 'overtime_records')
-        .in('source_id', ids);
-      if (adjustmentError) console.warn('[OT] Ajustes de nómina:', adjustmentError);
-      (adjustments || []).forEach(a => { _a_OT_PAYROLL[String(a.source_id)] = a; });
+    if (sync) {
+      await _a_syncOvertimeCandidates(false);
     }
+
+    const { data, error } = await _a_sb.rpc(
+      'list_visible_overtime_records',
+      {
+        p_from: _a_dateFilter.from,
+        p_to: _a_dateFilter.to
+      }
+    );
+
+    if (error) {
+      throw error;
+    }
+
+    const payload = Array.isArray(data)
+      ? data
+      : (
+          Array.isArray(data?.records)
+            ? data.records
+            : []
+        );
+
+    _a_OT_PAYROLL = {};
+
+    _a_OT_RECORDS = payload.map(row => {
+      const payroll =
+        row.payroll_adjustment &&
+        typeof row.payroll_adjustment === 'object'
+          ? row.payroll_adjustment
+          : null;
+
+      if (payroll && row.id) {
+        _a_OT_PAYROLL[String(row.id)] = payroll;
+      }
+
+      return {
+        ...row,
+        agent_name:
+          row.agent_name ||
+          row.full_name ||
+          row.employee_name ||
+          row.employee_id,
+        agent_camp:
+          row.agent_camp ||
+          row.campaign_id ||
+          '—',
+        supervisor_id:
+          row.supervisor_id ||
+          row.employee_supervisor_id ||
+          null
+      };
+    });
+
+    console.info(
+      '[Impulse OT] Registros visibles:',
+      {
+        role: currentRole,
+        from: _a_dateFilter.from,
+        to: _a_dateFilter.to,
+        total: _a_OT_RECORDS.length,
+        pending: _a_OT_RECORDS.filter(
+          _a_otEsPendiente
+        ).length,
+        approved: _a_OT_RECORDS.filter(
+          row => [
+            'approved',
+            'partially_approved'
+          ].includes(
+            _a_otStatusNormalized(row)
+          )
+        ).length
+      }
+    );
+
   } catch (error) {
-    console.error('Error cargando OT:', error);
+    console.error(
+      '[Impulse OT] Error cargando registros visibles:',
+      {
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+        role: currentRole,
+        from: _a_dateFilter.from,
+        to: _a_dateFilter.to
+      }
+    );
+
+    _a_OT_RECORDS = [];
+    _a_OT_PAYROLL = {};
+
+    const missingRpc =
+      error?.code === 'PGRST202' ||
+      String(error?.message || '')
+        .toLowerCase()
+        .includes(
+          'list_visible_overtime_records'
+        );
+
+    _a_otLoadError = {
+      title: missingRpc
+        ? 'Falta instalar el SQL v1.0.62'
+        : 'No se pudo cargar el tiempo extra',
+      message: missingRpc
+        ? 'Supabase todavía no reconoce la función segura de visibilidad de OT.'
+        : (
+            error?.message ||
+            'No fue posible consultar los registros de OT.'
+          ),
+      detail:
+        error?.details ||
+        error?.hint ||
+        null
+    };
+
   } finally {
     _a_otLoading = false;
   }
@@ -9065,24 +9187,189 @@ function _a_otTabButton(tab, label, count) {
 }
 
 function _a_renderOTSection() {
-  const r = _a_otResumen();
-  const initialTab = r.pendientes.length ? 'pendientes' : (r.horarios.length ? 'horarios' : 'pendientes');
-  return `
-    <div class="card" style="border-color:${(r.pendientes.length || r.horarios.length) ? '#FDE68A' : '#E2E8F0'}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-        <div>
-          <div class="card-title" style="margin-bottom:4px">⏱️ Diferencias de jornada y tiempo extra</div>
-          <div style="font-size:12px;color:#64748B;line-height:1.5">OT y cambios de horario se gestionan por separado. Una jornada desplazada nunca cuenta como horas extra.</div>
+  if (_a_otLoading && !_a_OT_RECORDS.length) {
+    return `
+      <div class="card">
+        <div class="card-title">
+          ⏱️ Diferencias de jornada y tiempo extra
         </div>
-        <button class="btn-primary" onclick="_a_openTiempoExtra('${initialTab}')">Abrir gestión</button>
+
+        <div
+          style="padding:20px;text-align:center;color:#64748B"
+        >
+          Cargando registros visibles de OT...
+        </div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px">
-        <div class="kpi-box incard"><div class="kpi-lbl">OT neto por revisar</div><div class="kpi-val" style="font-size:20px;color:#D97706">${_a_otMinsToStr(r.minPend)}</div><div style="font-size:11px;color:#94A3B8">${r.pendientes.length} casos con excedente</div></div>
-        <div class="kpi-box incard"><div class="kpi-lbl">Horarios por revisar</div><div class="kpi-val" style="font-size:20px;color:#1D4ED8">${r.horarios.length}</div><div style="font-size:11px;color:#94A3B8">0 minutos de OT</div></div>
-        <div class="kpi-box incard"><div class="kpi-lbl">Aprobado</div><div class="kpi-val" style="font-size:20px;color:#16A34A">${_a_otMinsToStr(r.minAprob)}</div><div style="font-size:11px;color:#94A3B8">${r.aprobadas.length} casos</div></div>
-        <div class="kpi-box incard"><div class="kpi-lbl">En flujo de nómina</div><div class="kpi-val" style="font-size:20px;color:#7E22CE">${_a_otMinsToStr(r.minNomina)}</div><div style="font-size:11px;color:#94A3B8">${r.nomina.length} movimientos</div></div>
+    `;
+  }
+
+  if (_a_otLoadError) {
+    return `
+      <div
+        class="card"
+        style="border-color:#FCA5A5"
+      >
+        <div class="card-title">
+          ⏱️ Diferencias de jornada y tiempo extra
+        </div>
+
+        <div class="alert alert-red">
+          <b>${_a_otEsc(_a_otLoadError.title)}</b>
+          <div style="margin-top:4px">
+            ${_a_otEsc(_a_otLoadError.message)}
+          </div>
+
+          ${
+            _a_otLoadError.detail
+              ? `
+                <div
+                  style="margin-top:5px;font-size:10px"
+                >
+                  ${_a_otEsc(_a_otLoadError.detail)}
+                </div>
+              `
+              : ''
+          }
+        </div>
+
+        <button
+          class="btn-primary"
+          onclick="_a_cargarOTRecords({sync:false}).then(()=>_a_render())"
+        >
+          🔄 Reintentar
+        </button>
       </div>
-    </div>`;
+    `;
+  }
+
+  const r = _a_otResumen();
+
+  const initialTab =
+    r.pendientes.length
+      ? 'pendientes'
+      : r.horarios.length
+        ? 'horarios'
+        : r.aprobadas.length
+          ? 'aprobadas'
+          : 'historico';
+
+  return `
+    <div
+      class="card"
+      style="border-color:${
+        (
+          r.pendientes.length ||
+          r.horarios.length
+        )
+          ? '#FDE68A'
+          : '#E2E8F0'
+      }"
+    >
+      <div
+        style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap"
+      >
+        <div>
+          <div
+            class="card-title"
+            style="margin-bottom:4px"
+          >
+            ⏱️ Diferencias de jornada y tiempo extra
+          </div>
+
+          <div
+            style="font-size:12px;color:#64748B;line-height:1.5"
+          >
+            OT y cambios de horario se gestionan por separado.
+            Una jornada desplazada nunca cuenta como horas extra.
+          </div>
+
+          <div
+            style="font-size:10px;color:#94A3B8;margin-top:5px"
+          >
+            Alcance aplicado por Supabase:
+            ${
+              currentRole === 'supervisor'
+                ? 'mi equipo'
+                : currentRole === 'manager'
+                  ? 'mi jerarquía completa'
+                  : 'todos los equipos'
+            }.
+          </div>
+        </div>
+
+        <button
+          class="btn-primary"
+          onclick="_a_openTiempoExtra('${initialTab}')"
+        >
+          Abrir gestión
+        </button>
+      </div>
+
+      <div
+        style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px"
+      >
+        <div class="kpi-box incard">
+          <div class="kpi-lbl">
+            OT neto por revisar
+          </div>
+          <div
+            class="kpi-val"
+            style="font-size:20px;color:#D97706"
+          >
+            ${_a_otMinsToStr(r.minPend)}
+          </div>
+          <div style="font-size:11px;color:#94A3B8">
+            ${r.pendientes.length} casos con excedente
+          </div>
+        </div>
+
+        <div class="kpi-box incard">
+          <div class="kpi-lbl">
+            Horarios por revisar
+          </div>
+          <div
+            class="kpi-val"
+            style="font-size:20px;color:#1D4ED8"
+          >
+            ${r.horarios.length}
+          </div>
+          <div style="font-size:11px;color:#94A3B8">
+            0 minutos de OT
+          </div>
+        </div>
+
+        <div class="kpi-box incard">
+          <div class="kpi-lbl">
+            Aprobado
+          </div>
+          <div
+            class="kpi-val"
+            style="font-size:20px;color:#16A34A"
+          >
+            ${_a_otMinsToStr(r.minAprob)}
+          </div>
+          <div style="font-size:11px;color:#94A3B8">
+            ${r.aprobadas.length} casos
+          </div>
+        </div>
+
+        <div class="kpi-box incard">
+          <div class="kpi-lbl">
+            En flujo de nómina
+          </div>
+          <div
+            class="kpi-val"
+            style="font-size:20px;color:#7E22CE"
+          >
+            ${_a_otMinsToStr(r.minNomina)}
+          </div>
+          <div style="font-size:11px;color:#94A3B8">
+            ${r.nomina.length} movimientos
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function _a_otDecisionFields() {
@@ -9292,6 +9579,43 @@ async function _a_createManualOT() {
 }
 
 function _a_renderTiempoExtra() {
+  if (_a_otLoadError) {
+    return `
+      ${roleSwitcher()}
+
+      <div class="drilldown-header">
+        <button
+          class="back-btn"
+          onclick="_a_closeTiempoExtra()"
+        >
+          ← Volver
+        </button>
+
+        <div>
+          <div style="font-size:16px;font-weight:800">
+            ⏱️ Diferencias de jornada y tiempo extra
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="alert alert-red">
+          <b>${_a_otEsc(_a_otLoadError.title)}</b>
+          <div style="margin-top:5px">
+            ${_a_otEsc(_a_otLoadError.message)}
+          </div>
+        </div>
+
+        <button
+          class="btn-primary"
+          onclick="_a_cargarOTRecords({sync:false}).then(()=>_a_render())"
+        >
+          🔄 Reintentar
+        </button>
+      </div>
+    `;
+  }
+
   const r = _a_otResumen();
   const records = _a_otRegistrosTab();
 
