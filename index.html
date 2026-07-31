@@ -1931,7 +1931,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.63';
+const APP_VERSION   = '1.0.64';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -34083,7 +34083,35 @@ function _d_fmtDateTime(v) {
   });
 }
 
+function _d_normalizeLevel(level) {
+  const value = String(level || '')
+    .trim()
+    .toLowerCase();
+
+  const aliases = {
+    feedback_documented: 'feedback',
+    feedback_documentado: 'feedback',
+
+    written_1: 'first_written',
+    escrita_1: 'first_written',
+
+    written_2: 'second_written',
+    escrita_2: 'second_written',
+
+    ultima_advertencia: 'last_warning',
+    'última_advertencia': 'last_warning',
+
+    baja: 'termination',
+    terminacion: 'termination',
+    'terminación': 'termination'
+  };
+
+  return aliases[value] || value;
+}
+
 function _d_levelLabel(level) {
+  level = _d_normalizeLevel(level);
+
   const map = {
     feedback: 'Feedback documentado',
     feedback_documented: 'Feedback documentado',
@@ -34109,15 +34137,7 @@ function _d_levelLabel(level) {
 }
 
 function _d_levelBadge(level) {
-  const normalized = {
-    feedback_documented: 'feedback',
-    written_1: 'first_written',
-    escrita_1: 'first_written',
-    written_2: 'second_written',
-    escrita_2: 'second_written',
-    ultima_advertencia: 'last_warning',
-    baja: 'termination'
-  }[level] || level;
+  const normalized = _d_normalizeLevel(level);
 
   const cfg = {
     feedback: ['#F1F5F9', '#475569'],
@@ -37847,9 +37867,23 @@ function _d_abrirRevision(id, approve) {
   const c = _d_CASES.find(x => x.id === id);
   if (!c) return;
   const m = _d_matrix(c.matrix_id);
-  const niveles = ['feedback_documented','verbal','written_1','written_2','last_warning','termination'];
-  const matrixDuration = Number(m?.sanction_duration_days || 90);
-  const appliedDuration = Number(c.duration_days_applied || matrixDuration);
+  const niveles = [
+    'feedback',
+    'verbal',
+    'first_written',
+    'second_written',
+    'last_warning',
+    'termination'
+  ];
+
+  const recommendedLevel =
+    _d_normalizeLevel(c.recommended_level);
+
+  const matrixDuration =
+    Number(m?.sanction_duration_days || 90);
+
+  const appliedDuration =
+    Number(c.duration_days_applied || matrixDuration);
 
   document.getElementById('modalTitle').textContent = approve ? 'Aprobar Acción People' : 'Rechazar Acción People';
   document.getElementById('modalSub').textContent = `${_d_nombre(c.employee_id)} · ${m?.infraction_type || ''}`;
@@ -37866,8 +37900,8 @@ function _d_abrirRevision(id, approve) {
     ${approve ? `
       <div class="form-row">
         <label>Nivel a aplicar</label>
-        <select id="d-review-level" onchange="_d_toggleReviewFields('${c.recommended_level}', ${matrixDuration})">
-          ${niveles.map(n => `<option value="${n}" ${n === c.recommended_level ? 'selected' : ''}>${_d_levelLabel(n)}</option>`).join('')}
+        <select id="d-review-level" onchange="_d_toggleReviewFields('${recommendedLevel}', ${matrixDuration})">
+          ${niveles.map(n => `<option value="${n}" ${n === recommendedLevel ? 'selected' : ''}>${_d_levelLabel(n)}</option>`).join('')}
         </select>
       </div>
       <div class="form-row" id="d-adjust-wrap" style="display:none">
@@ -37900,7 +37934,15 @@ function _d_abrirRevision(id, approve) {
   `;
 
   document.getElementById('modalBackdrop').style.display = 'flex';
-  if (approve) setTimeout(() => _d_toggleReviewFields(c.recommended_level, matrixDuration), 50);
+  if (approve) {
+    setTimeout(
+      () => _d_toggleReviewFields(
+        recommendedLevel,
+        matrixDuration
+      ),
+      50
+    );
+  }
 }
 
 function _d_toggleReviewFields(recommended, matrixDuration = 90) {
@@ -37924,7 +37966,18 @@ function _d_toggleAdjustmentReason(recommended) {
 async function _d_revisarCaso(id, approve) {
   const c = _d_CASES.find(x => x.id === id);
   const m = _d_matrix(c?.matrix_id);
-  const level = approve ? document.getElementById('d-review-level')?.value : null;
+
+  const recommendedLevel =
+    _d_normalizeLevel(c?.recommended_level);
+
+  const level = approve
+    ? _d_normalizeLevel(
+        document.getElementById(
+          'd-review-level'
+        )?.value
+      )
+    : null;
+
   const notes = document.getElementById('d-review-notes')?.value?.trim() || null;
   const adjustment = approve ? document.getElementById('d-adjust-reason')?.value?.trim() || null : null;
   const matrixDuration = Number(m?.sanction_duration_days || 90);
@@ -37939,7 +37992,11 @@ async function _d_revisarCaso(id, approve) {
     alert('Captura el motivo de rechazo.');
     return;
   }
-  if (approve && level !== c?.recommended_level && !adjustment) {
+  if (
+    approve &&
+    level !== recommendedLevel &&
+    !adjustment
+  ) {
     alert('Captura el motivo del ajuste de nivel.');
     return;
   }
