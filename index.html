@@ -1931,7 +1931,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.62';
+const APP_VERSION   = '1.0.63';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -33488,6 +33488,7 @@ let _d_CASES = [];
 let _d_MATRIX = [];
 let _d_EMPLEADOS = [];
 let _d_cargando = false;
+let _d_reviewSubmitting = false;
 let _d_vista = 'historial';
 let _d_detalleId = null;
 let _d_filtroTexto = '';
@@ -37953,55 +37954,358 @@ async function _d_revisarCaso(id, approve) {
     }
   }
 
-  const payloadV2 = {
-    p_case_id: id,
-    p_approve: approve,
-    p_issued_level: level,
-    p_review_notes: notes,
-    p_adjustment_reason: adjustment,
-    p_duration_days: durationDays,
-    p_duration_adjustment_reason: durationReason
-  };
+  if (_d_reviewSubmitting) return;
 
-  let { error } = await _d_sb.rpc('review_people_action_case_with_duration', payloadV2);
+  _d_reviewSubmitting = true;
 
-  const missingRpc = error && (
-    error.code === 'PGRST202' || error.code === '42883' ||
-    String(error.message || '').toLowerCase().includes('review_people_action_case_with_duration')
+  const expectedStatus = approve
+    ? 'approved'
+    : 'rejected';
+
+  const actionButton = [
+    ...document.querySelectorAll(
+      '#modalFooter button'
+    )
+  ].find(button =>
+    String(button.textContent || '')
+      .trim()
+      .toLowerCase() === (
+        approve
+          ? 'aprobar'
+          : 'rechazar'
+      )
   );
 
-  if (missingRpc) {
-    if (approve && level === 'last_warning' && durationDays !== matrixDuration) {
-      alert('Falta instalar la actualización SQL de vigencias. Ejecuta el archivo SQL entregado antes de aprobar una duración distinta a la matriz.');
-      return;
-    }
-    ({ error } = await _d_sb.rpc('review_people_action_case', {
+  const originalButtonText =
+    actionButton?.textContent ||
+    (
+      approve
+        ? 'Aprobar'
+        : 'Rechazar'
+    );
+
+  if (actionButton) {
+    actionButton.disabled = true;
+    actionButton.textContent =
+      approve
+        ? 'Aprobando…'
+        : 'Rechazando…';
+  }
+
+  try {
+    const verifiedPayload = {
       p_case_id: id,
       p_approve: approve,
       p_issued_level: level,
       p_review_notes: notes,
-      p_adjustment_reason: adjustment
-    }));
-  }
+      p_adjustment_reason: adjustment,
+      p_duration_days: durationDays,
+      p_duration_adjustment_reason:
+        durationReason
+    };
 
-  if (error) {
-    console.error('Error completo al revisar Acción People:', error);
-    alert(
-      'No se pudo revisar el caso:\n\n' +
-      (error.message || 'Error desconocido') +
-      (error.details ? '\n\nDetalle: ' + error.details : '') +
-      (error.hint ? '\n\nHint: ' + error.hint : '') +
-      (error.code ? '\n\nCódigo: ' + error.code : '')
+    let {
+      data: verifiedResult,
+      error
+    } = await _d_sb.rpc(
+      'review_people_action_case_verified',
+      verifiedPayload
     );
-    return;
-  }
 
-  closeModal();
-  _d_cargando = true;
-  _d_render();
-  await _d_cargarDatos();
-  _d_cargando = false;
-  _d_render();
+    const missingVerifiedRpc =
+      error &&
+      (
+        error.code === 'PGRST202' ||
+        error.code === '42883' ||
+        String(
+          error.message || ''
+        ).toLowerCase().includes(
+          'review_people_action_case_verified'
+        )
+      );
+
+    /*
+     * Compatibilidad temporal:
+     * la versión nueva usa un RPC que verifica el status final.
+     * Si el SQL todavía no está instalado, se intenta el RPC anterior,
+     * pero posteriormente se consulta la fila para confirmar el cambio.
+     */
+    if (missingVerifiedRpc) {
+      const payloadV2 = {
+        p_case_id: id,
+        p_approve: approve,
+        p_issued_level: level,
+        p_review_notes: notes,
+        p_adjustment_reason: adjustment,
+        p_duration_days: durationDays,
+        p_duration_adjustment_reason:
+          durationReason
+      };
+
+      ({
+        error
+      } = await _d_sb.rpc(
+        'review_people_action_case_with_duration',
+        payloadV2
+      ));
+
+      const missingDurationRpc =
+        error &&
+        (
+          error.code === 'PGRST202' ||
+          error.code === '42883' ||
+          String(
+            error.message || ''
+          ).toLowerCase().includes(
+            'review_people_action_case_with_duration'
+          )
+        );
+
+      if (missingDurationRpc) {
+        if (
+          approve &&
+          level === 'last_warning' &&
+          durationDays !== matrixDuration
+        ) {
+          alert(
+            'Falta instalar la actualización SQL de vigencias. ' +
+            'Ejecuta el archivo SQL antes de aprobar una duración ' +
+            'distinta a la matriz.'
+          );
+          return;
+        }
+
+        ({
+          error
+        } = await _d_sb.rpc(
+          'review_people_action_case',
+          {
+            p_case_id: id,
+            p_approve: approve,
+            p_issued_level: level,
+            p_review_notes: notes,
+            p_adjustment_reason: adjustment
+          }
+        ));
+      }
+
+      if (!error) {
+        const {
+          data: confirmedCase,
+          error: confirmationError
+        } = await _d_sb
+          .from('people_action_cases')
+          .select(
+            [
+              'id',
+              'status',
+              'issued_level',
+              'reviewed_by',
+              'reviewed_at',
+              'issued_by',
+              'issued_at',
+              'active_from',
+              'active_until',
+              'employee_ack_status',
+              'review_notes'
+            ].join(',')
+          )
+          .eq('id', id)
+          .single();
+
+        if (confirmationError) {
+          error = confirmationError;
+        } else {
+          verifiedResult = {
+            ok:
+              String(
+                confirmedCase?.status || ''
+              ).toLowerCase() ===
+              expectedStatus,
+
+            ...confirmedCase
+          };
+        }
+      }
+    }
+
+    const businessError =
+      !error &&
+      verifiedResult &&
+      verifiedResult.ok === false
+        ? verifiedResult
+        : null;
+
+    if (error || businessError) {
+      const issue =
+        businessError ||
+        error;
+
+      console.error(
+        'Error completo al revisar Acción People:',
+        issue
+      );
+
+      alert(
+        'No se pudo revisar el caso:\n\n' +
+        (
+          issue.message ||
+          'Supabase no confirmó el cambio de estatus.'
+        ) +
+        (
+          issue.details || issue.detail
+            ? '\n\nDetalle: ' +
+              (
+                issue.details ||
+                issue.detail
+              )
+            : ''
+        ) +
+        (
+          issue.hint
+            ? '\n\nHint: ' +
+              issue.hint
+            : ''
+        ) +
+        (
+          issue.code || issue.sqlstate
+            ? '\n\nCódigo: ' +
+              (
+                issue.code ||
+                issue.sqlstate
+              )
+            : ''
+        )
+      );
+
+      return;
+    }
+
+    const actualStatus = String(
+      verifiedResult?.status || ''
+    ).toLowerCase();
+
+    if (actualStatus !== expectedStatus) {
+      console.error(
+        '[Impulse People Actions] El RPC terminó sin error, ' +
+        'pero el status final no coincide.',
+        {
+          caseId: id,
+          expectedStatus,
+          actualStatus,
+          verifiedResult
+        }
+      );
+
+      alert(
+        'Supabase recibió la acción, pero no guardó el estatus ' +
+        (
+          approve
+            ? 'Aprobado'
+            : 'Rechazado'
+        ) +
+        '.\n\n' +
+        'Estatus actual: ' +
+        (
+          actualStatus ||
+          'sin confirmar'
+        ) +
+        '\n\n' +
+        'Ejecuta el SQL v1.0.63 antes de intentarlo nuevamente.'
+      );
+
+      return;
+    }
+
+    /*
+     * Actualización optimista:
+     * cambia la fila local inmediatamente para que el usuario no vea
+     * el caso como pendiente mientras termina la recarga.
+     */
+    _d_CASES = (_d_CASES || []).map(row =>
+      row.id === id
+        ? {
+            ...row,
+            ...verifiedResult,
+            status: actualStatus
+          }
+        : row
+    );
+
+    closeModal();
+
+    _d_cargando = true;
+    _d_render();
+
+    const reloadOk = await _d_cargarDatos({
+      syncFollowups: false
+    });
+
+    _d_cargando = false;
+    _d_render();
+
+    if (reloadOk === false) {
+      alert(
+        'La Acción People sí se actualizó, pero la pantalla no pudo ' +
+        'recargar los datos. Presiona “Cambios disponibles” o haz ' +
+        'una recarga fuerte.'
+      );
+      return;
+    }
+
+    const refreshedCase =
+      (_d_CASES || []).find(
+        row => row.id === id
+      );
+
+    const refreshedStatus = String(
+      refreshedCase?.status || ''
+    ).toLowerCase();
+
+    if (refreshedStatus !== expectedStatus) {
+      alert(
+        'La base confirmó el cambio inicialmente, pero la recarga ' +
+        'devolvió un estatus distinto.\n\n' +
+        'Estatus esperado: ' +
+        expectedStatus +
+        '\nEstatus recibido: ' +
+        (
+          refreshedStatus ||
+          'sin registro'
+        )
+      );
+      return;
+    }
+
+    if (
+      typeof _rt_pendingTables !== 'undefined'
+    ) {
+      _rt_pendingTables.delete(
+        'people_action_cases'
+      );
+
+      if (
+        typeof _rt_updateIndicator ===
+        'function'
+      ) {
+        _rt_updateIndicator();
+      }
+    }
+
+    _rt_showToast(
+      approve
+        ? 'Acción People aprobada'
+        : 'Acción People rechazada'
+    );
+  } finally {
+    _d_reviewSubmitting = false;
+
+    if (actionButton?.isConnected) {
+      actionButton.disabled = false;
+      actionButton.textContent =
+        originalButtonText;
+    }
+  }
 }
 
 
