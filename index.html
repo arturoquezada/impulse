@@ -1931,7 +1931,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.64';
+const APP_VERSION   = '1.0.65';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -32272,9 +32272,43 @@ function _v_diasPorAnio(anio) {
 
 function _v_calcAnios(hire_date) {
   if (!hire_date) return 0;
-  const hoy = new Date(ymd(NOW) + 'T12:00:00');
-  const ing = new Date(hire_date + 'T12:00:00');
-  return Math.floor((hoy - ing) / (365.25 * 24 * 60 * 60 * 1000));
+
+  const hoy = new Date(
+    ymd(NOW) + 'T12:00:00'
+  );
+
+  const ingreso = new Date(
+    String(hire_date).slice(0, 10) +
+    'T12:00:00'
+  );
+
+  if (
+    Number.isNaN(ingreso.getTime()) ||
+    ingreso > hoy
+  ) {
+    return 0;
+  }
+
+  let anios =
+    hoy.getFullYear() -
+    ingreso.getFullYear();
+
+  const aniversarioEsteAnio =
+    new Date(
+      hoy.getFullYear(),
+      ingreso.getMonth(),
+      ingreso.getDate(),
+      12,
+      0,
+      0,
+      0
+    );
+
+  if (hoy < aniversarioEsteAnio) {
+    anios -= 1;
+  }
+
+  return Math.max(0, anios);
 }
 
 function _v_diasGanados(hire_date) {
@@ -32297,25 +32331,206 @@ function _v_calcDiasLaborables(start, end, daysOff = []) {
 
 function _v_getBalance(empId, hire_date) {
   const b = _v_BALANCES[empId];
-  const earned = b?.days_earned ?? _v_diasGanados(hire_date);
-  const used   = b?.days_used ?? _v_SOLICITUDES.filter(s=>s.employee_id===empId&&s.status==='approved').reduce((s,x)=>s+(x.days_requested||0),0);
-  const pending = b?.days_pending ?? _v_SOLICITUDES.filter(s=>s.employee_id===empId&&s.status==='pending').reduce((s,x)=>s+(x.days_requested||0),0);
-  return { earned, used, pending, available: Math.max(0, earned - used - pending) };
+
+  const earnedByAnniversary =
+    _v_diasGanados(hire_date);
+
+  /*
+   * Un balance histórico en 0 no puede bloquear los días que la persona
+   * ya ganó al cumplir aniversario. Se conserva cualquier ajuste manual
+   * superior al cálculo automático.
+   */
+  const earned = Math.max(
+    Number(b?.days_earned || 0),
+    Number(earnedByAnniversary || 0)
+  );
+
+  const used =
+    b?.days_used ??
+    _v_SOLICITUDES
+      .filter(
+        s =>
+          s.employee_id === empId &&
+          s.status === 'approved'
+      )
+      .reduce(
+        (sum, request) =>
+          sum +
+          Number(request.days_requested || 0),
+        0
+      );
+
+  const pending =
+    b?.days_pending ??
+    _v_SOLICITUDES
+      .filter(
+        s =>
+          s.employee_id === empId &&
+          s.status === 'pending'
+      )
+      .reduce(
+        (sum, request) =>
+          sum +
+          Number(request.days_requested || 0),
+        0
+      );
+
+  return {
+    earned,
+    used,
+    pending,
+    available: Math.max(
+      0,
+      earned - used - pending
+    )
+  };
 }
 
 async function _v_sincronizarBalances() {
-  const upserts = _v_AGENTES.filter(a=>!_v_BALANCES[a.id]).map(a => ({
-    employee_id: a.id,
-    days_earned: _v_diasGanados(a.hire_date),
-    days_used: _v_SOLICITUDES.filter(s=>s.employee_id===a.id&&s.status==='approved').reduce((s,x)=>s+(x.days_requested||0),0),
-    days_pending: _v_SOLICITUDES.filter(s=>s.employee_id===a.id&&s.status==='pending').reduce((s,x)=>s+(x.days_requested||0),0),
-  }));
-  if (upserts.length > 0) {
-    await _v_sb.from('vacation_balances').upsert(upserts, { onConflict: 'employee_id' });
-    const { data: bals } = await _v_sb.from('vacation_balances').select('*');
-    _v_BALANCES = {};
-    (bals||[]).forEach(b => { _v_BALANCES[b.employee_id] = b; });
+  /*
+   * Fuente principal: RPC SECURITY DEFINER.
+   * Actualiza aniversarios aunque el usuario no tenga permisos directos
+   * para modificar vacation_balances.
+   */
+  const {
+    data: syncResult,
+    error: syncError
+  } = await _v_sb.rpc(
+    'sync_vacation_entitlements'
+  );
+
+  if (syncError) {
+    console.warn(
+      '[Impulse Vacaciones] No se pudo sincronizar el aniversario desde RPC:',
+      syncError
+    );
+
+    /*
+     * Fallback compatible mientras se instala el SQL.
+     * Solo intenta crear balances faltantes o elevar días ganados.
+     */
+    const upserts = _v_AGENTES
+      .map(employee => {
+        const current =
+          _v_BALANCES[employee.id];
+
+        const calculated =
+          _v_diasGanados(
+            employee.hire_date
+          );
+
+        const stored =
+          Number(
+            current?.days_earned || 0
+          );
+
+        if (
+          current &&
+          calculated <= stored
+        ) {
+          return null;
+        }
+
+        return {
+          employee_id: employee.id,
+
+          days_earned: Math.max(
+            stored,
+            calculated
+          ),
+
+          days_used:
+            current?.days_used ??
+            _v_SOLICITUDES
+              .filter(
+                request =>
+                  request.employee_id ===
+                    employee.id &&
+                  request.status ===
+                    'approved'
+              )
+              .reduce(
+                (sum, request) =>
+                  sum +
+                  Number(
+                    request.days_requested ||
+                    0
+                  ),
+                0
+              ),
+
+          days_pending:
+            current?.days_pending ??
+            _v_SOLICITUDES
+              .filter(
+                request =>
+                  request.employee_id ===
+                    employee.id &&
+                  request.status ===
+                    'pending'
+              )
+              .reduce(
+                (sum, request) =>
+                  sum +
+                  Number(
+                    request.days_requested ||
+                    0
+                  ),
+                0
+              )
+        };
+      })
+      .filter(Boolean);
+
+    if (upserts.length) {
+      const {
+        error: fallbackError
+      } = await _v_sb
+        .from('vacation_balances')
+        .upsert(
+          upserts,
+          {
+            onConflict: 'employee_id'
+          }
+        );
+
+      if (fallbackError) {
+        console.warn(
+          '[Impulse Vacaciones] El fallback tampoco pudo actualizar balances:',
+          fallbackError
+        );
+      }
+    }
+  } else {
+    console.info(
+      '[Impulse Vacaciones] Aniversarios sincronizados:',
+      syncResult
+    );
   }
+
+  const {
+    data: balances,
+    error: reloadError
+  } = await _v_sb
+    .from('vacation_balances')
+    .select('*');
+
+  if (reloadError) {
+    console.warn(
+      '[Impulse Vacaciones] No se pudieron recargar los balances:',
+      reloadError
+    );
+    return false;
+  }
+
+  _v_BALANCES = {};
+
+  (balances || []).forEach(balance => {
+    _v_BALANCES[balance.employee_id] =
+      balance;
+  });
+
+  return true;
 }
 
 let _v_calDiaMap = {}; // fecha -> [requestIds]
