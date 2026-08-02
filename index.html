@@ -1931,7 +1931,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.66';
+const APP_VERSION   = '1.0.67';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -34211,8 +34211,178 @@ async function _d_cargarIncidenciasAsistencia() {
   }
 
   let incidents = data || [];
-  const alreadyUsed = incidents.filter(i => _d_sourceAlreadyUsed(i.source_id)).length;
-  incidents = incidents.filter(i => !_d_sourceAlreadyUsed(i.source_id));
+
+  /*
+   * El historial de Asistencia puede construir una falta desde
+   * attendance_exceptions aunque todavía no exista una fila física en
+   * attendance_daily_summary. Para ausencias, agregamos como respaldo
+   * las faltas injustificadas automáticas pending/approved.
+   */
+  let blockedAbsenceDates = new Set();
+
+  if (linkType === 'absence') {
+    const fromDate = _d_minIncidentDateYMD();
+    const toDate = _d_todayCdmxYMD();
+
+    const {
+      data: absenceExceptions,
+      error: absenceExceptionError
+    } = await _d_sb
+      .from('attendance_exceptions')
+      .select(
+        'id,employee_id,exception_date,type,status,notes'
+      )
+      .eq('employee_id', empId)
+      .gte('exception_date', fromDate)
+      .lte('exception_date', toDate);
+
+    if (absenceExceptionError) {
+      console.warn(
+        '[Impulse People Actions] No se pudieron complementar las faltas automáticas:',
+        absenceExceptionError
+      );
+    } else {
+      const rows = absenceExceptions || [];
+
+      const unjustifiedTypes = new Set([
+        'falta_injustificada',
+        'ausencia_injustificada',
+        'absence_unjustified',
+        'unexcused_absence'
+      ]);
+
+      const justificationTypes = new Set([
+        'permiso',
+        'incapacidad',
+        'vacaciones',
+        'falta_justificada',
+        'ausencia_justificada',
+        'excused_absence',
+        'permuta_descanso',
+        'permuta_horario',
+        'descanso',
+        'jornada_trabajada',
+        'correccion_horario',
+        'horario_corregido'
+      ]);
+
+      const activeStatuses = new Set([
+        'pending',
+        'pending_approval',
+        'approved',
+        'active',
+        'completed'
+      ]);
+
+      rows.forEach(row => {
+        const type = String(
+          row.type || ''
+        ).trim().toLowerCase();
+
+        const status = String(
+          row.status || ''
+        ).trim().toLowerCase();
+
+        const date = String(
+          row.exception_date || ''
+        ).slice(0, 10);
+
+        if (
+          date &&
+          justificationTypes.has(type) &&
+          activeStatuses.has(status)
+        ) {
+          blockedAbsenceDates.add(date);
+        }
+      });
+
+      rows
+        .filter(row => {
+          const type = String(
+            row.type || ''
+          ).trim().toLowerCase();
+
+          const status = String(
+            row.status || ''
+          ).trim().toLowerCase();
+
+          const date = String(
+            row.exception_date || ''
+          ).slice(0, 10);
+
+          return (
+            date &&
+            unjustifiedTypes.has(type) &&
+            activeStatuses.has(status) &&
+            !blockedAbsenceDates.has(date)
+          );
+        })
+        .forEach(row => {
+          const date = String(
+            row.exception_date
+          ).slice(0, 10);
+
+          const sourceId =
+            `attendance_daily_summary:${empId}:${date}:absence`;
+
+          const alreadyPresent = incidents.some(
+            incident =>
+              String(
+                incident.source_id || ''
+              ) === sourceId ||
+              (
+                String(
+                  incident.incident_date || ''
+                ).slice(0, 10) === date &&
+                String(
+                  incident.incident_type || ''
+                ).toLowerCase() ===
+                  'absence'
+              )
+          );
+
+          if (!alreadyPresent) {
+            incidents.push({
+              source_id: sourceId,
+              employee_id: empId,
+              incident_type: 'absence',
+              incident_date: date,
+              incident_time: null,
+              time_in: null,
+              time_out: null,
+              minutes_late: 0,
+              attendance_status:
+                'falta_injustificada',
+              facts_suggestion:
+                'El colaborador presenta una falta injustificada ' +
+                'el día ' +
+                date +
+                '.',
+              attendance_exception_id:
+                row.id,
+              exception_status:
+                row.status,
+              source_origin:
+                'attendance_exceptions'
+            });
+          }
+        });
+    }
+  }
+
+  const alreadyUsed = incidents.filter(
+    incident =>
+      _d_sourceAlreadyUsed(
+        incident.source_id
+      )
+  ).length;
+
+  incidents = incidents.filter(
+    incident =>
+      !_d_sourceAlreadyUsed(
+        incident.source_id
+      )
+  );
 
   let blockedLateDates = new Set();
 
@@ -34246,8 +34416,8 @@ async function _d_cargarIncidenciasAsistencia() {
     box.innerHTML = `
       <div class="alert alert-amber">
         No hay ${linkType === 'late' ? 'retardos' : 'faltas/ausencias'} disponibles dentro de hoy, ayer o antier.
-        ${(alreadyUsed || blockedLateDates.size)
-          ? `<br><b>Excluidos:</b> ${alreadyUsed} ya utilizado(s) · ${blockedLateDates.size} con justificación pendiente/aprobada.`
+        ${(alreadyUsed || blockedLateDates.size || blockedAbsenceDates.size)
+          ? `<br><b>Excluidos:</b> ${alreadyUsed} ya utilizado(s) · ${blockedLateDates.size} retardo(s) justificado(s) · ${blockedAbsenceDates.size} ausencia(s) con justificación pendiente/aprobada.`
           : ''}
       </div>
     `;
@@ -34258,7 +34428,7 @@ async function _d_cargarIncidenciasAsistencia() {
     <div class="modal-section">
       <div class="ms-title">Incidencias reales · últimos 3 días</div>
       <div style="font-size:12px;color:#64748B;margin-bottom:10px">
-        Una incidencia solo puede utilizarse una vez. Los retardos pendientes o aprobados como justificados no aparecen.
+        Una incidencia solo puede utilizarse una vez. Los retardos justificados y las ausencias con permiso, incapacidad o justificación pendiente/aprobada no aparecen.
       </div>
       <div style="display:grid;gap:8px">
         ${incidents.map(i => `
