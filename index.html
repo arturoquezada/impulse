@@ -1931,7 +1931,7 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.67';
+const APP_VERSION   = '1.0.68';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -19815,7 +19815,7 @@ function _dd4_matchActions(rows=[],actions=[]){
 
       matched++;
 
-      if(best.days===0){
+      if(best.days<=1){
         onTime++;
       }else{
         late++;
@@ -19824,7 +19824,7 @@ function _dd4_matchActions(rows=[],actions=[]){
       row.dd_action=best.action;
       row.dd_action_days=best.days;
       row.dd_action_status=
-        best.days===0
+        best.days<=1
           ? 'on_time'
           : 'late';
 
@@ -20795,11 +20795,27 @@ function _dd4_buildOperationalIncidents(
 
     let accountability='missing';
 
-    if(management?.days===0) accountability='on_time';
-    else if(management?.days===1) accountability='late';
-    else if(management?.days!==null && management?.days>1){
+    if(
+      management?.days!==null &&
+      management?.days>=0 &&
+      management?.days<=1
+    ){
+      accountability='on_time';
+    }else if(
+      management?.days!==null &&
+      management?.days>=2 &&
+      management?.days<=7
+    ){
+      accountability='late';
+    }else if(
+      management?.days!==null &&
+      management?.days>7
+    ){
       accountability='overdue';
-    }else if(management?.days!==null && management?.days<0){
+    }else if(
+      management?.days!==null &&
+      management?.days<0
+    ){
       accountability='invalid';
     }
 
@@ -20903,9 +20919,9 @@ function _dd4_buildOperationalAccountability(incidents=[]){
 }
 
 function _dd4_operationalAccountabilityPill(status){
-  if(status==='on_time')return '<span class="dd4-status ok">Mismo día</span>';
-  if(status==='late')return '<span class="dd4-status warn">1 día después</span>';
-  if(status==='overdue')return '<span class="dd4-status bad">Fuera de plazo</span>';
+  if(status==='on_time')return '<span class="dd4-status ok">Dentro de plazo · 0–1 días</span>';
+  if(status==='late')return '<span class="dd4-status warn">Regularización · 2–7 días</span>';
+  if(status==='overdue')return '<span class="dd4-status bad">Fuera de plazo · 8+ días</span>';
   if(status==='invalid')return '<span class="dd4-status bad">Fecha inconsistente</span>';
   return '<span class="dd4-status neutral">Sin registro de liderazgo</span>';
 }
@@ -23007,7 +23023,7 @@ function _dd4_openCampaignDetail(campaign){
     const summary=_dd_attendanceSummary(rows);const incidents=(d.operationalIncidents||[]).filter(r=>(r.campaign_id||'Sin campaña')===campaign);
     const acc=_dd4_buildOperationalAccountability(incidents);
     const defs=[['Faltas',rows.filter(r=>r.audit_status==='falta_injustificada')],['Retardos',rows.filter(r=>r.audit_status==='retardo')],['Sin entrada',rows.filter(r=>r.audit_status==='sin_entrada')],['Sin salida',rows.filter(r=>r.audit_status==='sin_salida')]];
-    const html=`<div class="modal-backdrop" id="dd4-campaign-modal" onclick="if(event.target===this)this.remove()"><div class="modal" style="width:1220px;max-width:98vw"><div class="modal-hd"><div><h3>Performance · ${_dd_escape(campaign)}</h3><div class="sub">Vista operativa de solo lectura</div></div><button class="modal-hd-close" onclick="document.getElementById('dd4-campaign-modal')?.remove()">×</button></div><div class="modal-body"><div class="dd4-alert blue">Incluye asistencia e incidencias. No muestra Risk List, sanciones, bajas, notas internas ni nómina.</div><div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('HC auditado',summary.hc,'Personas con registros','#2563EB')}${_dd4_kpi('Puntualidad',summary.operationalPunctuality+'%',`${summary.retardo} retardos`,'#0E7490')}${_dd4_kpi('Faltas',summary.falta,`${new Set(rows.filter(r=>r.audit_status==='falta_injustificada').map(r=>r.employee_id)).size} personas`,'#DC2626')}${_dd4_kpi('Sin salida',rows.filter(r=>r.audit_status==='sin_salida').length,'Cierres incompletos','#7C3AED')}</div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Qué falló</div><div class="dd4-panel-copy">Eventos y personas afectadas.</div></div></div><div class="dd4-panel-body"><div class="dd4-reconcile" style="grid-template-columns:repeat(4,1fr)">${defs.map(([label,list])=>`<div class="dd4-reconcile-item"><div class="dd4-reconcile-label">${label}</div><div class="dd4-reconcile-value">${list.length}</div><div class="dd4-reconcile-note">${new Set(list.map(x=>x.employee_id).filter(Boolean)).size} personas.</div></div>`).join('')}</div></div></div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Accountability</div><div class="dd4-panel-copy">Mismo día, un día después, fuera de plazo o sin registro.</div></div></div><div class="dd4-panel-body" style="padding:0">${(()=>{const x={...d,operationalAccountability:acc};return _dd4_renderOperationalAccountability(x)})()}</div></div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Detalle de incidencias</div><div class="dd4-panel-copy">Personas y fechas exactas.</div></div><span class="dd4-chip blue">${incidents.length}</span></div><div class="dd4-panel-body" style="padding:0"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:900px"><thead><tr><th>Fecha</th><th>Agente</th><th>Supervisor</th><th>Incidencia</th><th>Resultado</th><th>Gestión</th></tr></thead><tbody>${incidents.length?incidents.slice(0,100).map(r=>`<tr class="clickable" onclick="document.getElementById('dd4-campaign-modal')?.remove();_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td>${_dd_escape(r.employee_name||r.employee_id)}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${_dd_escape(r.op_result_label||'—')}</td><td>${_dd4_operationalAccountabilityPill(r.op_accountability)}</td></tr>`).join(''):`<tr><td colspan="6"><div class="dd4-empty">Sin incidencias.</div></td></tr>`}</tbody></table></div></div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="document.getElementById('dd4-campaign-modal')?.remove()">Cerrar</button></div></div></div>`;
+    const html=`<div class="modal-backdrop" id="dd4-campaign-modal" onclick="if(event.target===this)this.remove()"><div class="modal" style="width:1220px;max-width:98vw"><div class="modal-hd"><div><h3>Performance · ${_dd_escape(campaign)}</h3><div class="sub">Vista operativa de solo lectura</div></div><button class="modal-hd-close" onclick="document.getElementById('dd4-campaign-modal')?.remove()">×</button></div><div class="modal-body"><div class="dd4-alert blue">Incluye asistencia e incidencias. No muestra Risk List, sanciones, bajas, notas internas ni nómina.</div><div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('HC auditado',summary.hc,'Personas con registros','#2563EB')}${_dd4_kpi('Puntualidad',summary.operationalPunctuality+'%',`${summary.retardo} retardos`,'#0E7490')}${_dd4_kpi('Faltas',summary.falta,`${new Set(rows.filter(r=>r.audit_status==='falta_injustificada').map(r=>r.employee_id)).size} personas`,'#DC2626')}${_dd4_kpi('Sin salida',rows.filter(r=>r.audit_status==='sin_salida').length,'Cierres incompletos','#7C3AED')}</div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Qué falló</div><div class="dd4-panel-copy">Eventos y personas afectadas.</div></div></div><div class="dd4-panel-body"><div class="dd4-reconcile" style="grid-template-columns:repeat(4,1fr)">${defs.map(([label,list])=>`<div class="dd4-reconcile-item"><div class="dd4-reconcile-label">${label}</div><div class="dd4-reconcile-value">${list.length}</div><div class="dd4-reconcile-note">${new Set(list.map(x=>x.employee_id).filter(Boolean)).size} personas.</div></div>`).join('')}</div></div></div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Accountability</div><div class="dd4-panel-copy">Dentro de plazo (mismo día o día siguiente), regularización, fuera de plazo o sin registro.</div></div></div><div class="dd4-panel-body" style="padding:0">${(()=>{const x={...d,operationalAccountability:acc};return _dd4_renderOperationalAccountability(x)})()}</div></div><div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Detalle de incidencias</div><div class="dd4-panel-copy">Personas y fechas exactas.</div></div><span class="dd4-chip blue">${incidents.length}</span></div><div class="dd4-panel-body" style="padding:0"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:900px"><thead><tr><th>Fecha</th><th>Agente</th><th>Supervisor</th><th>Incidencia</th><th>Resultado</th><th>Gestión</th></tr></thead><tbody>${incidents.length?incidents.slice(0,100).map(r=>`<tr class="clickable" onclick="document.getElementById('dd4-campaign-modal')?.remove();_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td>${_dd_escape(r.employee_name||r.employee_id)}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${_dd_escape(r.op_result_label||'—')}</td><td>${_dd4_operationalAccountabilityPill(r.op_accountability)}</td></tr>`).join(''):`<tr><td colspan="6"><div class="dd4-empty">Sin incidencias.</div></td></tr>`}</tbody></table></div></div></div></div><div class="modal-footer"><button class="btn-ghost" onclick="document.getElementById('dd4-campaign-modal')?.remove()">Cerrar</button></div></div></div>`;
     document.getElementById('dd4-campaign-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);return;
   }
   const rows=(d.current.rows||[]).filter(r=>(r.campaign_id||'Sin campaña')===campaign);
@@ -23029,9 +23045,9 @@ function _dd4_openCampaignDetail(campaign){
   const html=`<div class="modal-backdrop" id="dd4-campaign-modal" onclick="if(event.target===this)this.remove()"><div class="modal" style="width:1220px;max-width:98vw"><div class="modal-hd"><div><h3>Performance · ${_dd_escape(campaign)}</h3><div class="sub">Qué falló, quién fue afectado y qué liderazgo debía actuar</div></div><button class="modal-hd-close" onclick="document.getElementById('dd4-campaign-modal')?.remove()">×</button></div><div class="modal-body">
     <div class="dd4-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:0">${_dd4_kpi('HC auditado',summary.hc,'Personas con filas en el periodo','#2563EB')}${_dd4_kpi('Puntualidad',summary.operationalPunctuality+'%',`${summary.retardo} retardos`,'#0E7490')}${_dd4_kpi('Faltas',summary.falta,`${new Set(rows.filter(r=>r.audit_status==='falta_injustificada').map(r=>r.employee_id)).size} personas`,'#DC2626')}${_dd4_kpi('Sin acción',actionable.filter(r=>!r.dd_action).length,`${actionable.length} incidencias accionables`,'#BE123C')}</div>
     <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Qué falló</div><div class="dd4-panel-copy">Eventos y personas afectadas dentro de la campaña.</div></div></div><div class="dd4-panel-body"><div class="dd4-reconcile" style="grid-template-columns:repeat(3,1fr)">${failureDefs.map(([label,list])=>`<div class="dd4-reconcile-item"><div class="dd4-reconcile-label">${label}</div><div class="dd4-reconcile-value">${list.length}</div><div class="dd4-reconcile-note">${new Set(list.map(x=>x.employee_id).filter(Boolean)).size} personas.</div></div>`).join('')}</div></div></div>
-    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Accountability por supervisor</div><div class="dd4-panel-copy">Mismo día = a tiempo; de 1 a 7 días = tardía.</div></div></div><div class="dd4-panel-body" style="padding:0"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:900px"><thead><tr><th>Supervisor</th><th class="dd4-center">HC</th><th class="dd4-center">Faltas</th><th class="dd4-center">Retardos</th><th class="dd4-center">A tiempo</th><th class="dd4-center">Tardías</th><th class="dd4-center">Sin acción</th><th>Cobertura</th></tr></thead><tbody>${sups.length?sups.map(s=>`<tr><td>${_dd_escape(s.supervisor_name)}</td><td class="dd4-center">${s.hc}</td><td class="dd4-center" style="color:#DC2626">${s.falta}</td><td class="dd4-center" style="color:#D97706">${s.retardo}</td><td class="dd4-center" style="color:#15803D">${s.onTime}</td><td class="dd4-center" style="color:#D97706">${s.lateActions}</td><td class="dd4-center" style="color:#BE123C">${s.missingActions}</td><td>${s.compliance}%</td></tr>`).join(''):`<tr><td colspan="8"><div class="dd4-empty">Sin supervisores en esta campaña.</div></td></tr>`}</tbody></table></div></div></div>
+    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Accountability por supervisor</div><div class="dd4-panel-copy">Mismo día o día siguiente = a tiempo; de 2 a 7 días = regularización; 8+ días = fuera de plazo.</div></div></div><div class="dd4-panel-body" style="padding:0"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:900px"><thead><tr><th>Supervisor</th><th class="dd4-center">HC</th><th class="dd4-center">Faltas</th><th class="dd4-center">Retardos</th><th class="dd4-center">A tiempo</th><th class="dd4-center">Tardías</th><th class="dd4-center">Sin acción</th><th>Cobertura</th></tr></thead><tbody>${sups.length?sups.map(s=>`<tr><td>${_dd_escape(s.supervisor_name)}</td><td class="dd4-center">${s.hc}</td><td class="dd4-center" style="color:#DC2626">${s.falta}</td><td class="dd4-center" style="color:#D97706">${s.retardo}</td><td class="dd4-center" style="color:#15803D">${s.onTime}</td><td class="dd4-center" style="color:#D97706">${s.lateActions}</td><td class="dd4-center" style="color:#BE123C">${s.missingActions}</td><td>${s.compliance}%</td></tr>`).join(''):`<tr><td colspan="8"><div class="dd4-empty">Sin supervisores en esta campaña.</div></td></tr>`}</tbody></table></div></div></div>
     <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Personas que requieren atención</div><div class="dd4-panel-copy">Advertencias activas rojas o amarillas.</div></div><span class="dd4-chip ${risks.length?'red':'green'}">${risks.length}</span></div><div class="dd4-panel-body">${risks.length?risks.map(x=>`<div class="comp-row" style="cursor:pointer" onclick="document.getElementById('dd4-campaign-modal')?.remove();_dd4_openAgent('${String(x.id).replaceAll("'","\\'")}')"><div class="comp-label">${_dd_escape(x.name)}</div><div style="flex:1;font-size:11px;color:#64748B">${_dd_escape(x.supervisor)} · ${_dd_escape(x.warningLabel)}${x.reasonTitle?`<div style="margin-top:2px;color:#475569"><b>${_dd_escape(x.reasonTitle)}</b></div>`:''}</div>${_dd4_riskColorPill(x.riskColor)}</div>`).join(''):'<div class="dd4-alert green">No hay personas con advertencia activa en esta campaña.</div>'}</div></div>
-    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Detalle de incidencias</div><div class="dd4-panel-copy">Personas y fechas exactas que forman el resultado.</div></div><span class="dd4-chip blue">${actionable.length}</span></div><div class="dd4-panel-body" style="padding:0"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:950px"><thead><tr><th>Fecha</th><th>Agente</th><th>Supervisor</th><th>Incidencia</th><th>Registro final</th><th>People Action</th></tr></thead><tbody>${actionable.length?actionable.slice(0,100).map(r=>`<tr class="clickable" onclick="document.getElementById('dd4-campaign-modal')?.remove();_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td>${_dd_escape(r.employee_name||r.employee_id)}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${r.dd_has_final_exception?'<span class="dd4-status ok">Encontrado</span>':'<span class="dd4-status warn">Sin registro</span>'}</td><td>${r.dd_action?`<span class="dd4-status ${r.dd_action_status==='on_time'?'ok':'warn'}">${r.dd_action_status==='on_time'?'A tiempo':'Tardía'}</span>`:'<span class="dd4-status bad">Sin acción</span>'}</td></tr>`).join(''):`<tr><td colspan="6"><div class="dd4-empty">Sin faltas ni retardos accionables.</div></td></tr>`}</tbody></table></div></div></div>
+    <div class="dd4-panel"><div class="dd4-panel-head"><div><div class="dd4-panel-title">Detalle de incidencias</div><div class="dd4-panel-copy">Personas y fechas exactas que forman el resultado.</div></div><span class="dd4-chip blue">${actionable.length}</span></div><div class="dd4-panel-body" style="padding:0"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:950px"><thead><tr><th>Fecha</th><th>Agente</th><th>Supervisor</th><th>Incidencia</th><th>Registro final</th><th>People Action</th></tr></thead><tbody>${actionable.length?actionable.slice(0,100).map(r=>`<tr class="clickable" onclick="document.getElementById('dd4-campaign-modal')?.remove();_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td>${_dd_escape(r.employee_name||r.employee_id)}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td>${r.dd_has_final_exception?'<span class="dd4-status ok">Encontrado</span>':'<span class="dd4-status warn">Sin registro</span>'}</td><td>${r.dd_action?`<span class="dd4-status ${r.dd_action_status==='on_time'?'ok':'warn'}">${r.dd_action_status==='on_time'?'A tiempo':'Fuera de ventana del Supervisor'}</span>`:'<span class="dd4-status bad">Sin acción</span>'}</td></tr>`).join(''):`<tr><td colspan="6"><div class="dd4-empty">Sin faltas ni retardos accionables.</div></td></tr>`}</tbody></table></div></div></div>
   </div><div class="modal-footer"><button class="btn-ghost" onclick="document.getElementById('dd4-campaign-modal')?.remove()">Cerrar</button></div></div></div>`;
   document.getElementById('dd4-campaign-modal')?.remove();document.body.insertAdjacentHTML('beforeend',html);
 }
@@ -23098,7 +23114,7 @@ function _dd4_renderOperationalIncidents(d){
 
 function _dd4_renderOperationalAccountability(d){
   const rows=d.operationalAccountability||[];
-  return `<div class="dd4-alert blue"><b>Regla acordada:</b> registro el mismo día = a tiempo; un día después = tardío; después de un día = fuera de plazo; sin carga manual = sin registro de liderazgo. Una carga del Bot no sustituye la gestión del supervisor.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1150px"><thead><tr><th>Supervisor</th><th class="dd4-center">HC afectado</th><th class="dd4-center">Faltas</th><th class="dd4-center">Retardos</th><th class="dd4-center">Mismo día</th><th class="dd4-center">1 día después</th><th class="dd4-center">Fuera de plazo</th><th class="dd4-center">Sin registro</th><th>Cobertura</th></tr></thead><tbody>${rows.length?rows.map(s=>`<tr><td><div class="dd-primary">${_dd_escape(s.supervisor_name)}</div><div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div></td><td class="dd4-center dd4-mono">${s.hc}</td><td class="dd4-center dd4-mono" style="color:#DC2626">${s.faltas}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.retardos}</td><td class="dd4-center dd4-mono" style="color:#15803D">${s.onTime}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.late}</td><td class="dd4-center dd4-mono" style="color:#B91C1C">${s.overdue}</td><td class="dd4-center dd4-mono" style="color:#BE123C">${s.missing}</td><td><div class="dd4-strong dd4-center">${s.coverage}%</div><div class="dd4-bar ${s.coverage<50?'danger':s.coverage<80?'warn':''}"><span style="width:${Math.min(100,s.coverage)}%"></span></div></td></tr>`).join(''):`<tr><td colspan="9"><div class="dd4-empty">No hay faltas o retardos en el periodo.</div></td></tr>`}</tbody></table></div></div>`;
+  return `<div class="dd4-alert blue"><b>Regla acordada:</b> registro el mismo día o al día siguiente = a tiempo; de 2 a 7 días = regularización; 8 días o más = fuera de plazo; sin carga manual = sin registro de liderazgo. Una carga del Bot no sustituye la gestión del supervisor.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1150px"><thead><tr><th>Supervisor</th><th class="dd4-center">HC afectado</th><th class="dd4-center">Faltas</th><th class="dd4-center">Retardos</th><th class="dd4-center">En plazo · 0–1 días</th><th class="dd4-center">Regularización · 2–7</th><th class="dd4-center">Fuera de plazo · 8+</th><th class="dd4-center">Sin registro</th><th>Cobertura</th></tr></thead><tbody>${rows.length?rows.map(s=>`<tr><td><div class="dd-primary">${_dd_escape(s.supervisor_name)}</div><div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div></td><td class="dd4-center dd4-mono">${s.hc}</td><td class="dd4-center dd4-mono" style="color:#DC2626">${s.faltas}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.retardos}</td><td class="dd4-center dd4-mono" style="color:#15803D">${s.onTime}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.late}</td><td class="dd4-center dd4-mono" style="color:#B91C1C">${s.overdue}</td><td class="dd4-center dd4-mono" style="color:#BE123C">${s.missing}</td><td><div class="dd4-strong dd4-center">${s.coverage}%</div><div class="dd4-bar ${s.coverage<50?'danger':s.coverage<80?'warn':''}"><span style="width:${Math.min(100,s.coverage)}%"></span></div></td></tr>`).join(''):`<tr><td colspan="9"><div class="dd4-empty">No hay faltas o retardos en el periodo.</div></td></tr>`}</tbody></table></div></div>`;
 }
 
 function _dd4_renderOperationalCampaigns(d){
@@ -24059,7 +24075,7 @@ function _dd4_renderAttendance(d){
                       ${
                         _dd4_actionableRows([row]).length
                           ? row.dd_action
-                            ? `<span class="dd4-status ${row.dd_action_status==='on_time'?'ok':'warn'}">${row.dd_action_status==='on_time'?'A tiempo':'Tardía'}</span>`
+                            ? `<span class="dd4-status ${row.dd_action_status==='on_time'?'ok':'warn'}">${row.dd_action_status==='on_time'?'A tiempo':'Fuera de ventana del Supervisor'}</span>`
                             : '<span class="dd4-status bad">Sin acción</span>'
                           : '<span class="dd4-status neutral">No aplica</span>'
                       }
@@ -24178,8 +24194,8 @@ function _dd4_renderSupervisors(d){
     <div class="dd4-alert blue">
       Cada falta o retardo se vincula con máximo una
       Acción People del mismo evento.
-      Mismo día = a tiempo; de 1 a 7 días = tardía;
-      sin caso vinculable = sin acción.
+      Mismo día o día siguiente = a tiempo; de 2 a 7 días = regularización;
+      8+ días = fuera de plazo; sin caso vinculable = sin acción.
     </div>
 
     <div class="dd4-table-wrap">
@@ -34637,6 +34653,10 @@ function _d_rutaBadge(c) {
   const accountability = String(
     c?.leadership_accountability || ''
   ).toLowerCase();
+
+  if (accountability === 'on_time') {
+    return `<span class="pill" style="background:#DCFCE7;color:#166534"><span class="dot"></span>Emitida a tiempo</span>`;
+  }
 
   if (accountability === 'late') {
     return `<span class="pill" style="background:#FEF3C7;color:#92400E"><span class="dot"></span>Emitida tarde</span>`;
