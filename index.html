@@ -1932,6 +1932,7 @@ const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
 const APP_VERSION   = '1.0.69';
+const APP_BUILD = '1.0.69-rollback-logica-original-asistencia';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2366,10 +2367,9 @@ async function _startApp(user) {
   _startClock();
   _startSecurityTimers();
   _startVersionCheck();
+  _rt_start();
   console.log('[Impulse] switching to asistencia...');
   switchModule('asistencia');
-  // Realtime inicia después del primer render de Asistencia para no competir
-  // con las consultas críticas de arranque.
 }
 
 // ── CONSTRUIR SHELL ───────────────────────────────────────────
@@ -2535,26 +2535,6 @@ function _rt_queue(table, payload) {
     return;
   }
 
-  if (
-    [
-      'attendance_punches',
-      'attendance_exceptions',
-      'employees',
-      'overtime_records',
-      'vacation_requests',
-      'attendance_punch_corrections',
-      'schedule_override_groups',
-      'day_off_override_requests',
-      'temporary_schedule_change_requests',
-      'swaps',
-      'partial_shift_swaps',
-      'partial_shift_swap_legs'
-    ].includes(table) &&
-    typeof _a_clearAttendancePerformanceCaches === 'function'
-  ) {
-    _a_clearAttendancePerformanceCaches();
-  }
-
   // Guardamos el aviso, pero NO refrescamos el módulo automáticamente.
   // Así Supabase puede mandar muchos eventos sin interrumpir formularios,
   // modales, filtros, scroll o revisiones que el usuario esté realizando.
@@ -2649,8 +2629,7 @@ async function _rt_refreshActiveModule() {
 
       const ok = typeof _a_cargarDatos === 'function'
         ? await _a_cargarDatos({
-            historyEmployeeId: viewedEmployeeId,
-            loadSecondary: false
+            historyEmployeeId: viewedEmployeeId
           })
         : true;
 
@@ -2658,13 +2637,14 @@ async function _rt_refreshActiveModule() {
         throw new Error('No se pudieron recargar los datos de Asistencia.');
       }
 
-      if (typeof _a_render === 'function') _a_render();
-
-      // OT, cambios temporales y resumen de Acciones People no bloquean
-      // la actualización principal.
-      if (typeof _a_loadAttendanceSecondaryData === 'function') {
-        void _a_loadAttendanceSecondaryData();
+      if (
+        ['supervisor','manager','people','head_people','ceo'].includes(currentRole) &&
+        typeof _a_cargarOTRecords === 'function'
+      ) {
+        await _a_cargarOTRecords({ sync: false });
       }
+
+      if (typeof _a_render === 'function') _a_render();
       break;
     }
 
@@ -3363,6 +3343,7 @@ async function _a_setPreset(mode){
   // Cargar datos del empleado que se está viendo actualmente, no siempre el logueado
   const empId = _a_QDAYS_EMPLEADO_ID || ROLES[currentRole].id;
   await _a_cargarQDAYS(empId, _a_dateFilter.from, _a_dateFilter.to);
+  await _a_cargarKPIsPeriodo();
   await _a_cargarOTRecords();
   _a_render();
 }
@@ -3383,6 +3364,7 @@ async function _a_navDate(direction, empId){
   if(fi) fi.value = newFrom;
   if(ti) ti.value = newTo;
   await _a_cargarQDAYS(id, newFrom, newTo);
+  await _a_cargarKPIsPeriodo();
   await _a_cargarOTRecords();
   _a_render();
 }
@@ -3408,6 +3390,8 @@ async function _a_applyCustom(){
     fi.value,
     ti.value
   );
+
+  await _a_cargarKPIsPeriodo();
 
   if (
     [
@@ -4248,6 +4232,295 @@ async function _a_revisarCambioDescanso(id, approve) {
 // ── STATE HEAD/PEOPLE — datos reales Supabase ─────────────────
 let _a_CAMPS_REAL = [];
 let _a_KPI_GLOBAL = { total:0, onTime:0, late:0, absent:0, noOut:0 };
+
+// KPIs históricos para los filtros de fecha de liderazgo.
+// La pantalla original cambiaba la etiqueta del periodo, pero seguía usando
+// el snapshot de hoy. Por eso una falta del 1 de agosto aparecía en el detalle
+// y el KPI global mostraba 0. Este estado mantiene el rango seleccionado.
+let _a_PERIOD_ROWS = [];
+let _a_PERIOD_KEY = '';
+let _a_PERIOD_ERROR = null;
+
+function _a_periodIsToday() {
+  const today = ymd(NOW);
+  return _a_dateFilter.from === today && _a_dateFilter.to === today;
+}
+
+function _a_periodLeadershipRole() {
+  return [
+    'supervisor',
+    'manager',
+    'workforce',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole);
+}
+
+function _a_periodChunks(items, size) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
+async function _a_fetchPeriodSummaryDirect(employeeIds, fromDate, toDate) {
+  const rows = [];
+
+  // Respaldo conservador. Solo se usa si la RPC filtrada no existe.
+  // Lotes pequeños evitan volver a disparar una consulta masiva.
+  for (const chunk of _a_periodChunks(employeeIds, 8)) {
+    const { data, error } = await _a_sb
+      .from('attendance_daily_summary')
+      .select([
+        'employee_id',
+        'campaign_id',
+        'shift_hours',
+        'punch_date',
+        'time_in',
+        'time_out',
+        'hours_worked',
+        'attendance_status',
+        'record_status',
+        'is_absent',
+        'is_no_show',
+        'is_missing_checkout',
+        'counts_absence',
+        'counts_late',
+        'exception_type',
+        'exception_status'
+      ].join(','))
+      .gte('punch_date', fromDate)
+      .lte('punch_date', toDate)
+      .in('employee_id', chunk);
+
+    if (error) throw error;
+    rows.push(...(data || []));
+  }
+
+  return rows;
+}
+
+async function _a_cargarKPIsPeriodo({ force = false } = {}) {
+  if (!_a_periodLeadershipRole()) {
+    _a_PERIOD_ROWS = [];
+    _a_PERIOD_KEY = '';
+    _a_PERIOD_ERROR = null;
+    return true;
+  }
+
+  if (_a_periodIsToday()) {
+    _a_PERIOD_ROWS = [];
+    _a_PERIOD_KEY = '';
+    _a_PERIOD_ERROR = null;
+    return true;
+  }
+
+  const employeeIds = [...new Set(
+    (_a_TEAM || [])
+      .map(row => row?.id)
+      .filter(Boolean)
+      .map(String)
+  )];
+
+  if (!employeeIds.length) {
+    _a_PERIOD_ROWS = [];
+    _a_PERIOD_ERROR = 'No se encontró el alcance de colaboradores para el periodo.';
+    return false;
+  }
+
+  const rangeKey = [
+    currentRole,
+    _a_dateFilter.from,
+    _a_dateFilter.to,
+    employeeIds.join('|')
+  ].join('::');
+
+  if (!force && rangeKey === _a_PERIOD_KEY && _a_PERIOD_ROWS.length) {
+    return true;
+  }
+
+  const rows = [];
+
+  try {
+    let rpcFailed = false;
+
+    // La RPC conserva la salida de attendance_daily_summary, pero filtra las
+    // tablas base antes de agrupar. Ya existe en el proyecto por la prueba
+    // anterior; aquí solo se usa para leer el periodo correctamente.
+    for (const chunk of _a_periodChunks(employeeIds, 80)) {
+      const { data, error } = await _a_sb.rpc(
+        'get_attendance_daily_summary_filtered_v1',
+        {
+          p_employee_ids: chunk,
+          p_from: _a_dateFilter.from,
+          p_to: _a_dateFilter.to
+        }
+      );
+
+      if (error) {
+        rpcFailed = true;
+        console.warn(
+          '[Impulse Asistencia] RPC de periodo no disponible; usando vista por lotes.',
+          error
+        );
+        break;
+      }
+
+      rows.push(...(data || []));
+    }
+
+    let finalRows = rows;
+
+    if (rpcFailed) {
+      finalRows = await _a_fetchPeriodSummaryDirect(
+        employeeIds,
+        _a_dateFilter.from,
+        _a_dateFilter.to
+      );
+    }
+
+    const teamById = new Map(
+      (_a_TEAM || []).map(row => [String(row.id), row])
+    );
+
+    _a_PERIOD_ROWS = (finalRows || []).map(row => {
+      const team = teamById.get(String(row.employee_id)) || {};
+      return {
+        ...row,
+        camp: row.campaign_id || team.campaign_id || team.camp || '—',
+        supId: team.supId || team.supervisor_id || null,
+        employeeName: team.name || row.full_name || row.employee_id
+      };
+    });
+
+    _a_PERIOD_KEY = rangeKey;
+    _a_PERIOD_ERROR = null;
+
+    console.log('[Impulse Asistencia] KPIs de periodo cargados', {
+      from: _a_dateFilter.from,
+      to: _a_dateFilter.to,
+      employees: employeeIds.length,
+      rows: _a_PERIOD_ROWS.length
+    });
+
+    return true;
+  } catch (error) {
+    console.error('[Impulse Asistencia] Error cargando KPIs del periodo:', error);
+    _a_PERIOD_ROWS = [];
+    _a_PERIOD_KEY = '';
+    _a_PERIOD_ERROR = error?.message || 'No se pudo cargar el periodo.';
+    return false;
+  }
+}
+
+function _a_periodRowsFiltered() {
+  const campaign = String(_a_filtros?.campana || '').trim().toLowerCase();
+
+  if (!campaign) return _a_PERIOD_ROWS || [];
+
+  return (_a_PERIOD_ROWS || []).filter(row =>
+    String(row.camp || row.campaign_id || '')
+      .toLowerCase()
+      .includes(campaign)
+  );
+}
+
+function _a_periodStats(rows = []) {
+  const stats = {
+    total: 0,
+    employees: new Set(),
+    onTime: 0,
+    tolerance: 0,
+    late: 0,
+    absent: 0,
+    noOut: 0,
+    hoursWorked: 0,
+    hoursContracted: 0,
+    byCampaign: {}
+  };
+
+  for (const row of rows || []) {
+    const status = String(row.attendance_status || '').trim().toLowerCase();
+    const campaign = row.camp || row.campaign_id || '—';
+    const isAbsent =
+      row.is_absent === true ||
+      row.counts_absence === true ||
+      status === 'absent';
+    const isLate =
+      row.counts_late === true ||
+      status === 'late';
+    const isTolerance = status === 'tolerance';
+    const isOnTime = [
+      'on_time',
+      'early_arrival',
+      'early_unapproved'
+    ].includes(status);
+    const isEvaluated = Boolean(
+      row.punch_date &&
+      (
+        status ||
+        row.time_in ||
+        row.time_out ||
+        row.exception_type
+      )
+    );
+
+    if (!isEvaluated) continue;
+
+    stats.total++;
+    stats.employees.add(String(row.employee_id));
+    stats.hoursWorked += Number(row.hours_worked || 0);
+    stats.hoursContracted += Number(row.shift_hours || 0);
+
+    if (isAbsent) stats.absent++;
+    else if (isLate) stats.late++;
+    else if (isTolerance) stats.tolerance++;
+    else if (isOnTime) stats.onTime++;
+
+    if (
+      row.is_missing_checkout === true ||
+      String(row.record_status || '').toLowerCase() === 'missing_checkout' ||
+      (row.time_in && !row.time_out)
+    ) {
+      stats.noOut++;
+    }
+
+    if (!stats.byCampaign[campaign]) {
+      stats.byCampaign[campaign] = {
+        name: campaign,
+        total: 0,
+        onTime: 0,
+        tolerance: 0,
+        late: 0,
+        absent: 0,
+        hoursWorked: 0,
+        hoursContracted: 0,
+        employees: new Set()
+      };
+    }
+
+    const camp = stats.byCampaign[campaign];
+    camp.total++;
+    camp.employees.add(String(row.employee_id));
+    camp.hoursWorked += Number(row.hours_worked || 0);
+    camp.hoursContracted += Number(row.shift_hours || 0);
+
+    if (isAbsent) camp.absent++;
+    else if (isLate) camp.late++;
+    else if (isTolerance) camp.tolerance++;
+    else if (isOnTime) camp.onTime++;
+  }
+
+  stats.employeeCount = stats.employees.size;
+
+  Object.values(stats.byCampaign).forEach(camp => {
+    camp.employeeCount = camp.employees.size;
+  });
+
+  return stats;
+}
 let _a_SUPS_REAL  = [];  // supervisores con asistencia de hoy
 let _a_MANAGERS_REAL = []; // managers con su equipo directo
 let _a_drillMgr = null; // manager actualmente en drill-down
@@ -4540,7 +4813,7 @@ function _a_earlyDecisionLabel(status) {
   return map[status] || status || 'Pendiente';
 }
 
-async function _a_loadEarlyEntryReviews(options = {}) {
+async function _a_loadEarlyEntryReviews() {
   if (![
     'supervisor',
     'manager',
@@ -4552,41 +4825,27 @@ async function _a_loadEarlyEntryReviews(options = {}) {
     return;
   }
 
-  const {
-    sync = false,
-    daysBack = 120
-  } = options;
-
   _a_EARLY_ENTRY_LOADING = true;
 
   try {
-    if (sync) {
-      const syncResult = await _a_sb.rpc(
-        'sync_attendance_early_entry_reviews',
-        { p_days_back: daysBack }
-      );
-
-      if (
-        syncResult.error ||
-        syncResult.data?.ok === false
-      ) {
-        console.warn(
-          '[Impulse Entradas anticipadas] No se pudo sincronizar:',
-          syncResult.error || syncResult.data
-        );
-      }
-    }
-
-    const cutoff = new Date();
-    cutoff.setDate(
-      cutoff.getDate() - Math.max(1, Number(daysBack || 120))
+    const sync = await _a_sb.rpc(
+      'sync_attendance_early_entry_reviews',
+      { p_days_back: 120 }
     );
-    const fromDate = ymd(cutoff);
+
+    if (
+      sync.error ||
+      sync.data?.ok === false
+    ) {
+      console.warn(
+        '[Impulse Entradas anticipadas] No se pudo sincronizar:',
+        sync.error || sync.data
+      );
+    }
 
     const { data, error } = await _a_sb
       .from('attendance_early_entry_reviews')
       .select('*')
-      .gte('work_date', fromDate)
       .order('work_date', { ascending: false })
       .order('created_at', { ascending: false });
 
@@ -4616,24 +4875,25 @@ async function _a_loadEarlyEntryReviews(options = {}) {
 
     let nameById = new Map();
 
-    for (let i = 0; i < directoryIds.length; i += 150) {
-      const chunk = directoryIds.slice(i, i + 150);
+    if (directoryIds.length) {
       const directoryResult = await _a_sb
         .from('employees')
         .select('id,full_name')
-        .in('id', chunk);
+        .in('id', directoryIds);
 
       if (directoryResult.error) {
         console.warn(
           '[Impulse Entradas anticipadas] No se pudieron resolver los nombres:',
           directoryResult.error
         );
-        continue;
+      } else {
+        nameById = new Map(
+          (directoryResult.data || []).map(employee => [
+            String(employee.id),
+            employee.full_name
+          ])
+        );
       }
-
-      (directoryResult.data || []).forEach(employee => {
-        nameById.set(String(employee.id), employee.full_name);
-      });
     }
 
     _a_EARLY_ENTRY_REVIEWS = reviews.map(row => {
@@ -5421,7 +5681,7 @@ function _a_lateRegularizationFor(
   ) || null;
 }
 
-async function _a_loadLateRegularizations(options = {}) {
+async function _a_loadLateRegularizations() {
   if (![
     'supervisor',
     'manager',
@@ -5434,38 +5694,24 @@ async function _a_loadLateRegularizations(options = {}) {
     return;
   }
 
-  const {
-    sync = false,
-    daysBack = 120
-  } = options;
-
   _a_LATE_REGULARIZATION_LOADING = true;
 
   try {
-    if (sync) {
-      const syncResult = await _a_sb.rpc(
-        'sync_attendance_late_regularizations',
-        { p_days_back: daysBack }
-      );
-
-      if (syncResult.error || syncResult.data?.ok === false) {
-        console.warn(
-          '[Impulse Regularización retardos] Sync:',
-          syncResult.error || syncResult.data
-        );
-      }
-    }
-
-    const cutoff = new Date();
-    cutoff.setDate(
-      cutoff.getDate() - Math.max(1, Number(daysBack || 120))
+    const sync = await _a_sb.rpc(
+      'sync_attendance_late_regularizations',
+      { p_days_back: 120 }
     );
-    const fromDate = ymd(cutoff);
+
+    if (sync.error || sync.data?.ok === false) {
+      console.warn(
+        '[Impulse Regularización retardos] Sync:',
+        sync.error || sync.data
+      );
+    }
 
     const regularizationResult = await _a_sb
       .from('attendance_late_regularizations')
       .select('*')
-      .gte('work_date', fromDate)
       .order('work_date', { ascending: false })
       .order('created_at', { ascending: false });
 
@@ -5480,7 +5726,9 @@ async function _a_loadLateRegularizations(options = {}) {
       return;
     }
 
-    const regularizations = regularizationResult.data || [];
+    const regularizations =
+      regularizationResult.data || [];
+
     let actions = [];
 
     if (regularizations.length) {
@@ -5493,72 +5741,87 @@ async function _a_loadLateRegularizations(options = {}) {
       ];
 
       const dates = regularizations
-        .map(row => String(row.work_date || '').slice(0, 10))
+        .map(row =>
+          String(row.work_date || '').slice(0, 10)
+        )
         .filter(Boolean)
         .sort();
 
-      for (let i = 0; i < employeeIds.length; i += 100) {
-        const chunk = employeeIds.slice(i, i + 100);
-        let query = _a_sb
-          .from('people_action_cases')
-          .select(
-            [
-              'id',
-              'employee_id',
-              'incident_date',
-              'status',
-              'attendance_source_id',
-              'attendance_incident_type',
-              'recommended_level',
-              'issued_level',
-              'matrix_id'
-            ].join(',')
-          )
-          .in('employee_id', chunk);
+      let query = _a_sb
+        .from('people_action_cases')
+        .select(
+          [
+            'id',
+            'employee_id',
+            'incident_date',
+            'status',
+            'attendance_source_id',
+            'attendance_incident_type',
+            'recommended_level',
+            'issued_level',
+            'matrix_id'
+          ].join(',')
+        );
 
-        if (dates.length) {
-          query = query
-            .gte('incident_date', dates[0])
-            .lte('incident_date', dates[dates.length - 1]);
-        }
-
-        const actionResult = await query;
-
-        if (actionResult.error) {
-          console.warn(
-            '[Impulse Regularización retardos] Validación de Acciones People:',
-            actionResult.error
-          );
-          continue;
-        }
-
-        actions.push(...(actionResult.data || []));
+      if (employeeIds.length) {
+        query = query.in(
+          'employee_id',
+          employeeIds
+        );
       }
 
-      actions = actions.filter(action =>
-        _a_peopleActionStatusActive(action.status)
-      );
+      if (dates.length) {
+        query = query
+          .gte('incident_date', dates[0])
+          .lte(
+            'incident_date',
+            dates[dates.length - 1]
+          );
+      }
+
+      const actionResult = await query;
+
+      if (actionResult.error) {
+        console.warn(
+          '[Impulse Regularización retardos] Validación de Acciones People:',
+          actionResult.error
+        );
+      } else {
+        actions = (actionResult.data || [])
+          .filter(action =>
+            _a_peopleActionStatusActive(
+              action.status
+            )
+          );
+      }
     }
 
     _a_LATE_PEOPLE_ACTIONS = actions;
 
-    _a_LATE_REGULARIZATIONS = regularizations.map(row => {
-      const peopleAction =
-        actions.find(action =>
-          _a_peopleActionMatchesLate(action, row)
-        ) || null;
+    _a_LATE_REGULARIZATIONS =
+      regularizations.map(row => {
+        const peopleAction =
+          actions.find(action =>
+            _a_peopleActionMatchesLate(
+              action,
+              row
+            )
+          ) || null;
 
-      return {
-        ...row,
-        has_people_action: Boolean(peopleAction),
-        people_action_case_id: peopleAction?.id || null,
-        people_action_status: peopleAction?.status || null,
-        people_action_level:
-          peopleAction?.issued_level ||
-          peopleAction?.recommended_level ||
-          null
-      };
-    });
+        return {
+          ...row,
+          has_people_action:
+            Boolean(peopleAction),
+          people_action_case_id:
+            peopleAction?.id || null,
+          people_action_status:
+            peopleAction?.status || null,
+          people_action_level:
+            peopleAction?.issued_level ||
+            peopleAction?.recommended_level ||
+            null
+        };
+      });
   } finally {
     _a_LATE_REGULARIZATION_LOADING = false;
   }
@@ -6624,218 +6887,6 @@ function _a_injectLateRegularizationCard() {
   );
 }
 
-// ── ASISTENCIA · DATA ACCESS OPTIMIZADO v1.0.69 ─────────────────────
-const _a_SUMMARY_HISTORY_COLUMNS = [
-  'employee_id','full_name','campaign_id','shift_start','shift_end',
-  'shift_hours','punch_date','time_in','time_out','minutes_late',
-  'hours_worked','overtime_minutes','exception_type','exception_status',
-  'attendance_status','time_in_for_calculation','early_arrival_minutes',
-  'early_grace_minutes','approved_ot_minutes','pre_shift_ot_minutes',
-  'unapproved_early_minutes','exception_notes','late_seconds',
-  'tolerance_minutes','no_show_minutes','is_late','is_within_tolerance',
-  'counts_for_discipline','policy_id','policy_name','position_title',
-  'schedule_source','schedule_override_type','record_status',
-  'is_missing_checkin','is_missing_checkout','is_open_shift','is_absent',
-  'is_no_show','is_excused','counts_late','counts_absence','counts_no_show',
-  'needs_review','status_label','record_status_label'
-].join(',');
-
-const _a_ATTENDANCE_SUMMARY_CACHE = new Map();
-const _a_ATTENDANCE_CONTEXT_CACHE = new Map();
-const _a_ATTENDANCE_CACHE_TTL_MS = 30000;
-
-function _a_clearAttendancePerformanceCaches() {
-  _a_ATTENDANCE_SUMMARY_CACHE.clear();
-  _a_ATTENDANCE_CONTEXT_CACHE.clear();
-}
-
-function _a_attendanceCacheGet(cache, key) {
-  const hit = cache.get(key);
-  if (!hit) return null;
-  if (Date.now() - hit.createdAt > _a_ATTENDANCE_CACHE_TTL_MS) {
-    cache.delete(key);
-    return null;
-  }
-  return hit.value;
-}
-
-function _a_attendanceCacheSet(cache, key, value) {
-  if (cache.size >= 12) {
-    const firstKey = cache.keys().next().value;
-    if (firstKey) cache.delete(firstKey);
-  }
-  cache.set(key, { createdAt: Date.now(), value });
-}
-
-async function _a_fetchAttendanceSummaryOptimized(
-  ids,
-  fromDate,
-  toDate,
-  options = {}
-) {
-  const cleanIds = [
-    ...new Set((ids || []).filter(Boolean).map(String))
-  ].sort();
-
-  if (!cleanIds.length) return [];
-
-  const {
-    columns = _a_SUMMARY_HISTORY_COLUMNS,
-    chunkSize = 120,
-    useCache = true
-  } = options;
-
-  const key = [
-    fromDate,
-    toDate,
-    columns,
-    cleanIds.join('|')
-  ].join('::');
-
-  if (useCache) {
-    const cached = _a_attendanceCacheGet(
-      _a_ATTENDANCE_SUMMARY_CACHE,
-      key
-    );
-    if (cached) return cached;
-  }
-
-  const rows = [];
-
-  for (let i = 0; i < cleanIds.length; i += chunkSize) {
-    const chunk = cleanIds.slice(i, i + chunkSize);
-    let request = _a_sb.rpc(
-      'get_attendance_daily_summary_filtered_v1',
-      {
-        p_employee_ids: chunk,
-        p_from: fromDate,
-        p_to: toDate
-      }
-    );
-
-    if (columns && columns !== '*') {
-      request = request.select(columns);
-    }
-
-    const { data, error } = await request;
-
-    if (error) {
-      const rpcMissing =
-        ['PGRST202', '42883'].includes(String(error.code || '')) ||
-        String(error.message || '').includes(
-          'get_attendance_daily_summary_filtered_v1'
-        );
-
-      // Respaldo controlado sólo para una consulta individual si el SQL aún
-      // no se desplegó. Nunca se usa para equipos grandes ni para timeouts.
-      if (rpcMissing && chunk.length <= 1) {
-        let fallback = _a_sb
-          .from('attendance_daily_summary')
-          .select(columns || '*')
-          .in('employee_id', chunk)
-          .gte('punch_date', fromDate)
-          .lte('punch_date', toDate);
-
-        const fallbackResult = await fallback;
-        if (fallbackResult.error) throw fallbackResult.error;
-        rows.push(...(fallbackResult.data || []));
-        continue;
-      }
-
-      console.error(
-        '[Impulse Performance] RPC de asistencia filtrada:',
-        error
-      );
-      throw error;
-    }
-
-    rows.push(...(data || []));
-  }
-
-  rows.sort((a, b) =>
-    String(a.punch_date || '').localeCompare(
-      String(b.punch_date || '')
-    ) ||
-    String(a.employee_id || '').localeCompare(
-      String(b.employee_id || '')
-    )
-  );
-
-  if (useCache) {
-    _a_attendanceCacheSet(
-      _a_ATTENDANCE_SUMMARY_CACHE,
-      key,
-      rows
-    );
-  }
-
-  return rows;
-}
-
-async function _a_fetchTodayContextOptimized(ids, workDate) {
-  const cleanIds = [
-    ...new Set((ids || []).filter(Boolean).map(String))
-  ].sort();
-
-  const empty = {
-    summaries: [],
-    exceptions: [],
-    vacations: [],
-    schedules: []
-  };
-
-  if (!cleanIds.length) return empty;
-
-  const key = `${workDate}::${cleanIds.join('|')}`;
-  const cached = _a_attendanceCacheGet(
-    _a_ATTENDANCE_CONTEXT_CACHE,
-    key
-  );
-  if (cached) return cached;
-
-  const result = {
-    summaries: [],
-    exceptions: [],
-    vacations: [],
-    schedules: []
-  };
-
-  // 80 coincide con el tamaño ya usado por horarios efectivos. Los lotes
-  // son secuenciales para no saturar conexiones ni work_mem.
-  for (let i = 0; i < cleanIds.length; i += 80) {
-    const chunk = cleanIds.slice(i, i + 80);
-    const { data, error } = await _a_sb.rpc(
-      'get_attendance_today_context_v1',
-      {
-        p_employee_ids: chunk,
-        p_date: workDate
-      }
-    );
-
-    if (error) {
-      console.error(
-        '[Impulse Performance] Contexto diario optimizado:',
-        error
-      );
-      throw error;
-    }
-
-    const payload = data || {};
-    result.summaries.push(...(payload.summaries || []));
-    result.exceptions.push(...(payload.exceptions || []));
-    result.vacations.push(...(payload.vacations || []));
-    result.schedules.push(...(payload.schedules || []));
-  }
-
-  _a_attendanceCacheSet(
-    _a_ATTENDANCE_CONTEXT_CACHE,
-    key,
-    result
-  );
-
-  return result;
-}
-
 async function _a_cargarQDAYS(empId, from, to) {
   const [
     empRes,
@@ -6855,15 +6906,13 @@ async function _a_cargarQDAYS(empId, from, to) {
       .eq('id', empId)
       .maybeSingle(),
 
-    _a_fetchAttendanceSummaryOptimized(
-      [empId],
-      from,
-      to,
-      {
-        columns: _a_SUMMARY_HISTORY_COLUMNS,
-        chunkSize: 1
-      }
-    ),
+    _a_sb
+      .from('attendance_daily_summary')
+      .select('*')
+      .eq('employee_id', empId)
+      .gte('punch_date', from)
+      .lte('punch_date', to)
+      .order('punch_date'),
 
     _a_sb
       .from('attendance_punches')
@@ -6936,9 +6985,7 @@ async function _a_cargarQDAYS(empId, from, to) {
   ]);
 
   const daysOff = empRes.data?.days_off || [];
-  const summary = Array.isArray(summaryRes)
-    ? summaryRes
-    : (summaryRes?.data || []);
+  const summary = summaryRes.data || [];
   const punchesData =
     notesRes.data || [];
 
@@ -7789,7 +7836,6 @@ async function _a_cargarDatos(options = {}) {
   const requestedHistoryEmployeeId =
     options?.historyEmployeeId ||
     null;
-  const loadSecondary = options?.loadSecondary !== false;
   try {
     const ro = ROLES[currentRole] || {};
     if (!ro.id) {
@@ -7875,7 +7921,7 @@ async function _a_cargarDatos(options = {}) {
       return (daysOff || []).includes(slug);
     };
 
-    const _a_chunks = (arr, size = 100) => {
+    const _a_chunks = (arr, size = 35) => {
       const out = [];
       for (let i = 0; i < arr.length; i += size) {
         out.push(arr.slice(i, i + size));
@@ -7884,20 +7930,34 @@ async function _a_cargarDatos(options = {}) {
     };
 
     async function _a_fetchTodaySummaries(ids) {
-      return _a_fetchAttendanceSummaryOptimized(
-        ids,
-        hoy,
-        hoy,
-        {
-          columns: [
-            'employee_id','shift_start','shift_end','punch_date',
-            'time_in','time_out','hours_worked','exception_type',
-            'exception_status','attendance_status','exception_notes',
-            'tolerance_minutes','policy_name'
-          ].join(','),
-          chunkSize: 120
+      const cleanIds = [...new Set((ids || []).filter(Boolean))];
+      const out = [];
+
+      async function fetchSummaryChunk(chunk) {
+        const { data, error } = await _a_sb
+          .from('attendance_daily_summary')
+          .select('*')
+          .eq('punch_date', hoy)
+          .in('employee_id', chunk);
+
+        // La vista puede ser pesada para equipos grandes. Si PostgREST responde
+        // 500/timeout, dividimos el lote hasta un mínimo seguro en vez de perder
+        // toda la pantalla de Asistencia.
+        if (error && chunk.length > 8) {
+          const mid = Math.ceil(chunk.length / 2);
+          const left = await fetchSummaryChunk(chunk.slice(0, mid));
+          const right = await fetchSummaryChunk(chunk.slice(mid));
+          return [...left, ...right];
         }
-      );
+        if (error) throw error;
+        return data || [];
+      }
+
+      for (const chunk of _a_chunks(cleanIds, 35)) {
+        out.push(...await fetchSummaryChunk(chunk));
+      }
+
+      return out;
     }
 
     async function _a_fetchTodayExceptions(ids) {
@@ -8549,17 +8609,11 @@ async function _a_cargarDatos(options = {}) {
       _a_dateFilter.to
     );
 
-    // Cargar filas existentes sin ejecutar sincronizaciones históricas en
-    // cada apertura. La sincronización queda desacoplada y limitada por tiempo.
-    await _a_loadEarlyEntryReviews({ sync: false, daysBack: 120 });
-    await _a_loadLateRegularizations({ sync: false, daysBack: 120 });
+    // Entradas anticipadas deben estar listas antes de construir el equipo.
+    await _a_loadEarlyEntryReviews();
+    await _a_loadLateRegularizations();
 
-    // 3. Directorio y contexto operativo se consultan una sola vez.
-    let loadedRawEmployees = null;
-    let loadedScopedEmployees = null;
-    let loadedTodayContext = null;
-    let loadedContextKey = '';
-
+    // 3. Equipo del supervisor / manager / people / head / workforce / ceo
     if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
       let empQuery = _a_sb
         .from('employees')
@@ -8574,7 +8628,6 @@ async function _a_cargarDatos(options = {}) {
       if (empsErr) throw empsErr;
 
       const rawEmployees = emps || [];
-      loadedRawEmployees = rawEmployees;
 
       let scopedEmployees = rawEmployees;
 
@@ -8589,8 +8642,6 @@ async function _a_cargarDatos(options = {}) {
         );
       }
 
-      loadedScopedEmployees = scopedEmployees;
-
       const empList = currentRole === 'supervisor'
         ? scopedEmployees.filter(e => _a_isAgentLike(e))
         : scopedEmployees.filter(e =>
@@ -8598,76 +8649,67 @@ async function _a_cargarDatos(options = {}) {
             _a_isAgentLike(e)
           );
 
-      // Los KPI sólo requieren agentes y supervisores. No calculamos contexto
-      // diario para roles administrativos que no se muestran en asistencia.
-      const contextEmployees = currentRole === 'supervisor'
-        ? empList
-        : scopedEmployees.filter(e =>
-            _a_isAgentLike(e) ||
-            String(e.system_role || '').trim().toLowerCase() === 'supervisor'
-          );
+      const empIds = empList.map(e => e.id);
 
-      const contextIds = contextEmployees.map(e => e.id);
-      loadedContextKey = [...contextIds].map(String).sort().join('|');
-      loadedTodayContext = await _a_fetchTodayContextOptimized(
-        contextIds,
-        hoy
-      );
+      const [
+        todaySummary,
+        excepcionesHoy,
+        vacacionesHoy,
+        effectiveSchedulesHoy
+      ] = await Promise.all([
+        _a_fetchTodaySummaries(empIds),
+        _a_fetchTodayExceptions(empIds),
+        _a_fetchTodayVacations(empIds),
+        _a_fetchEffectiveSchedules(empIds)
+      ]);
 
       _a_TEAM = empList.map(e =>
         _a_buildTeamRow(
           e,
-          loadedTodayContext.summaries,
-          loadedTodayContext.exceptions,
-          loadedTodayContext.vacations,
-          loadedTodayContext.schedules
+          todaySummary,
+          excepcionesHoy,
+          vacacionesHoy,
+          effectiveSchedulesHoy
         )
       );
     }
 
-    // 4. KPIs globales reutilizan exactamente el mismo directorio y bundle.
+    // 4. KPIs globales para Head of People / People / Manager / Workforce / CEO
     if (['people', 'head_people', 'manager', 'workforce', 'ceo'].includes(currentRole)) {
-      let rawAllEmployees = loadedRawEmployees;
+      const { data: allEmps, error: allErr } = await _a_sb
+        .from('employees')
+        .select('*')
+        .eq('status', 'active');
 
-      if (!rawAllEmployees) {
-        const { data: allEmps, error: allErr } = await _a_sb
-          .from('employees')
-          .select('*')
-          .eq('status', 'active');
-        if (allErr) throw allErr;
-        rawAllEmployees = allEmps || [];
-      }
+      if (allErr) throw allErr;
 
-      const allEmployees = loadedScopedEmployees || (
-        currentRole === 'manager'
-          ? rawAllEmployees.filter(e =>
-              _a_descendantIds(
-                rawAllEmployees,
-                ro.id
-              ).has(String(e.id))
-            )
-          : rawAllEmployees
-      );
+      const rawAllEmployees = allEmps || [];
 
-      const contextEmployeesAll = allEmployees.filter(e =>
-        _a_isAgentLike(e) ||
-        String(e.system_role || '').trim().toLowerCase() === 'supervisor'
-      );
-      const allIds = contextEmployeesAll.map(e => e.id);
-      const allContextKey = [...allIds].map(String).sort().join('|');
+      const allEmployees = currentRole === 'manager'
+        ? rawAllEmployees.filter(e =>
+            _a_descendantIds(
+              rawAllEmployees,
+              ro.id
+            ).has(String(e.id))
+          )
+        : rawAllEmployees;
 
-      const todayContext =
-        loadedTodayContext && loadedContextKey === allContextKey
-          ? loadedTodayContext
-          : await _a_fetchTodayContextOptimized(allIds, hoy);
+      const allIds = allEmployees.map(e => e.id);
 
-      const todayAll = todayContext.summaries;
-      const exceptionsAll = todayContext.exceptions;
-      const vacationsAll = todayContext.vacations;
-      const effectiveSchedulesAll = todayContext.schedules;
+      const [
+        todayAll,
+        exceptionsAll,
+        vacationsAll,
+        effectiveSchedulesAll
+      ] = await Promise.all([
+        _a_fetchTodaySummaries(allIds),
+        _a_fetchTodayExceptions(allIds),
+        _a_fetchTodayVacations(allIds),
+        _a_fetchEffectiveSchedules(allIds)
+      ]);
 
       const contextById = new Map(
-        contextEmployeesAll.map(e => [
+        allEmployees.map(e => [
           e.id,
           _a_contextoEmpleadoHoy(
             e,
@@ -8917,13 +8959,11 @@ async function _a_cargarDatos(options = {}) {
       });
     }
 
-    if (loadSecondary) {
-      if (typeof _a_cargarCambiosDescanso === 'function') {
-        await _a_cargarCambiosDescanso();
-      }
-      if (typeof _a_cargarCambiosHorario === 'function') {
-        await _a_cargarCambiosHorario();
-      }
+    if (typeof _a_cargarCambiosDescanso === 'function') {
+      await _a_cargarCambiosDescanso();
+    }
+    if (typeof _a_cargarCambiosHorario === 'function') {
+      await _a_cargarCambiosHorario();
     }
 
     return true;
@@ -9004,10 +9044,6 @@ async function _a_punchSB(tipo) {
     if (insertError) {
       console.error('Error registrando punch:', insertError);
       return false;
-    }
-
-    if (typeof _a_clearAttendancePerformanceCaches === 'function') {
-      _a_clearAttendancePerformanceCaches();
     }
 
     // 4. Actualizar el estado visual de la pantalla
@@ -14156,11 +14192,25 @@ function _a_agentesEnCampaña(s) {
 }
 
 function _a_renderHeadPeople(){
+  // El snapshot de hoy se conserva para "Hoy". Cuando se selecciona otro
+  // periodo, los KPIs se calculan desde las filas reales de ese rango.
+  const usePeriod = !_a_periodIsToday() && _a_PERIOD_ROWS.length > 0;
+  const periodStats = usePeriod
+    ? _a_periodStats(_a_periodRowsFiltered())
+    : null;
+
   // Calcular KPIs según filtros activos
   const hayFiltro = _a_filtros.supervisores.length || _a_filtros.campana;
   const supsFiltrados = _a_filtrarSups(_a_SUPS_REAL);
   let totAgents, totOnTime, totLate, totAbsent, totNoOut;
-  if (_a_filtros.campana && _a_CAMP_REAL[_a_filtros.campana]) {
+
+  if (usePeriod) {
+    totAgents = periodStats.total;
+    totOnTime = periodStats.onTime;
+    totLate = periodStats.late;
+    totAbsent = periodStats.absent;
+    totNoOut = periodStats.noOut;
+  } else if (_a_filtros.campana && _a_CAMP_REAL[_a_filtros.campana]) {
     // Campaña exacta seleccionada — usar _a_CAMP_REAL que tiene el conteo real
     const d = _a_CAMP_REAL[_a_filtros.campana];
     totAgents = d.total;
@@ -14181,13 +14231,37 @@ function _a_renderHeadPeople(){
     totAbsent = _a_KPI_GLOBAL.absent;
     totNoOut  = _a_KPI_GLOBAL.noOut;
   }
-  const pctGlobal = totAgents ? Math.round((totOnTime/totAgents)*100) : 0;
+
+  const pctBase = usePeriod
+    ? Math.max(1, periodStats.onTime + periodStats.tolerance + periodStats.late + periodStats.absent)
+    : Math.max(1, totAgents);
+  const pctGlobal = Math.round((totOnTime / pctBase) * 100);
   const _a_SUPS_USE = _a_SUPS_REAL;
-  const totHContr=totAgents*8;
-  const totHWork=_a_SUPS_REAL.length>0
-    ? _a_SUPS_REAL.reduce((s,sup)=>s+sup.hoursWorked,0)
-    : Math.max(0, totAgents*8 - totAbsent*8 - Math.round(totLate*12));
-  const eficGlobal=Math.round((totHWork/totHContr)*100);
+  const totHContr = usePeriod
+    ? periodStats.hoursContracted
+    : totAgents * 8;
+  const totHWork = usePeriod
+    ? periodStats.hoursWorked
+    : _a_SUPS_REAL.length > 0
+      ? _a_SUPS_REAL.reduce((s,sup)=>s+sup.hoursWorked,0)
+      : Math.max(0, totAgents*8 - totAbsent*8 - Math.round(totLate*12));
+  const eficGlobal = totHContr
+    ? Math.round((totHWork/totHContr)*100)
+    : 0;
+
+  const operationLabel = usePeriod ? 'Registros evaluados' : 'Operación total';
+  const operationSub = usePeriod
+    ? `${periodStats.employeeCount} colaboradores con registros en el periodo`
+    : `${totAgents} activos hoy`;
+  const onTimeSub = usePeriod
+    ? `${totOnTime} registros a tiempo en el periodo`
+    : `${pctGlobal}% de la operación`;
+  const lateSub = usePeriod
+    ? `${totLate} retardos en el periodo`
+    : (totLate > 0 ? `${totLate} retardos registrados hoy` : 'Sin retardos hoy');
+  const absentSub = usePeriod
+    ? `${totAbsent} faltas en el periodo`
+    : (totAbsent > 0 ? `${totAbsent} faltas registradas hoy` : 'Sin faltas hoy');
 
   // Costo
   const salarioDiarioPromedio=14800/30;
@@ -14203,12 +14277,20 @@ function _a_renderHeadPeople(){
 
   // Heatmap por campaña
   // Heatmap: usar datos reales si disponibles, sino mock
-  const campanas = Object.keys(_a_CAMP_REAL).length > 0
-    ? Object.entries(_a_CAMP_REAL).map(([camp, d]) => ({
+  const campanas = usePeriod
+    ? Object.entries(periodStats.byCampaign).map(([camp, d]) => ({
         name: camp.charAt(0).toUpperCase()+camp.slice(1),
-        agents: d.total, onTime: d.onTime, late: d.late, absent: d.absent,
+        agents: d.total,
+        onTime: d.onTime,
+        late: d.late,
+        absent: d.absent
       }))
-    : [
+    : Object.keys(_a_CAMP_REAL).length > 0
+      ? Object.entries(_a_CAMP_REAL).map(([camp, d]) => ({
+          name: camp.charAt(0).toUpperCase()+camp.slice(1),
+          agents: d.total, onTime: d.onTime, late: d.late, absent: d.absent,
+        }))
+      : [
         {name:'Aplazo',  agents:180,onTime:162,late:12,absent:6},
         {name:'Stori',   agents:120,onTime:104,late:9, absent:7},
         {name:'iForex',  agents:85, onTime:76, late:5, absent:4},
@@ -14220,7 +14302,7 @@ function _a_renderHeadPeople(){
 
   let hmHTML='';
   campanas.forEach(c=>{
-    const p=Math.round((c.onTime/c.agents)*100);
+    const p=c.agents?Math.round((c.onTime/c.agents)*100):0;
     hmHTML+=`<div class="hm-cell ${_a_heatClass(p)}">
       <div class="hm-camp">${c.name}</div>
       <div class="hm-pct">${p}%</div>
@@ -14268,6 +14350,7 @@ function _a_renderHeadPeople(){
 
   return`${_a_roleSwitcherHTML()}
   ${_a_dateFilterHTML()}
+  ${_a_PERIOD_ERROR && !_a_periodIsToday() ? `<div class="alert alert-red">⚠️ No se pudo cargar el resumen del periodo: ${_d_esc(_a_PERIOD_ERROR)}</div>` : ''}
   ${_a_renderCambiosDescansoPendientes()}
   ${_a_KPI_GLOBAL.total>0?_a_filterBarHTML():''}
   <!-- Validación incapacidades pendientes (solo People / Head) -->
@@ -14313,20 +14396,20 @@ function _a_renderHeadPeople(){
   <!-- KPIs operación global -->
   <div class="kpi4">
     <div class="kpi-box"><div class="kpi-icon" style="background:#DBEAFE">🏢</div>
-      <div class="kpi-val" id="kpiTotAgents">${totAgents}</div><div class="kpi-lbl">Operación total</div>
-      <div class="kpi-delta up" id="kpiTotActivos">${totAgents} activos hoy</div></div>
+      <div class="kpi-val" id="kpiTotAgents">${totAgents}</div><div class="kpi-lbl">${operationLabel}</div>
+      <div class="kpi-delta up" id="kpiTotActivos">${operationSub}</div></div>
     <div class="kpi-box"><div class="kpi-icon" style="background:#DCFCE7">✅</div>
       <div class="kpi-val" style="color:#16A34A">${totOnTime}</div><div class="kpi-lbl">A tiempo · ${_a_dateFilter.label}</div>
-      <div class="kpi-bar" style="margin-top:8px"><div class="kpi-bar-f" style="width:${Math.round(totOnTime/totAgents*100)}%;background:#16A34A"></div></div>
-      <div class="kpi-delta up">${pctGlobal}% de la operación</div></div>
+      <div class="kpi-bar" style="margin-top:8px"><div class="kpi-bar-f" style="width:${pctGlobal}%;background:#16A34A"></div></div>
+      <div class="kpi-delta up">${onTimeSub}</div></div>
     <div class="kpi-box"><div class="kpi-icon" style="background:#FEF3C7">⏰</div>
       <div class="kpi-val" style="color:#D97706">${totLate}</div><div class="kpi-lbl">Retardos · ${_a_dateFilter.label}</div>
       ${_a_miniTrend(trendRet)}
-      <div class="kpi-delta">${totLate > 0 ? totLate + ' retardos registrados hoy' : 'Sin retardos hoy'}</div></div>
+      <div class="kpi-delta">${lateSub}</div></div>
     <div class="kpi-box"><div class="kpi-icon" style="background:#FEE2E2">🚫</div>
       <div class="kpi-val" style="color:#DC2626">${totAbsent}</div><div class="kpi-lbl">Faltas · ${_a_dateFilter.label}</div>
       ${_a_miniTrend(trendFal)}
-      <div class="kpi-delta">${totAbsent > 0 ? totAbsent + ' faltas registradas hoy' : 'Sin faltas hoy'}</div></div>
+      <div class="kpi-delta">${absentSub}</div></div>
   </div>
 
   <!-- Eficiencia de horas -->
@@ -16746,134 +16829,14 @@ async function _n_crearPeriodo(){
 }
 
 
-let _a_ATTENDANCE_SECONDARY_PROMISE = null;
-let _a_ATTENDANCE_REVIEW_SYNC_PROMISE = null;
-let _a_ATTENDANCE_AUTO_CHECK_PROMISE = null;
-let _a_ATTENDANCE_AUTO_CHECK_LAST_RUN = 0;
-let _a_ASISTENCIA_INIT_TOKEN = 0;
-
-async function _a_loadAttendanceSecondaryData() {
-  if (_a_ATTENDANCE_SECONDARY_PROMISE) {
-    return _a_ATTENDANCE_SECONDARY_PROMISE;
-  }
-
-  _a_ATTENDANCE_SECONDARY_PROMISE = (async () => {
-    const tasks = [];
-
-    if (
-      ['supervisor','manager','people','head_people'].includes(currentRole) &&
-      typeof _a_cargarOTRecords === 'function'
-    ) {
-      tasks.push(() => _a_cargarOTRecords({ sync: false }));
-    }
-
-    if (typeof _a_loadPeopleActionFollowupSummary === 'function') {
-      tasks.push(() => _a_loadPeopleActionFollowupSummary());
-    }
-
-    if (typeof _a_cargarCambiosDescanso === 'function') {
-      tasks.push(() => _a_cargarCambiosDescanso());
-    }
-
-    if (typeof _a_cargarCambiosHorario === 'function') {
-      tasks.push(() => _a_cargarCambiosHorario());
-    }
-
-    // Secuencial: menos conexiones simultáneas y menor presión de RAM/work_mem.
-    for (const task of tasks) {
-      try {
-        await task();
-      } catch (error) {
-        console.warn(
-          '[Impulse Asistencia] Carga secundaria no bloqueante:',
-          error
-        );
-      }
-    }
-
-    if (activeModule === 'asistencia' && typeof _a_render === 'function') {
-      _a_render();
-    }
-  })();
-
-  try {
-    return await _a_ATTENDANCE_SECONDARY_PROMISE;
-  } finally {
-    _a_ATTENDANCE_SECONDARY_PROMISE = null;
-  }
-}
-
-async function _a_syncAttendanceReviewQueuesThrottled() {
-  if (![
-    'supervisor','manager','people','head_people','ceo'
-  ].includes(currentRole)) return;
-
-  if (_a_ATTENDANCE_REVIEW_SYNC_PROMISE) {
-    return _a_ATTENDANCE_REVIEW_SYNC_PROMISE;
-  }
-
-  const key = 'impulse_attendance_review_sync_at';
-  let lastRun = 0;
-  try {
-    lastRun = Number(localStorage.getItem(key) || 0);
-  } catch (_) {}
-
-  // Antes se ejecutaban dos sincronizaciones de 120 días en cada apertura.
-  // Ahora como máximo una vez cada cuatro horas por navegador.
-  if (Date.now() - lastRun < 4 * 60 * 60 * 1000) return;
-
-  _a_ATTENDANCE_REVIEW_SYNC_PROMISE = (async () => {
-    await _a_loadEarlyEntryReviews({ sync: true, daysBack: 120 });
-    await _a_loadLateRegularizations({ sync: true, daysBack: 120 });
-
-    try {
-      localStorage.setItem(key, String(Date.now()));
-    } catch (_) {}
-
-    if (activeModule === 'asistencia' && typeof _a_render === 'function') {
-      _a_render();
-    }
-  })();
-
-  try {
-    return await _a_ATTENDANCE_REVIEW_SYNC_PROMISE;
-  } finally {
-    _a_ATTENDANCE_REVIEW_SYNC_PROMISE = null;
-  }
-}
-
-async function _a_runAttendanceAutoChecksThrottled() {
-  if (_a_ATTENDANCE_AUTO_CHECK_PROMISE) {
-    return _a_ATTENDANCE_AUTO_CHECK_PROMISE;
-  }
-
-  if (Date.now() - _a_ATTENDANCE_AUTO_CHECK_LAST_RUN < 10 * 60 * 1000) {
-    return;
-  }
-
-  _a_ATTENDANCE_AUTO_CHECK_LAST_RUN = Date.now();
-  _a_ATTENDANCE_AUTO_CHECK_PROMISE = (async () => {
-    if (typeof _a_checkAutoRetardos === 'function') {
-      await _a_checkAutoRetardos();
-    }
-    if (typeof _a_checkAutoFaltas === 'function') {
-      await _a_checkAutoFaltas();
-    }
-  })();
-
-  try {
-    return await _a_ATTENDANCE_AUTO_CHECK_PROMISE;
-  } finally {
-    _a_ATTENDANCE_AUTO_CHECK_PROMISE = null;
-  }
-}
-
 window['_init_asistencia']=async function(){
-  const initToken = ++_a_ASISTENCIA_INIT_TOKEN;
-
   /*
    * Guardar el contexto ANTES de consultar Supabase.
-   * Si se está viendo a un agente, se conserva su historial.
+   *
+   * Antes, _a_cargarDatos() siempre cargaba el historial del usuario
+   * autenticado. Cuando un supervisor estaba viendo a un agente,
+   * cambiaba a Acciones People y regresaba, _a_drillAgent conservaba
+   * el nombre del agente, pero _a_QDAYS contenía los datos del supervisor.
    */
   const viewedEmployeeId =
     _a_drillAgent ||
@@ -16884,61 +16847,33 @@ window['_init_asistencia']=async function(){
   _a_render();
 
   const ok = await _a_cargarDatos({
-    historyEmployeeId: viewedEmployeeId,
-    loadSecondary: false
+    historyEmployeeId: viewedEmployeeId
   });
 
+  if (ok) {
+    await _a_cargarKPIsPeriodo({ force: true });
+  }
+
   if (
-    initToken !== _a_ASISTENCIA_INIT_TOKEN ||
-    activeModule !== 'asistencia'
-  ) return;
+    ok &&
+    ['supervisor','manager','people','head_people'].includes(currentRole)
+  ) {
+    // Solo consulta registros existentes; no recalcula ni modifica.
+    await _a_cargarOTRecords({ sync: false });
+  }
+
+  if (ok) {
+    await _a_loadPeopleActionFollowupSummary();
+  }
 
   _a_cargando = false;
   _a_render();
 
-  if (!ok) return;
-
-  // Conectar Realtime después de que la pantalla principal ya está utilizable.
-  setTimeout(() => {
-    if (
-      initToken === _a_ASISTENCIA_INIT_TOKEN &&
-      window._auth_loggedIn &&
-      typeof _rt_start === 'function'
-    ) {
-      void _rt_start();
-    }
-  }, 1000);
-
-  // Datos complementarios: no forman parte del camino crítico.
-  setTimeout(() => {
-    if (
-      initToken === _a_ASISTENCIA_INIT_TOKEN &&
-      activeModule === 'asistencia'
-    ) {
-      void _a_loadAttendanceSecondaryData();
-    }
-  }, 50);
-
-  // Sincronizaciones históricas y bots quedan fuera del arranque.
-  setTimeout(() => {
-    if (
-      initToken === _a_ASISTENCIA_INIT_TOKEN &&
-      activeModule === 'asistencia'
-    ) {
-      void _a_syncAttendanceReviewQueuesThrottled();
-    }
-  }, 15000);
-
-  setTimeout(() => {
-    if (
-      initToken === _a_ASISTENCIA_INIT_TOKEN &&
-      activeModule === 'asistencia'
-    ) {
-      void _a_runAttendanceAutoChecksThrottled();
-    }
-  }, 25000);
+  if (ok) {
+    _a_checkAutoRetardos();
+    _a_checkAutoFaltas();
+  }
 };
-
 window['_rerender_asistencia']=function(){ if(typeof _a_render==='function')_a_render(); };
 
 window['_init_nomina']=function(){
@@ -27999,15 +27934,15 @@ function _t_startTicketNotificationPolling() {
 
   _t_notifPollingStarted = true;
 
-  // No competir con la carga inicial de Asistencia.
+  // Primera carga ligera al entrar
   setTimeout(() => {
     _t_refreshTicketNotifications();
-  }, 30000);
+  }, 1200);
 
-  // Realtime ya avisa cambios. El polling queda como respaldo cada 5 min.
+  // Polling cada minuto
   _t_notifPollingTimer = setInterval(() => {
     _t_refreshTicketNotifications();
-  }, 300000);
+  }, 60000);
 }
 
 async function _t_cargarTickets(options = {}) {
