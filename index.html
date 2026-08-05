@@ -1931,8 +1931,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.69';
-const APP_BUILD = '1.0.69-rollback-logica-original-asistencia';
+const APP_VERSION   = '1.0.70';
+const APP_BUILD = '1.0.70-arranque-rapido-checador';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2096,14 +2096,33 @@ async function _doLogin() {
   btn.textContent = 'Verificando…';
   err.style.display = 'none';
 
-  const { data, error } = await _auth_sb.auth.signInWithPassword({ email, password: pw });
+  // No abortamos el login: solo damos feedback si Supabase tarda.
+  const slowLoginTimer = window.setTimeout(() => {
+    if (!btn?.disabled) return;
+    btn.textContent = 'Supabase está tardando…';
+    err.textContent = 'La conexión está tardando más de lo normal. No cierres esta ventana.';
+    err.style.display = 'block';
+  }, 8000);
+
+  let data = null;
+  let error = null;
+
+  try {
+    const result = await _auth_sb.auth.signInWithPassword({ email, password: pw });
+    data = result.data;
+    error = result.error;
+  } catch (loginError) {
+    error = loginError;
+  } finally {
+    window.clearTimeout(slowLoginTimer);
+  }
 
   if(error) {
     btn.disabled = false;
     btn.textContent = 'Entrar a Impulse';
-    err.textContent = error.message.includes('Invalid') || error.message.includes('invalid')
+    err.textContent = String(error?.message || '').toLowerCase().includes('invalid')
       ? 'Correo o contraseña incorrectos.'
-      : error.message;
+      : (error?.message || 'No fue posible iniciar sesión. Intenta nuevamente.');
     err.style.display = 'block';
     return;
   }
@@ -2116,7 +2135,17 @@ async function _doLogin() {
     return;
   }
 
-  _startApp(data.user);
+  btn.textContent = 'Preparando checador…';
+
+  try {
+    await _startApp(data.user);
+  } catch (startError) {
+    console.error('[Impulse] Error preparando la aplicación:', startError);
+    btn.disabled = false;
+    btn.textContent = 'Entrar a Impulse';
+    err.textContent = 'Entraste correctamente, pero no fue posible preparar Impulse. Intenta nuevamente.';
+    err.style.display = 'block';
+  }
 }
 
 // ── CAMBIO DE CONTRASEÑA OBLIGATORIO ─────────────────────────
@@ -2296,6 +2325,34 @@ function _auth_shiftLabel(emp, fallback = '') {
 }
 
 // ── INICIAR APP ───────────────────────────────────────────────
+window._impulseInitialLoadComplete = false;
+let _impulseDeferredServicesStarted = false;
+
+function _impulseStartDeferredServicesOnce() {
+  if (_impulseDeferredServicesStarted) return;
+  _impulseDeferredServicesStarted = true;
+  window._impulseInitialLoadComplete = true;
+
+  // Realtime, versión y polling no deben competir con el checador inicial.
+  window.setTimeout(() => {
+    try { _startVersionCheck(); } catch (error) {
+      console.warn('[Impulse] Version check diferido:', error);
+    }
+
+    try { _rt_start(); } catch (error) {
+      console.warn('[Impulse] Realtime diferido:', error);
+    }
+
+    try {
+      if (typeof _t_startTicketNotificationPolling === 'function') {
+        _t_startTicketNotificationPolling();
+      }
+    } catch (error) {
+      console.warn('[Impulse] Polling de tickets diferido:', error);
+    }
+  }, 1200);
+}
+
 async function _startApp(user) {
   const meta  = user.user_metadata || {};
   const empId = await _auth_resolveEmployeeId(user, meta.employee_id);
@@ -2366,8 +2423,6 @@ async function _startApp(user) {
   console.log('[Impulse] _buildAppShell OK, content='+!!document.getElementById('content'));
   _startClock();
   _startSecurityTimers();
-  _startVersionCheck();
-  _rt_start();
   console.log('[Impulse] switching to asistencia...');
   switchModule('asistencia');
 }
@@ -3014,8 +3069,6 @@ async function _initImpulse() {
           _buildAppShell();
           _startClock();
           _startSecurityTimers();
-          _startVersionCheck();
-          _rt_start();
           switchModule('asistencia');
           return;
         }
@@ -3164,7 +3217,10 @@ function switchModule(mod) {
       _t_refreshTicketNotificationsUI();
     }
 
-    if (typeof _t_startTicketNotificationPolling === 'function') {
+    if (
+      window._impulseInitialLoadComplete &&
+      typeof _t_startTicketNotificationPolling === 'function'
+    ) {
       _t_startTicketNotificationPolling();
     }
   }, 0);
@@ -3468,12 +3524,135 @@ let _a_SCHEDULE_REQS = []; // solicitudes de cambio temporal de horario
 let _a_QDAYS   = [];  // quincena del agente actual
 let _a_cargando = false;
 
+// Arranque rápido: el checador se muestra antes que historial, equipo y KPIs.
+let _a_initialAttendanceLoad = false;
+let _a_fastPunchReady = false;
+let _a_fullAttendanceReady = false;
+let _a_initialAttendanceError = null;
+
 // punchState — se carga de Supabase al iniciar
 const _a_punchState = {
   agent:      {entrada:null, salida:null},
   supervisor: {entrada:null, salida:null},
 };
 function _a_getPunch(){ return _a_punchState[currentRole] || _a_punchState.agent; }
+
+async function _a_loadPunchHoyFast() {
+  const ro = ROLES[currentRole] || {};
+  if (!ro.id) throw new Error('No se pudo identificar al empleado autenticado.');
+
+  const today = ymd(NOW);
+  const { data, error } = await _a_sb
+    .from('attendance_punches')
+    .select('punch_type,punch_time')
+    .eq('employee_id', ro.id)
+    .eq('punch_date', today)
+    .order('punch_time');
+
+  if (error) throw error;
+
+  const state = _a_punchState[currentRole] || _a_punchState.agent;
+  const entrada = (data || []).find(row => row.punch_type === 'entrada');
+  const salida = (data || []).find(row => row.punch_type === 'salida');
+
+  state.entrada = entrada ? String(entrada.punch_time).slice(0, 5) : null;
+  state.salida = salida ? String(salida.punch_time).slice(0, 5) : null;
+  return true;
+}
+
+function _a_renderFastPunchStartup() {
+  const role = currentRole;
+  const ro = ROLES[role] || {};
+  const canPunch = ['agent', 'supervisor'].includes(role);
+  const punch = _a_getPunch();
+  const entrada = punch.entrada;
+  const salida = punch.salida;
+  const shift = ro.shift || (
+    ro.shift_start && ro.shift_end
+      ? `${String(ro.shift_start).slice(0,5)}–${String(ro.shift_end).slice(0,5)}`
+      : 'Horario no configurado'
+  );
+  const tolerance = role === 'supervisor'
+    ? 0
+    : _a_toleranciaRetardoMin({
+        camp: ro.camp,
+        campaign_id: ro.camp,
+        position_title: ro.position_title || ro.puesto || ''
+      });
+
+  const progress = _a_initialAttendanceError
+    ? `
+      <div class="alert alert-amber" style="margin:0">
+        ⚠️ <span><strong>Tu checador sigue disponible.</strong><br/>
+        No pudimos cargar todavía el historial y los indicadores.</span>
+      </div>
+      <button class="btn-primary" onclick="_a_retryInitialAttendanceLoad()">
+        Reintentar datos de Asistencia
+      </button>
+    `
+    : `
+      <div style="display:flex;align-items:center;gap:12px;color:#64748B">
+        <div style="width:22px;height:22px;border:3px solid #E2E8F0;border-top-color:#62D3F5;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0"></div>
+        <div>
+          <strong style="color:#334155">Cargando el resto de Asistencia…</strong><br/>
+          <span style="font-size:11px">Historial, equipo e indicadores se preparan en segundo plano.</span>
+        </div>
+      </div>
+    `;
+
+  if (!canPunch) {
+    return `
+      <div class="card">
+        <div class="card-title">Preparando Asistencia</div>
+        ${progress}
+      </div>
+    `;
+  }
+
+  return `${_a_roleSwitcherHTML()}
+    <div class="alert alert-green">
+      ✅ <span>El checador ya está listo. Puedes registrar tu entrada o salida mientras cargan los demás datos.</span>
+    </div>
+    <div class="card">
+      <div class="card-title">
+        ${role === 'supervisor' ? 'Mi asistencia hoy' : 'Hoy'} —
+        ${fmtDateCDMX(NOW, { weekday:'long', day:'numeric', month:'long', year:undefined })}
+        <span class="pill pill-blue">${shift.replace('-', '–')}</span>
+      </div>
+      <div class="hoy-grid">
+        <div class="hoy-box" style="display:flex;flex-direction:column;justify-content:space-between;gap:12px">
+          <div>
+            <div class="hoy-box-label">🟢 Entrada</div>
+            <div class="hoy-box-val ${entrada ? '' : 'empty'}">${entrada || '——:——'}</div>
+            <div class="hoy-box-sub">Tolerancia: <strong>${tolerance} min</strong></div>
+          </div>
+          <button class="btn-punch ${entrada ? 'disabled' : 'entrada'}" style="width:100%;justify-content:center" ${entrada ? 'disabled' : ''} onclick="_a_marcarEntrada()">
+            <span class="dot"></span> ${entrada ? 'Entrada registrada' : 'Marcar entrada'}
+          </button>
+        </div>
+        <div class="hoy-box" style="display:flex;flex-direction:column;justify-content:space-between;gap:12px">
+          <div>
+            <div class="hoy-box-label">🔴 Salida</div>
+            <div class="hoy-box-val ${salida ? '' : 'empty'}">${salida || '——:——'}</div>
+            <div class="hoy-box-sub">${entrada && !salida ? 'Turno en progreso' : '—'}</div>
+          </div>
+          <button class="btn-punch ${(!entrada || salida) ? 'disabled' : 'salida'}" style="width:100%;justify-content:center" ${(!entrada || salida) ? 'disabled' : ''} onclick="_a_marcarSalida()">
+            <span class="dot"></span> ${salida ? 'Salida registrada' : 'Marcar salida'}
+          </button>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+      ${progress}
+    </div>
+  `;
+}
+
+function _a_retryInitialAttendanceLoad() {
+  if (_a_cargando) return;
+  const init = window['_init_asistencia'];
+  if (typeof init === 'function') init();
+}
 
 function _a_fmtHoraCorta(h) {
   if (!h) return '—';
@@ -8574,26 +8753,29 @@ async function _a_cargarDatos(options = {}) {
       };
     }
 
-    // 1. Punch de hoy del usuario actual
-    const { data: punches, error: punchErr } = await _a_sb
-      .from('attendance_punches')
-      .select('punch_type, punch_time')
-      .eq('employee_id', ro.id)
-      .eq('punch_date', hoy)
-      .order('punch_time');
+    // 1. Punch de hoy del usuario actual.
+    // En el arranque rápido ya fue consultado; evitamos repetir la llamada.
+    if (!options?.skipPunch) {
+      const { data: punches, error: punchErr } = await _a_sb
+        .from('attendance_punches')
+        .select('punch_type, punch_time')
+        .eq('employee_id', ro.id)
+        .eq('punch_date', hoy)
+        .order('punch_time');
 
-    if (punchErr) throw punchErr;
+      if (punchErr) throw punchErr;
 
-    const ps = _a_punchState[currentRole] || _a_punchState.agent;
-    ps.entrada = null;
-    ps.salida = null;
+      const ps = _a_punchState[currentRole] || _a_punchState.agent;
+      ps.entrada = null;
+      ps.salida = null;
 
-    if (punches && punches.length > 0) {
-      const entrada = punches.find(p => p.punch_type === 'entrada');
-      const salida  = punches.find(p => p.punch_type === 'salida');
+      if (punches && punches.length > 0) {
+        const entrada = punches.find(p => p.punch_type === 'entrada');
+        const salida  = punches.find(p => p.punch_type === 'salida');
 
-      ps.entrada = entrada ? String(entrada.punch_time).slice(0, 5) : null;
-      ps.salida  = salida  ? String(salida.punch_time).slice(0, 5)  : null;
+        ps.entrada = entrada ? String(entrada.punch_time).slice(0, 5) : null;
+        ps.salida  = salida  ? String(salida.punch_time).slice(0, 5)  : null;
+      }
     }
 
     // 2. Historial del rango activo del filtro de fechas.
@@ -12239,6 +12421,15 @@ function _a_render(){
   updateSidebarUser();
 
   const c = document.getElementById('content');
+
+  if (
+    _a_initialAttendanceLoad &&
+    _a_fastPunchReady &&
+    (!_a_fullAttendanceReady || _a_cargando)
+  ) {
+    c.innerHTML = _a_renderFastPunchStartup();
+    return;
+  }
 
   if (_a_cargando) {
     c.innerHTML = `
@@ -16830,49 +17021,86 @@ async function _n_crearPeriodo(){
 
 
 window['_init_asistencia']=async function(){
+  const attendanceLoadStartedAt = performance.now();
+
   /*
-   * Guardar el contexto ANTES de consultar Supabase.
-   *
-   * Antes, _a_cargarDatos() siempre cargaba el historial del usuario
-   * autenticado. Cuando un supervisor estaba viendo a un agente,
-   * cambiaba a Acciones People y regresaba, _a_drillAgent conservaba
-   * el nombre del agente, pero _a_QDAYS contenía los datos del supervisor.
+   * Arranque en dos etapas:
+   * 1) marcas de hoy del usuario autenticado;
+   * 2) historial, equipo y KPIs sin cambiar su lógica original.
    */
   const viewedEmployeeId =
     _a_drillAgent ||
     _a_ceoDrillAg ||
     null;
 
+  _a_initialAttendanceLoad = true;
+  _a_fastPunchReady = false;
+  _a_fullAttendanceReady = false;
+  _a_initialAttendanceError = null;
   _a_cargando = true;
   _a_render();
 
+  try {
+    await _a_loadPunchHoyFast();
+    _a_fastPunchReady = true;
+    console.info('[Impulse Performance] Checador listo en', Math.round(performance.now() - attendanceLoadStartedAt), 'ms');
+    _a_render();
+  } catch (fastError) {
+    console.warn('[Impulse Asistencia] No se pudo adelantar el checador:', fastError);
+  }
+
+  // Permite al navegador pintar el checador antes de iniciar las consultas pesadas.
+  await new Promise(resolve => window.setTimeout(resolve, 0));
+
   const ok = await _a_cargarDatos({
-    historyEmployeeId: viewedEmployeeId
+    historyEmployeeId: viewedEmployeeId,
+    skipPunch: _a_fastPunchReady
   });
 
   if (ok) {
     await _a_cargarKPIsPeriodo({ force: true });
   }
 
-  if (
-    ok &&
-    ['supervisor','manager','people','head_people'].includes(currentRole)
-  ) {
-    // Solo consulta registros existentes; no recalcula ni modifica.
-    await _a_cargarOTRecords({ sync: false });
-  }
+  _a_cargando = false;
+  _a_fullAttendanceReady = Boolean(ok);
 
   if (ok) {
-    await _a_loadPeopleActionFollowupSummary();
+    _a_initialAttendanceLoad = false;
+    _a_initialAttendanceError = null;
+  } else {
+    _a_initialAttendanceError = 'No se pudieron cargar todos los datos de Asistencia.';
   }
 
-  _a_cargando = false;
   _a_render();
 
-  if (ok) {
+  console.info(
+    '[Impulse Performance] Asistencia completa en',
+    Math.round(performance.now() - attendanceLoadStartedAt),
+    'ms',
+    { ok }
+  );
+
+  if (!ok) return;
+
+  // Servicios y secciones secundarias ya no bloquean el primer render completo.
+  _impulseStartDeferredServicesOnce();
+
+  const secondaryLoads = [
+    _a_loadPeopleActionFollowupSummary()
+  ];
+
+  if (['supervisor','manager','people','head_people'].includes(currentRole)) {
+    secondaryLoads.push(_a_cargarOTRecords({ sync: false }));
+  }
+
+  Promise.allSettled(secondaryLoads).then(() => {
+    if (activeModule === 'asistencia') _a_render();
+  });
+
+  window.setTimeout(() => {
     _a_checkAutoRetardos();
     _a_checkAutoFaltas();
-  }
+  }, 1200);
 };
 window['_rerender_asistencia']=function(){ if(typeof _a_render==='function')_a_render(); };
 
@@ -41529,6 +41757,8 @@ function _impulseStartVersionWatcher() {
  */
 document.addEventListener('visibilitychange', () => {
   if (
+    window._auth_loggedIn &&
+    window._impulseInitialLoadComplete &&
     document.visibilityState === 'visible' &&
     !_impulseUpdateDetected
   ) {
@@ -41541,7 +41771,11 @@ document.addEventListener('visibilitychange', () => {
  * también revisar.
  */
 window.addEventListener('focus', () => {
-  if (!_impulseUpdateDetected) {
+  if (
+    window._auth_loggedIn &&
+    window._impulseInitialLoadComplete &&
+    !_impulseUpdateDetected
+  ) {
     _impulseCheckForUpdates();
   }
 });
@@ -41550,9 +41784,8 @@ window.addEventListener('focus', () => {
  * Iniciar después de que cargue la página.
  */
 window.addEventListener('load', () => {
-  window.setTimeout(() => {
-    _impulseStartVersionWatcher();
-  }, 1500);
+  // El watcher duplicado de 60 segundos queda deshabilitado.
+  // La revisión oficial se inicia una sola vez después del primer render completo.
 });
 
 </script>
