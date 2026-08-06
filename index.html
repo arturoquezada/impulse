@@ -1931,8 +1931,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.71';
-const APP_BUILD = '1.0.71-hotfix-tickets-no-bloquea-arranque';
+const APP_VERSION   = '1.0.72';
+const APP_BUILD = '1.0.72-estabilizacion-supabase';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2333,7 +2333,7 @@ function _impulseStartDeferredServicesOnce() {
   _impulseDeferredServicesStarted = true;
   window._impulseInitialLoadComplete = true;
 
-  // Realtime, versión y polling no deben competir con el checador inicial.
+  // Realtime y versión no deben competir con el checador inicial; Tickets queda bajo demanda.
   window.setTimeout(() => {
     try { _startVersionCheck(); } catch (error) {
       console.warn('[Impulse] Version check diferido:', error);
@@ -4712,6 +4712,123 @@ let _a_PUNCHES_HOY  = [];  // ya no se usa (feed eliminado)
 let _a_EARLY_ENTRY_REVIEWS = [];
 let _a_EARLY_ENTRY_LOADING = false;
 
+// IMPULSE 1.0.72 · Sincronización incremental no bloqueante.
+// Las bandejas leen primero los datos existentes. La reconstrucción reciente
+// corre después del render, máximo una vez cada 15 minutos por navegador.
+const _a_DERIVED_SYNC_TTL_MS = 15 * 60 * 1000;
+const _a_DERIVED_SYNC_DAYS = 7;
+const _a_DERIVED_SYNC_PREFIX = 'impulse:derived-attendance-sync:';
+const _a_DERIVED_SYNC_INFLIGHT = new Map();
+
+function _a_derivedSyncAllowedRole() {
+  return [
+    'supervisor',
+    'manager',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole);
+}
+
+function _a_derivedSyncKey(rpcName) {
+  return `${_a_DERIVED_SYNC_PREFIX}${rpcName}`;
+}
+
+function _a_derivedSyncLastRun(rpcName) {
+  try {
+    return Number(localStorage.getItem(_a_derivedSyncKey(rpcName)) || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+function _a_setDerivedSyncLastRun(rpcName, value) {
+  try {
+    if (value) localStorage.setItem(_a_derivedSyncKey(rpcName), String(value));
+    else localStorage.removeItem(_a_derivedSyncKey(rpcName));
+  } catch (_) {}
+}
+
+async function _a_runDerivedSyncOnce(rpcName, { force = false } = {}) {
+  if (!_a_derivedSyncAllowedRole()) {
+    return { ok: true, skipped: true, reason: 'role' };
+  }
+
+  const now = Date.now();
+  const lastRun = _a_derivedSyncLastRun(rpcName);
+
+  if (!force && lastRun && now - lastRun < _a_DERIVED_SYNC_TTL_MS) {
+    return { ok: true, skipped: true, reason: 'ttl' };
+  }
+
+  if (_a_DERIVED_SYNC_INFLIGHT.has(rpcName)) {
+    return _a_DERIVED_SYNC_INFLIGHT.get(rpcName);
+  }
+
+  // Reservamos el intervalo antes de llamar para evitar duplicados entre
+  // pestañas del mismo navegador. Si falla, se libera la reserva.
+  _a_setDerivedSyncLastRun(rpcName, now);
+
+  const promise = (async () => {
+    const { data, error } = await _a_sb.rpc(
+      rpcName,
+      { p_days_back: _a_DERIVED_SYNC_DAYS }
+    );
+
+    const issue = error || (data?.ok === false ? data : null);
+
+    if (issue) {
+      _a_setDerivedSyncLastRun(rpcName, 0);
+      console.warn(
+        `[Impulse Performance] Sync incremental falló: ${rpcName}`,
+        issue
+      );
+      return { ok: false, issue };
+    }
+
+    console.info(
+      `[Impulse Performance] Sync incremental completado: ${rpcName}`,
+      { daysBack: _a_DERIVED_SYNC_DAYS }
+    );
+
+    return data || { ok: true };
+  })();
+
+  _a_DERIVED_SYNC_INFLIGHT.set(rpcName, promise);
+
+  try {
+    return await promise;
+  } finally {
+    _a_DERIVED_SYNC_INFLIGHT.delete(rpcName);
+  }
+}
+
+async function _a_refreshDerivedAttendanceInBackground() {
+  if (!_a_derivedSyncAllowedRole()) return;
+
+  const results = await Promise.allSettled([
+    _a_runDerivedSyncOnce('sync_attendance_early_entry_reviews'),
+    _a_runDerivedSyncOnce('sync_attendance_late_regularizations')
+  ]);
+
+  const changed = results.some(result =>
+    result.status === 'fulfilled' &&
+    result.value?.ok !== false &&
+    result.value?.skipped !== true
+  );
+
+  if (!changed || activeModule !== 'asistencia') return;
+
+  // Las funciones de lectura ya no sincronizan; esta recarga sólo consulta
+  // las tablas preparadas y no vuelve a disparar los RPC pesados.
+  await Promise.allSettled([
+    _a_loadEarlyEntryReviews(),
+    _a_loadLateRegularizations()
+  ]);
+
+  if (activeModule === 'asistencia') _a_render();
+}
+
 function _a_timeMinutes(value) {
   if (value === null || value === undefined) {
     return null;
@@ -5007,21 +5124,8 @@ async function _a_loadEarlyEntryReviews() {
   _a_EARLY_ENTRY_LOADING = true;
 
   try {
-    const sync = await _a_sb.rpc(
-      'sync_attendance_early_entry_reviews',
-      { p_days_back: 120 }
-    );
-
-    if (
-      sync.error ||
-      sync.data?.ok === false
-    ) {
-      console.warn(
-        '[Impulse Entradas anticipadas] No se pudo sincronizar:',
-        sync.error || sync.data
-      );
-    }
-
+    // 1.0.72: esta función sólo consulta la bandeja existente.
+    // La sincronización incremental se ejecuta después del render y con TTL.
     const { data, error } = await _a_sb
       .from('attendance_early_entry_reviews')
       .select('*')
@@ -5876,18 +5980,8 @@ async function _a_loadLateRegularizations() {
   _a_LATE_REGULARIZATION_LOADING = true;
 
   try {
-    const sync = await _a_sb.rpc(
-      'sync_attendance_late_regularizations',
-      { p_days_back: 120 }
-    );
-
-    if (sync.error || sync.data?.ok === false) {
-      console.warn(
-        '[Impulse Regularización retardos] Sync:',
-        sync.error || sync.data
-      );
-    }
-
+    // 1.0.72: esta función sólo consulta la bandeja existente.
+    // La sincronización incremental se ejecuta después del render y con TTL.
     const regularizationResult = await _a_sb
       .from('attendance_late_regularizations')
       .select('*')
@@ -17086,7 +17180,8 @@ window['_init_asistencia']=async function(){
   _impulseStartDeferredServicesOnce();
 
   const secondaryLoads = [
-    _a_loadPeopleActionFollowupSummary()
+    _a_loadPeopleActionFollowupSummary(),
+    _a_refreshDerivedAttendanceInBackground()
   ];
 
   if (['supervisor','manager','people','head_people'].includes(currentRole)) {
@@ -27958,6 +28053,7 @@ function _t_ensureTicketBell() {
   const updateBanner = document.getElementById('updateBanner');
 
   if (!topbar) {
+    console.warn('[Tickets HR] No existe .topbar todavía, no puedo pintar campana.');
     return null;
   }
 
@@ -28138,55 +28234,49 @@ function _t_refreshTicketNotificationsUI() {
 }
 
 async function _t_refreshTicketNotifications() {
-  // Hotfix 1.0.71: Tickets HR no debe consultar Supabase en segundo plano.
-  // La bandeja se carga únicamente cuando el usuario abre el módulo Tickets.
-  // Esto evita que una consulta pesada a hr_tickets compita con Auth y Asistencia.
+  if (typeof _t_cargarTickets !== 'function') return;
+
+  // 1.0.72: Tickets se consulta bajo demanda. La campana no debe descargar
+  // toda la bandeja mientras el usuario trabaja en otro módulo.
   if (activeModule !== 'tickets') {
-    _t_refreshTicketNotificationsUI();
-    return true;
-  }
-
-  if (typeof _t_cargarTickets !== 'function') return false;
-
-  try {
-    const ok = await _t_cargarTickets({ silent: true });
-    if (ok && typeof _t_render === 'function') _t_render();
-    return ok;
-  } catch(e) {
-    console.warn('No se pudieron refrescar notificaciones de tickets:', e);
-    return false;
-  }
-}
-
-function _t_startTicketNotificationPolling() {
-  // Hotfix 1.0.71: se desactiva el polling global de hr_tickets.
-  // La campana conserva el estado ya cargado, pero no dispara consultas al iniciar,
-  // al cambiar de módulo ni cada minuto.
-  if (_t_notifPollingStarted) {
     _t_refreshTicketNotificationsUI();
     return;
   }
 
+  try {
+    await _t_cargarTickets({ silent: true });
+
+    if (typeof _t_render === 'function') {
+      _t_render();
+    }
+  } catch(e) {
+    console.warn('No se pudieron refrescar notificaciones de tickets:', e);
+  }
+}
+
+function _t_startTicketNotificationPolling() {
+  // 1.0.72: polling global desactivado. Tickets carga al abrir su módulo
+  // o mediante una actualización explícita del usuario.
   _t_notifPollingStarted = true;
-  _t_refreshTicketNotificationsUI();
 
   if (_t_notifPollingTimer) {
     clearInterval(_t_notifPollingTimer);
     _t_notifPollingTimer = null;
   }
 
-  console.log('[Impulse Performance] Polling global de Tickets HR desactivado; carga bajo demanda.');
+  _t_refreshTicketNotificationsUI();
+  console.info(
+    '[Impulse Performance] Polling global de Tickets HR desactivado; carga bajo demanda.'
+  );
 }
 
 async function _t_cargarTickets(options = {}) {
-  // Protección adicional: ninguna llamada silenciosa puede consultar hr_tickets
-  // fuera del módulo Tickets. El arranque, Asistencia y Auth quedan desacoplados.
-  if (options?.silent && activeModule !== 'tickets') {
-    _t_refreshTicketNotificationsUI();
-    return true;
-  }
-
   try {
+    if (options?.silent && activeModule !== 'tickets') {
+      _t_refreshTicketNotificationsUI();
+      return true;
+    }
+
     const ro = ROLES[currentRole] || {};
     const role = String(currentRole || '').toLowerCase();
 
@@ -34463,7 +34553,9 @@ async function _d_syncFollowups({ force = false } = {}) {
 }
 
 async function _d_cargarDatos({
-  syncFollowups = true,
+  // 1.0.72: la apertura y los refresh de pantalla sólo leen datos existentes.
+  // El botón de actualización manual conserva la sincronización explícita.
+  syncFollowups = false,
   forceSync = false
 } = {}) {
   try {
