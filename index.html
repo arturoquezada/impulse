@@ -1931,8 +1931,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.70';
-const APP_BUILD = '1.0.70-arranque-rapido-checador';
+const APP_VERSION   = '1.0.71';
+const APP_BUILD = '1.0.71-hotfix-tickets-no-bloquea-arranque';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -27958,7 +27958,6 @@ function _t_ensureTicketBell() {
   const updateBanner = document.getElementById('updateBanner');
 
   if (!topbar) {
-    console.warn('[Tickets HR] No existe .topbar todavía, no puedo pintar campana.');
     return null;
   }
 
@@ -28139,41 +28138,54 @@ function _t_refreshTicketNotificationsUI() {
 }
 
 async function _t_refreshTicketNotifications() {
-  if (typeof _t_cargarTickets !== 'function') return;
+  // Hotfix 1.0.71: Tickets HR no debe consultar Supabase en segundo plano.
+  // La bandeja se carga únicamente cuando el usuario abre el módulo Tickets.
+  // Esto evita que una consulta pesada a hr_tickets compita con Auth y Asistencia.
+  if (activeModule !== 'tickets') {
+    _t_refreshTicketNotificationsUI();
+    return true;
+  }
+
+  if (typeof _t_cargarTickets !== 'function') return false;
 
   try {
-    await _t_cargarTickets({ silent: true });
-
-    if (activeModule === 'tickets' && typeof _t_render === 'function') {
-      _t_render();
-    } else {
-      _t_refreshTicketNotificationsUI();
-    }
+    const ok = await _t_cargarTickets({ silent: true });
+    if (ok && typeof _t_render === 'function') _t_render();
+    return ok;
   } catch(e) {
     console.warn('No se pudieron refrescar notificaciones de tickets:', e);
+    return false;
   }
 }
 
 function _t_startTicketNotificationPolling() {
+  // Hotfix 1.0.71: se desactiva el polling global de hr_tickets.
+  // La campana conserva el estado ya cargado, pero no dispara consultas al iniciar,
+  // al cambiar de módulo ni cada minuto.
   if (_t_notifPollingStarted) {
     _t_refreshTicketNotificationsUI();
     return;
   }
 
   _t_notifPollingStarted = true;
+  _t_refreshTicketNotificationsUI();
 
-  // Primera carga ligera al entrar
-  setTimeout(() => {
-    _t_refreshTicketNotifications();
-  }, 1200);
+  if (_t_notifPollingTimer) {
+    clearInterval(_t_notifPollingTimer);
+    _t_notifPollingTimer = null;
+  }
 
-  // Polling cada minuto
-  _t_notifPollingTimer = setInterval(() => {
-    _t_refreshTicketNotifications();
-  }, 60000);
+  console.log('[Impulse Performance] Polling global de Tickets HR desactivado; carga bajo demanda.');
 }
 
 async function _t_cargarTickets(options = {}) {
+  // Protección adicional: ninguna llamada silenciosa puede consultar hr_tickets
+  // fuera del módulo Tickets. El arranque, Asistencia y Auth quedan desacoplados.
+  if (options?.silent && activeModule !== 'tickets') {
+    _t_refreshTicketNotificationsUI();
+    return true;
+  }
+
   try {
     const ro = ROLES[currentRole] || {};
     const role = String(currentRole || '').toLowerCase();
