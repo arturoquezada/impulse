@@ -3089,6 +3089,309 @@ body{font-family:var(--f);background:#F0F2F7;min-height:100vh;color:#0F172A;font
 }
 </style>
 
+
+<style id="impulse-v1077-photos-orgchart-css">
+/* ═══════════════════════════════════════════════════════════════
+   IMPULSE v1.0.77 · Employee Photos + Org Chart Foundation
+   ═══════════════════════════════════════════════════════════════ */
+.impulse-avatar{
+  --imp-avatar-size:40px;
+  width:var(--imp-avatar-size);
+  height:var(--imp-avatar-size);
+  min-width:var(--imp-avatar-size);
+  border-radius:50%;
+  overflow:hidden;
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  vertical-align:middle;
+  background:linear-gradient(145deg,#0F766E,#0891B2);
+  color:#fff;
+  font-size:calc(var(--imp-avatar-size) * .32);
+  font-weight:800;
+  letter-spacing:-.02em;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);
+}
+.impulse-avatar>span{position:relative;z-index:1;line-height:1}
+.impulse-avatar>img{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  display:none;
+  z-index:2;
+  background:#E2E8F0;
+}
+.impulse-avatar.has-photo>img{display:block}
+.impulse-avatar.employee-profile-avatar{box-shadow:0 8px 24px rgba(15,23,42,.12)}
+.sb-av .impulse-avatar{box-shadow:none}
+.mobile-sheet-avatar-inner{box-shadow:0 5px 18px rgba(15,23,42,.15)}
+.m2-avatar-inner{box-shadow:none}
+
+/* Org Chart */
+.org-shell{
+  max-width:1600px;
+  margin:0 auto;
+}
+.org-hero{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:18px;
+  flex-wrap:wrap;
+  margin-bottom:16px;
+}
+.org-title{
+  font-size:24px;
+  line-height:1.15;
+  font-weight:850;
+  color:#0F172A;
+  letter-spacing:-.55px;
+}
+.org-sub{
+  font-size:13px;
+  color:#64748B;
+  margin-top:6px;
+  max-width:720px;
+  line-height:1.55;
+}
+.org-hero-actions{display:flex;gap:8px;flex-wrap:wrap}
+.org-btn{
+  min-height:38px;
+  border-radius:10px;
+  border:1px solid #DCE3EA;
+  background:#fff;
+  color:#0F172A;
+  padding:8px 13px;
+  font-family:var(--f);
+  font-size:12px;
+  font-weight:750;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+}
+.org-btn:hover{background:#F8FAFC}
+.org-btn.primary{background:#0F172A;color:#fff;border-color:#0F172A}
+.org-btn.danger{color:#B91C1C}
+.org-controls{
+  background:#fff;
+  border:1px solid #E2E8F0;
+  border-radius:16px;
+  padding:14px;
+  margin-bottom:14px;
+  box-shadow:0 2px 12px rgba(15,23,42,.035);
+}
+.org-control-grid{
+  display:grid;
+  grid-template-columns:minmax(190px,1.25fr) minmax(220px,1.4fr) minmax(150px,.8fr) minmax(130px,.65fr) minmax(120px,.6fr);
+  gap:10px;
+  align-items:end;
+}
+.org-field label{
+  display:block;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+  color:#94A3B8;
+  font-weight:850;
+  margin:0 0 5px 2px;
+}
+.org-field select,.org-field input{
+  width:100%;
+  min-height:38px;
+  padding:8px 10px;
+  border:1px solid #DCE3EA;
+  border-radius:10px;
+  background:#fff;
+  color:#0F172A;
+  font-family:var(--f);
+  font-size:12px;
+  outline:none;
+}
+.org-field select:focus,.org-field input:focus{border-color:#38BDF8;box-shadow:0 0 0 3px rgba(56,189,248,.12)}
+.org-options{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-top:12px;
+  padding-top:12px;
+  border-top:1px solid #F1F5F9;
+}
+.org-checks{display:flex;gap:14px;flex-wrap:wrap}
+.org-check{
+  font-size:12px;
+  color:#475569;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  cursor:pointer;
+}
+.org-check input{accent-color:#0F172A}
+.org-search-row{display:flex;gap:8px;align-items:center;flex:1;justify-content:flex-end}
+.org-search{
+  width:min(320px,100%);
+  min-height:38px;
+  border:1px solid #DCE3EA;
+  border-radius:10px;
+  padding:8px 11px;
+  font-family:var(--f);
+  font-size:12px;
+}
+.org-canvas-card{
+  position:relative;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(148,163,184,.25) 1px, transparent 0);
+  background-size:22px 22px;
+  background-color:#F8FAFC;
+  border:1px solid #E2E8F0;
+  border-radius:18px;
+  min-height:620px;
+  overflow:auto;
+}
+.org-canvas-topbar{
+  position:sticky;
+  top:0;
+  z-index:8;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  padding:10px 12px;
+  background:rgba(255,255,255,.9);
+  backdrop-filter:blur(16px);
+  border-bottom:1px solid rgba(226,232,240,.9);
+}
+.org-canvas-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:#64748B}
+.org-badge{padding:4px 8px;border-radius:999px;background:#EFF6FF;color:#1D4ED8;font-size:10px;font-weight:800}
+.org-badge.snapshot{background:#F5F3FF;color:#6D28D9}
+.org-zoom{display:flex;align-items:center;gap:6px}
+.org-zoom button{
+  width:32px;height:32px;border-radius:9px;border:1px solid #DCE3EA;background:#fff;cursor:pointer;font-weight:800
+}
+.org-zoom span{min-width:42px;text-align:center;font-size:11px;color:#64748B;font-weight:750}
+.org-stage-wrap{padding:38px 34px 70px;min-width:max-content}
+.org-stage{transform-origin:top center;transition:transform .18s ease;width:max-content;margin:0 auto}
+.org-tree,.org-tree ul{
+  padding-top:26px;
+  position:relative;
+  display:flex;
+  justify-content:center;
+  margin:0;
+}
+.org-tree{padding-top:0}
+.org-tree li{
+  list-style:none;
+  text-align:center;
+  position:relative;
+  padding:26px 8px 0;
+}
+.org-tree li::before,.org-tree li::after{
+  content:'';
+  position:absolute;
+  top:0;
+  right:50%;
+  border-top:1.5px solid #CBD5E1;
+  width:50%;
+  height:26px;
+}
+.org-tree li::after{
+  right:auto;
+  left:50%;
+  border-left:1.5px solid #CBD5E1;
+}
+.org-tree li:only-child::after,.org-tree li:only-child::before{display:none}
+.org-tree li:only-child{padding-top:0}
+.org-tree li:first-child::before,.org-tree li:last-child::after{border:0 none}
+.org-tree li:last-child::before{border-right:1.5px solid #CBD5E1;border-radius:0 7px 0 0}
+.org-tree li:first-child::after{border-radius:7px 0 0 0}
+.org-tree ul ul::before{
+  content:'';
+  position:absolute;
+  top:0;
+  left:50%;
+  border-left:1.5px solid #CBD5E1;
+  width:0;
+  height:26px;
+}
+.org-node{
+  width:196px;
+  background:#fff;
+  border:1px solid #E2E8F0;
+  border-radius:16px;
+  padding:13px 12px 11px;
+  box-shadow:0 7px 20px rgba(15,23,42,.055);
+  display:inline-block;
+  position:relative;
+  text-align:left;
+  transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease;
+}
+.org-node:hover{
+  transform:translateY(-2px);
+  box-shadow:0 12px 28px rgba(15,23,42,.09);
+  border-color:#BAE6FD;
+}
+.org-node-head{display:flex;align-items:center;gap:10px}
+.org-node-name{font-size:12.5px;font-weight:850;color:#0F172A;line-height:1.25}
+.org-node-role{font-size:10.5px;color:#64748B;margin-top:3px;line-height:1.25}
+.org-node-meta{
+  display:flex;gap:5px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px solid #F1F5F9
+}
+.org-node-pill{
+  font-size:9.5px;padding:3px 6px;border-radius:999px;background:#F1F5F9;color:#475569;font-weight:750
+}
+.org-collapse{
+  position:absolute;
+  left:50%;
+  bottom:-14px;
+  transform:translateX(-50%);
+  width:26px;height:26px;border-radius:50%;
+  border:1px solid #DCE3EA;background:#fff;color:#475569;font-weight:900;cursor:pointer;z-index:4;
+  box-shadow:0 3px 8px rgba(15,23,42,.08)
+}
+.org-node.is-match{outline:3px solid rgba(14,165,233,.25);border-color:#38BDF8}
+.org-empty{padding:80px 20px;text-align:center;color:#64748B}
+.org-empty strong{display:block;color:#0F172A;font-size:16px;margin-bottom:6px}
+.org-presentation-exit{display:none}
+
+body.org-presentation-active .sidebar,
+body.org-presentation-active .topbar,
+body.org-presentation-active .org-controls,
+body.org-presentation-active .org-hero-actions{display:none!important}
+body.org-presentation-active .main{margin-left:0!important}
+body.org-presentation-active .content{padding:16px!important}
+body.org-presentation-active .org-shell{max-width:none}
+body.org-presentation-active .org-canvas-card{height:calc(100vh - 88px);border-radius:12px}
+body.org-presentation-active .org-presentation-exit{
+  display:flex;position:fixed;right:18px;top:18px;z-index:99999;
+  border:0;border-radius:999px;background:#0F172A;color:#fff;padding:10px 14px;font-size:12px;font-weight:800;cursor:pointer
+}
+
+@media(max-width:1100px){
+  .org-control-grid{grid-template-columns:1fr 1fr 1fr}
+}
+@media(max-width:820px){
+  .org-title{font-size:28px}
+  .org-hero{margin-top:4px}
+  .org-control-grid{grid-template-columns:1fr 1fr}
+  .org-options{align-items:stretch}
+  .org-search-row{justify-content:stretch;width:100%}
+  .org-search{width:100%;font-size:16px}
+  .org-canvas-card{min-height:calc(100dvh - 260px);border-radius:16px}
+  .org-stage-wrap{padding:28px 20px 90px}
+}
+@media(max-width:520px){
+  .org-control-grid{grid-template-columns:1fr}
+  .org-hero-actions{width:100%}
+  .org-hero-actions .org-btn{flex:1}
+}
+</style>
+
 </head>
 <body>
 <div id="app-root" style="font-family:'DM Sans',-apple-system,sans-serif"></div>
@@ -3101,8 +3404,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.76';
-const APP_BUILD = '1.0.76-mobile2-foundation-01';
+const APP_VERSION   = '1.0.77';
+const APP_BUILD = '1.0.77-employee-photos-org-chart-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -4024,6 +4327,7 @@ function _buildAppShell() {
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
+    {id:'organigrama',  icon:'🏢', label:'Organigrama',   roles:['people','head_people']},
     {id:'deepdive', icon:'📊', label:'Deep Dive', roles:['manager','ceo','people','head_people']},
   ];
 
@@ -4044,7 +4348,7 @@ function _buildAppShell() {
       </div>
       <div class="sb-footer">
         <div class="sb-user">
-          <div class="sb-av" id="sbAv">${av}</div>
+          <div class="sb-av" id="sbAv">${_impulseAvatarHTML(ro.id, ro.name, 30)}</div>
           <div>
             <div class="sb-uname" id="sbName">${ro.name}</div>
             <div class="sb-urole" id="sbRole">${ro.label || ro.id}</div>
@@ -4096,6 +4400,7 @@ function _buildAppShell() {
   </div>`;
 
   _mobileBuildShell(visible);
+  _impulseStartAvatarObserver();
 }
 
 
@@ -4123,6 +4428,7 @@ function _mobileIconSvg(id, size = 22) {
     vacaciones: '<rect x="3.5" y="5.5" width="17" height="15" rx="3"></rect><path d="M7.5 3.5v4"></path><path d="M16.5 3.5v4"></path><path d="M3.5 9.5h17"></path><path d="m8.3 15 2.2 2.1 4.7-5"></path>',
     disciplinario: '<rect x="5" y="4" width="14" height="17" rx="3"></rect><path d="M9 4V2.8h6V4"></path><path d="M8.5 9.5h7"></path><path d="M8.5 13h7"></path><path d="M8.5 16.5h4"></path>',
     equipo: '<circle cx="9" cy="8" r="3"></circle><circle cx="17" cy="9.5" r="2.3"></circle><path d="M3.5 20c.6-4 2.5-6 5.5-6 3.1 0 5 2 5.6 6"></path><path d="M14.5 15c2.8-.5 4.8 1.2 5.7 4.3"></path>',
+    organigrama: '<rect x="4" y="3.5" width="7" height="5" rx="1.5"></rect><rect x="13" y="15.5" width="7" height="5" rx="1.5"></rect><rect x="4" y="15.5" width="7" height="5" rx="1.5"></rect><path d="M7.5 8.5v3.5h9V15.5"></path><path d="M7.5 12v3.5"></path>',
     deepdive: '<path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20H2"></path>',
     more: '<circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"></circle>'
   };
@@ -4207,7 +4513,7 @@ function _mobileBuildShell(visibleModules) {
       <div class="mobile-sheet-handle"></div>
 
       <div class="mobile-sheet-user">
-        <div class="mobile-sheet-avatar">${ro.av || initials(ro.name || '??')}</div>
+        ${_impulseAvatarHTML(ro.id, ro.name, 48, 'mobile-sheet-avatar-inner')}
         <div style="min-width:0">
           <div class="mobile-sheet-name">${ro.name || 'Usuario Impulse'}</div>
           <div class="mobile-sheet-role">${ro.label || currentRole}</div>
@@ -4539,6 +4845,7 @@ const MODULE_INFO={
   tickets:{icon:'🎫',label:'Tickets HR'},
   permutas:{icon:'🔄',label:'Permutas'},vacaciones:{icon:'🏖️',label:'Vacaciones'},
   disciplinario:{icon:'🧭',label:'Acciones People'},equipo:{icon:'👥',label:'Equipo'},
+  organigrama:{icon:'🏢',label:'Organigrama'},
   deepdive:{icon:'📊',label:'Deep Dive'},
 };
 function ymd(d){
@@ -4608,7 +4915,7 @@ function updateSidebarUser() {
   const name = document.getElementById('sbName');
   const role = document.getElementById('sbRole');
 
-  if (av) av.textContent = ro.av || '';
+  if (av) av.innerHTML = _impulseAvatarHTML(ro.id, ro.name, 30);
   if (name) name.textContent = ro.name || '';
   if (role) role.textContent = ro.label || '';
 
@@ -41642,7 +41949,7 @@ function _e_rowsHTML(lista) {
     <tr onclick="_e_abrirPerfil('${e.id}')" style="cursor:pointer" onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background=''">
       <td style="padding:10px 14px">
         <div style="display:flex;align-items:center;gap:10px">
-          <div style="width:32px;height:32px;border-radius:50%;background:#E2E8F0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#64748B;flex-shrink:0">${(e.full_name||'?')[0].toUpperCase()}</div>
+          ${_impulseAvatarHTML(e.id, e.full_name, 32)}
           <div><div style="font-size:13px;font-weight:600">${e.full_name}</div><div style="font-size:11px;color:#94A3B8">${e.id}</div></div>
         </div>
       </td>
@@ -41745,6 +42052,8 @@ function _e_renderPerfil(empId) {
       ${!esMiPropioPerfil?`<button onclick="_e_perfilAbierto=null;_e_render()" style="border:1px solid #E2E8F0;border-radius:8px;padding:7px 14px;background:#fff;cursor:pointer;font-size:12px;font-weight:600">← Volver</button>`:'<div></div>'}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         ${canManage?`<button onclick="_e_abrirEditar('${e.id}')" style="padding:7px 14px;background:#F0F9FF;color:#0369A1;border:1px solid #7DD3FC;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">✏️ Editar datos</button>`:''}
+        ${canManage?`<button onclick="_impulseChooseEmployeePhoto('${e.id}')" style="padding:7px 14px;background:#ECFDF5;color:#047857;border:1px solid #A7F3D0;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">📷 Subir / cambiar foto</button>`:''}
+        ${canManage?`<button onclick="_impulseRemoveEmployeePhoto('${e.id}')" style="padding:7px 14px;background:#fff;color:#64748B;border:1px solid #CBD5E1;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Quitar foto</button>`:''}
         ${esMiPropioPerfil?`<button onclick="_e_abrirCambiarPassword()" style="padding:7px 14px;background:#F5F3FF;color:#6D28D9;border:1px solid #DDD6FE;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🔑 Cambiar contraseña</button>`:''}
         ${canManage&&!esMiPropioPerfil&&e.status==='active'?`<button onclick="_e_resetearPassword('${e.id}','${e.full_name}')" style="padding:7px 14px;background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🔄 Resetear contraseña</button>`:''}
         ${canBaja?`<button onclick="_e_abrirBaja('${e.id}')" style="padding:7px 14px;background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">🔴 Dar de baja</button>`:''}
@@ -41754,7 +42063,7 @@ function _e_renderPerfil(empId) {
     </div>
 
     <div style="display:flex;align-items:center;gap:18px;padding-bottom:20px;border-bottom:1px solid #F1F5F9">
-      <div style="width:72px;height:72px;border-radius:50%;background:${_e_avatarColor(e.id)};color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;flex-shrink:0">${iniciales||'?'}</div>
+      ${_impulseAvatarHTML(e.id, e.full_name, 72, 'employee-profile-avatar')}
       <div>
         <div style="font-size:20px;font-weight:800;color:#0F172A">${e.full_name}</div>
         <div style="font-size:14px;color:#64748B;margin-top:2px">${e.position_title || _e_roleLabel(e.system_role)}</div>
@@ -43284,6 +43593,7 @@ window['_rerender_equipo']=function(){ _e_render(); };
       vacaciones:'<rect x="3.5" y="5.5" width="17" height="15" rx="3"></rect><path d="M7.5 3.5v4"></path><path d="M16.5 3.5v4"></path><path d="M3.5 9.5h17"></path><path d="m8.3 15 2.2 2.1 4.7-5"></path>',
       disciplinario:'<rect x="5" y="4" width="14" height="17" rx="3"></rect><path d="M9 4V2.8h6V4"></path><path d="M8.5 9.5h7"></path><path d="M8.5 13h7"></path><path d="M8.5 16.5h4"></path>',
       equipo:'<circle cx="9" cy="8" r="3"></circle><circle cx="17" cy="9.5" r="2.3"></circle><path d="M3.5 20c.6-4 2.5-6 5.5-6 3.1 0 5 2 5.6 6"></path><path d="M14.5 15c2.8-.5 4.8 1.2 5.7 4.3"></path>',
+      organigrama:'<rect x="4" y="3.5" width="7" height="5" rx="1.5"></rect><rect x="13" y="15.5" width="7" height="5" rx="1.5"></rect><rect x="4" y="15.5" width="7" height="5" rx="1.5"></rect><path d="M7.5 8.5v3.5h9V15.5"></path><path d="M7.5 12v3.5"></path>',
       deepdive:'<path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20H2"></path>',
       more:'<circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"></circle>',
       refresh:'<path d="M20 6v5h-5"></path><path d="M18.3 15.5A7.5 7.5 0 1 1 19.7 9"></path>',
@@ -43354,7 +43664,7 @@ window['_rerender_equipo']=function(){ _e_render(); };
       <section class="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="Todos los módulos">
         <div class="mobile-sheet-handle"></div>
         <div class="mobile-sheet-user">
-          <div class="mobile-sheet-avatar">${esc(ro.av || initText(ro.name))}</div>
+          ${_impulseAvatarHTML(ro.id, ro.name, 48, 'mobile-sheet-avatar-inner')}
           <div style="min-width:0">
             <div class="mobile-sheet-name">${esc(ro.name || 'Usuario Impulse')}</div>
             <div class="mobile-sheet-role">${esc(ro.label || currentRole)}</div>
@@ -43785,7 +44095,7 @@ window['_rerender_equipo']=function(){ _e_render(); };
     c.innerHTML=`<div class="m2-page">
       <div class="m2-nav-header"><button class="m2-back" onclick="_mobile2OpenPage('${M2_PENDING}')">${icon('back',20)} Pendientes</button></div>
       <div style="margin:2px 1px 16px"><div class="m2-eyebrow">${esc(meta.label)}</div><div class="m2-title">${esc(item.title)}</div></div>
-      <div class="m2-section"><div class="m2-detail-person"><div class="m2-avatar">${esc(initText(item.person))}</div><div style="min-width:0"><div style="font-size:17px;font-weight:700;letter-spacing:-.25px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.person||'—')}</div><div style="font-size:13px;color:var(--m2-secondary);margin-top:3px">${esc(item.subtitle||meta.label)}</div></div></div></div>
+      <div class="m2-section"><div class="m2-detail-person">${_impulseAvatarHTML(item.raw?.employee_id || item.raw?.requester_id || item.raw?.swap_with_id || '', item.person, 48, 'm2-avatar-inner')}<div style="min-width:0"><div style="font-size:17px;font-weight:700;letter-spacing:-.25px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.person||'—')}</div><div style="font-size:13px;color:var(--m2-secondary);margin-top:3px">${esc(item.subtitle||meta.label)}</div></div></div></div>
       <div class="m2-section"><div class="m2-section-head"><div class="m2-section-title">Detalle</div></div><div class="m2-detail-group">${lines.map(([k,v])=>`<div class="m2-detail-line"><div class="m2-detail-key">${esc(k)}</div><div class="m2-detail-value">${esc(v)}</div></div>`).join('')}</div></div>
       ${item.note?`<div class="m2-section"><div class="m2-section-head"><div class="m2-section-title">Contexto</div></div><div class="m2-note">${esc(item.note)}</div></div>`:''}
       <div class="m2-sticky-action"><button class="m2-primary" onclick="_mobile2OpenPendingModule('${esc(id)}')">Abrir ${esc(MODULE_INFO[item.module]?.label||meta.label)}</button></div>
@@ -44161,6 +44471,919 @@ window.addEventListener('load', () => {
 
   window._mobileUxV2Refresh = scheduleApply;
 })();
+
+// ═══════════════════════════════════════════════════════════════
+// IMPULSE v1.0.77 · Employee Photos + Org Chart Foundation
+// ═══════════════════════════════════════════════════════════════
+
+const _IMPULSE_AVATAR_BUCKET = 'employee-avatars';
+const _impulseAvatarPathCache = new Map();
+const _impulseAvatarUrlCache = new Map();
+let _impulseAvatarObserverStarted = false;
+let _impulseAvatarObserver = null;
+let _impulseAvatarHydrateTimer = null;
+let _impulsePendingPhoto = null;
+
+function _impulseEsc(value=''){
+  return String(value ?? '')
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;')
+    .replaceAll('"','&quot;')
+    .replaceAll("'","&#039;");
+}
+
+function _impulseAvatarInitials(name=''){
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0,2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function _impulseAvatarHTML(employeeId, name, size=40, extraClass=''){
+  const id = _impulseEsc(employeeId || '');
+  const safeName = _impulseEsc(name || '');
+  const initial = _impulseEsc(_impulseAvatarInitials(name));
+  const cls = _impulseEsc(extraClass || '');
+  return `<span class="impulse-avatar ${cls}" data-employee-avatar="${id}" data-employee-name="${safeName}" style="--imp-avatar-size:${Number(size)||40}px" title="${safeName}">
+    <span>${initial}</span>
+    <img alt="${safeName ? 'Foto de ' + safeName : 'Foto de empleado'}" loading="lazy" />
+  </span>`;
+}
+
+function _impulseHasAvatarPath(employeeId){
+  return Boolean(_impulseAvatarPathCache.get(String(employeeId || '')));
+}
+
+async function _impulseLoadAvatarPaths(employeeIds=[]){
+  const ids = [...new Set(employeeIds.map(String).filter(Boolean))];
+  const missing = ids.filter(id => !_impulseAvatarPathCache.has(id));
+  if (!missing.length) return;
+
+  try{
+    const { data, error } = await _auth_sb
+      .from('employee_avatars')
+      .select('employee_id,avatar_path')
+      .in('employee_id', missing);
+
+    if (error) throw error;
+
+    const found = new Map((data || []).map(row => [String(row.employee_id), row.avatar_path || null]));
+    missing.forEach(id => _impulseAvatarPathCache.set(id, found.get(id) || null));
+  }catch(error){
+    console.warn('[Impulse Avatars] No se pudieron leer employee_avatars:', error);
+    missing.forEach(id => _impulseAvatarPathCache.set(id, null));
+  }
+}
+
+async function _impulseLoadSignedAvatarUrls(paths=[]){
+  const unique = [...new Set(paths.filter(Boolean))];
+  const missing = unique.filter(path => !_impulseAvatarUrlCache.has(path));
+  if (!missing.length) return;
+
+  const bucket = _auth_sb.storage.from(_IMPULSE_AVATAR_BUCKET);
+
+  try{
+    if (typeof bucket.createSignedUrls === 'function'){
+      const { data, error } = await bucket.createSignedUrls(missing, 3600);
+      if (error) throw error;
+
+      (data || []).forEach((row, index) => {
+        const path = row?.path || missing[index];
+        const url = row?.signedUrl || row?.signedURL || null;
+        if (path) _impulseAvatarUrlCache.set(path, url);
+      });
+
+      missing.forEach(path => {
+        if (!_impulseAvatarUrlCache.has(path)) _impulseAvatarUrlCache.set(path, null);
+      });
+      return;
+    }
+  }catch(error){
+    console.warn('[Impulse Avatars] Firma por lote no disponible, usando fallback:', error);
+  }
+
+  await Promise.all(missing.map(async path => {
+    try{
+      const { data, error } = await bucket.createSignedUrl(path, 3600);
+      if (error) throw error;
+      _impulseAvatarUrlCache.set(path, data?.signedUrl || data?.signedURL || null);
+    }catch(error){
+      console.warn('[Impulse Avatars] No se pudo firmar', path, error);
+      _impulseAvatarUrlCache.set(path, null);
+    }
+  }));
+}
+
+async function _impulseHydrateAvatars(root=document){
+  const nodes = [...(root?.querySelectorAll?.('[data-employee-avatar]') || [])];
+  if (!nodes.length) return;
+
+  const ids = [...new Set(nodes.map(node => node.dataset.employeeAvatar).filter(Boolean))];
+  await _impulseLoadAvatarPaths(ids);
+
+  const paths = ids.map(id => _impulseAvatarPathCache.get(id)).filter(Boolean);
+  await _impulseLoadSignedAvatarUrls(paths);
+
+  nodes.forEach(node => {
+    const id = node.dataset.employeeAvatar || '';
+    const path = _impulseAvatarPathCache.get(id);
+    const url = path ? _impulseAvatarUrlCache.get(path) : null;
+    const img = node.querySelector('img');
+
+    if (img && url){
+      if (img.src !== url) img.src = url;
+      node.classList.add('has-photo');
+    }else{
+      node.classList.remove('has-photo');
+      if (img) img.removeAttribute('src');
+    }
+  });
+}
+
+function _impulseScheduleAvatarHydrate(){
+  window.clearTimeout(_impulseAvatarHydrateTimer);
+  _impulseAvatarHydrateTimer = window.setTimeout(() => {
+    _impulseHydrateAvatars(document).catch(error =>
+      console.warn('[Impulse Avatars] Hydrate:', error)
+    );
+  }, 70);
+}
+
+function _impulseStartAvatarObserver(){
+  if (_impulseAvatarObserverStarted) {
+    _impulseScheduleAvatarHydrate();
+    return;
+  }
+  _impulseAvatarObserverStarted = true;
+
+  _impulseAvatarObserver = new MutationObserver(() => _impulseScheduleAvatarHydrate());
+  _impulseAvatarObserver.observe(document.body, { childList:true, subtree:true });
+  _impulseScheduleAvatarHydrate();
+}
+
+async function _impulseImageBitmap(file){
+  if (typeof createImageBitmap === 'function') return await createImageBitmap(file);
+
+  return await new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('No se pudo leer la imagen.'));
+    };
+    img.src = url;
+  });
+}
+
+async function _impulseNormalizeAvatarFile(file){
+  if (!file || !String(file.type || '').startsWith('image/')){
+    throw new Error('Selecciona un archivo de imagen.');
+  }
+  if (file.size > 15 * 1024 * 1024){
+    throw new Error('La foto original supera 15 MB.');
+  }
+
+  const source = await _impulseImageBitmap(file);
+  const sw = source.width || source.naturalWidth || 0;
+  const sh = source.height || source.naturalHeight || 0;
+  if (!sw || !sh) throw new Error('No se pudo determinar el tamaño de la imagen.');
+
+  const crop = Math.min(sw, sh);
+  const sx = Math.max(0, (sw - crop) / 2);
+  const sy = Math.max(0, (sh - crop) / 2);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+
+  const ctx = canvas.getContext('2d', { alpha:false });
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0,0,512,512);
+  ctx.drawImage(source, sx, sy, crop, crop, 0, 0, 512, 512);
+
+  if (typeof source.close === 'function') {
+    try { source.close(); } catch(_){}
+  }
+
+  const blob = await new Promise(resolve =>
+    canvas.toBlob(resolve, 'image/webp', 0.86)
+  );
+
+  if (!blob) throw new Error('No se pudo procesar la fotografía.');
+  return blob;
+}
+
+window._impulseChooseEmployeePhoto = function(employeeId){
+  if (!['people','head_people'].includes(String(currentRole || '').toLowerCase())){
+    alert('Solo People y Head People pueden cambiar fotografías.');
+    return;
+  }
+
+  const employee = (_e_EMPLEADOS || []).find(e => e.id === employeeId);
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.setAttribute('capture','environment');
+
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+
+    try{
+      const blob = await _impulseNormalizeAvatarFile(file);
+      if (_impulsePendingPhoto?.previewUrl) {
+        try { URL.revokeObjectURL(_impulsePendingPhoto.previewUrl); } catch(_){}
+      }
+      const previewUrl = URL.createObjectURL(blob);
+      _impulsePendingPhoto = { employeeId, blob, previewUrl };
+
+      const backdrop = document.getElementById('modalBackdrop');
+      const title = document.getElementById('modalTitle');
+      const sub = document.getElementById('modalSub');
+      const body = document.getElementById('modalBody');
+      const footer = document.getElementById('modalFooter');
+
+      if (!backdrop || !body || !footer) throw new Error('No se pudo abrir el editor de foto.');
+
+      title.textContent = '📷 Foto de empleado';
+      sub.textContent = employee?.full_name || employeeId;
+      body.innerHTML = `
+        <div style="text-align:center;padding:8px 0 2px">
+          <img src="${_impulseEsc(previewUrl)}" alt="Vista previa" style="width:210px;height:210px;border-radius:50%;object-fit:cover;box-shadow:0 10px 28px rgba(15,23,42,.16);border:6px solid #fff">
+          <div style="font-size:12px;color:#64748B;line-height:1.55;margin:18px auto 0;max-width:420px">
+            Impulse recortó la foto al centro, la redimensionó a <b>512 × 512</b> y la comprimirá como WebP.
+            Puedes cancelar si prefieres elegir otra imagen.
+          </div>
+        </div>`;
+      footer.innerHTML = `
+        <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+        <button class="btn-primary" onclick="_impulseSaveEmployeePhoto()">Guardar fotografía</button>`;
+      backdrop.style.display = 'flex';
+    }catch(error){
+      console.error('[Impulse Avatars] Preparar foto:', error);
+      alert(error?.message || 'No se pudo procesar la foto.');
+    }
+  };
+
+  input.click();
+};
+
+window._impulseSaveEmployeePhoto = async function(){
+  const pending = _impulsePendingPhoto;
+  if (!pending?.blob || !pending?.employeeId) return;
+
+  const button = document.querySelector('#modalFooter .btn-primary');
+  if (button){
+    button.disabled = true;
+    button.textContent = 'Guardando…';
+  }
+
+  const employeeId = pending.employeeId;
+  const path = `${employeeId}/avatar.webp`;
+
+  try{
+    const { error: uploadError } = await _auth_sb.storage
+      .from(_IMPULSE_AVATAR_BUCKET)
+      .upload(path, pending.blob, {
+        upsert:true,
+        contentType:'image/webp',
+        cacheControl:'60'
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data, error: rpcError } = await _auth_sb.rpc('set_employee_avatar', {
+      p_employee_id: employeeId,
+      p_avatar_path: path
+    });
+
+    if (rpcError) throw rpcError;
+    if (data?.ok === false) throw new Error(data?.message || 'No se pudo registrar la foto.');
+
+    _impulseAvatarPathCache.set(employeeId, path);
+    _impulseAvatarUrlCache.delete(path);
+
+    try { URL.revokeObjectURL(pending.previewUrl); } catch(_){}
+    _impulsePendingPhoto = null;
+
+    closeModal();
+    await _impulseHydrateAvatars(document);
+
+    if (_e_perfilAbierto === employeeId || ROLES[currentRole]?.id === employeeId){
+      try { _e_render(); } catch(_){}
+    }
+  }catch(error){
+    console.error('[Impulse Avatars] Guardar foto:', error);
+    alert(error?.message || 'No se pudo guardar la fotografía.');
+    if (button){
+      button.disabled = false;
+      button.textContent = 'Guardar fotografía';
+    }
+  }
+};
+
+window._impulseRemoveEmployeePhoto = async function(employeeId){
+  if (!['people','head_people'].includes(String(currentRole || '').toLowerCase())){
+    alert('Solo People y Head People pueden quitar fotografías.');
+    return;
+  }
+
+  await _impulseLoadAvatarPaths([employeeId]);
+  const path = _impulseAvatarPathCache.get(employeeId);
+  if (!path){
+    alert('Este empleado todavía no tiene fotografía.');
+    return;
+  }
+
+  if (!confirm('¿Quitar la fotografía de este empleado? Volverán a mostrarse sus iniciales.')) return;
+
+  try{
+    const { data, error } = await _auth_sb.rpc('set_employee_avatar', {
+      p_employee_id: employeeId,
+      p_avatar_path: null
+    });
+    if (error) throw error;
+    if (data?.ok === false) throw new Error(data?.message || 'No se pudo quitar la foto.');
+
+    const { error: storageError } = await _auth_sb.storage
+      .from(_IMPULSE_AVATAR_BUCKET)
+      .remove([path]);
+
+    if (storageError){
+      console.warn('[Impulse Avatars] La referencia fue eliminada, pero Storage no pudo limpiar el archivo:', storageError);
+    }
+
+    _impulseAvatarPathCache.set(employeeId, null);
+    _impulseAvatarUrlCache.delete(path);
+    await _impulseHydrateAvatars(document);
+
+    if (_e_perfilAbierto === employeeId || ROLES[currentRole]?.id === employeeId){
+      try { _e_render(); } catch(_){}
+    }
+  }catch(error){
+    console.error('[Impulse Avatars] Quitar foto:', error);
+    alert(error?.message || 'No se pudo quitar la fotografía.');
+  }
+};
+
+
+// ─────────────────────────────────────────────────────────────
+// ORGANIGRAMA
+// ─────────────────────────────────────────────────────────────
+let _orgSavedCharts = [];
+let _orgState = {
+  loaded:false,
+  currentId:null,
+  name:'Organigrama general',
+  rootId:'',
+  campaign:'all',
+  status:'active',
+  maxDepth:0,
+  showCampaign:true,
+  showId:false,
+  zoom:1,
+  mode:'live',
+  snapshotData:null,
+  collapsed:new Set(),
+  search:''
+};
+
+function _orgCanAccess(){
+  return ['people','head_people'].includes(String(currentRole || '').toLowerCase());
+}
+
+function _orgActiveEmployees(){
+  return (_e_EMPLEADOS || []).filter(e => String(e.status || '').toLowerCase() === 'active');
+}
+
+function _orgDefaultRoot(){
+  const active = _orgActiveEmployees();
+  return (
+    active.find(e => String(e.system_role || '').toLowerCase() === 'ceo') ||
+    active.find(e => !e.supervisor_id) ||
+    active.find(e => !_e_EMPLEADOS.some(x => x.id === e.supervisor_id)) ||
+    active[0] ||
+    _e_EMPLEADOS[0] ||
+    null
+  );
+}
+
+async function _orgLoadSavedCharts(){
+  try{
+    const { data, error } = await _auth_sb
+      .from('org_charts')
+      .select('*')
+      .eq('is_archived', false)
+      .order('updated_at', { ascending:false });
+
+    if (error) throw error;
+    _orgSavedCharts = data || [];
+  }catch(error){
+    console.error('[Organigrama] No se pudieron cargar vistas:', error);
+    _orgSavedCharts = [];
+  }
+}
+
+function _orgApplySavedChart(id){
+  const chart = _orgSavedCharts.find(x => x.id === id);
+  if (!chart) return;
+
+  const filters = chart.filters || {};
+  const display = chart.display_options || {};
+
+  _orgState.currentId = chart.id;
+  _orgState.name = chart.name || 'Organigrama';
+  _orgState.rootId = chart.root_employee_id || _orgDefaultRoot()?.id || '';
+  _orgState.campaign = filters.campaign || 'all';
+  _orgState.status = filters.status || 'active';
+  _orgState.maxDepth = Number(filters.max_depth || 0);
+  _orgState.showCampaign = display.show_campaign !== false;
+  _orgState.showId = Boolean(display.show_id);
+  _orgState.mode = chart.mode || 'live';
+  _orgState.snapshotData = chart.snapshot_data || null;
+  _orgState.collapsed = new Set();
+  _orgState.zoom = 1;
+  _orgRender();
+}
+
+window._orgSelectChart = function(value){
+  if (!value){
+    const root = _orgDefaultRoot();
+    _orgState.currentId = null;
+    _orgState.name = 'Organigrama general';
+    _orgState.rootId = root?.id || '';
+    _orgState.campaign = 'all';
+    _orgState.status = 'active';
+    _orgState.maxDepth = 0;
+    _orgState.showCampaign = true;
+    _orgState.showId = false;
+    _orgState.mode = 'live';
+    _orgState.snapshotData = null;
+    _orgState.collapsed = new Set();
+    _orgState.zoom = 1;
+    _orgRender();
+    return;
+  }
+  _orgApplySavedChart(value);
+};
+
+function _orgSourceEmployees(){
+  if (_orgState.mode === 'snapshot' && Array.isArray(_orgState.snapshotData?.employees)){
+    return _orgState.snapshotData.employees;
+  }
+  return _e_EMPLEADOS || [];
+}
+
+function _orgBuildTree(){
+  const source = _orgSourceEmployees();
+  if (!source.length) return null;
+
+  const byId = new Map(source.map(e => [String(e.id), e]));
+  let root = byId.get(String(_orgState.rootId || '')) || null;
+
+  if (!root){
+    const fallback = _orgDefaultRoot();
+    root = fallback ? byId.get(String(fallback.id)) || fallback : source[0];
+    _orgState.rootId = root?.id || '';
+  }
+  if (!root) return null;
+
+  const childrenMap = new Map();
+  source.forEach(emp => {
+    const sid = String(emp.supervisor_id || '');
+    if (!sid) return;
+    if (!childrenMap.has(sid)) childrenMap.set(sid, []);
+    childrenMap.get(sid).push(emp);
+  });
+  childrenMap.forEach(arr => arr.sort((a,b) => String(a.full_name||'').localeCompare(String(b.full_name||''),'es')));
+
+  const wantedCampaign = String(_orgState.campaign || 'all');
+  const wantedStatus = String(_orgState.status || 'active');
+  const maxDepth = Number(_orgState.maxDepth || 0);
+
+  function visit(emp, depth, lineage){
+    if (!emp || lineage.has(String(emp.id))) return null;
+    if (maxDepth > 0 && depth > maxDepth) return null;
+
+    const nextLineage = new Set(lineage);
+    nextLineage.add(String(emp.id));
+
+    const rawChildren = childrenMap.get(String(emp.id)) || [];
+    const children = rawChildren
+      .map(child => visit(child, depth + 1, nextLineage))
+      .filter(Boolean);
+
+    const statusMatch =
+      wantedStatus === 'all' ||
+      String(emp.status || '').toLowerCase() === wantedStatus ||
+      String(emp.id) === String(root.id);
+
+    const campaignMatch =
+      wantedCampaign === 'all' ||
+      String(emp.campaign_id || '') === wantedCampaign ||
+      String(emp.id) === String(root.id);
+
+    // Con filtro de campaña mantenemos ancestros para no romper la jerarquía.
+    const keep = statusMatch && (campaignMatch || children.length > 0);
+    if (!keep) return null;
+
+    return { emp, children, depth };
+  }
+
+  return visit(root, 0, new Set());
+}
+
+function _orgFlattenTree(node, acc=[]){
+  if (!node) return acc;
+  acc.push(node.emp);
+  node.children.forEach(child => _orgFlattenTree(child, acc));
+  return acc;
+}
+
+function _orgNodeHtml(node){
+  const e = node.emp;
+  const id = String(e.id || '');
+  const realChildren = node.children || [];
+  const collapsed = _orgState.collapsed.has(id);
+  const shownChildren = collapsed ? [] : realChildren;
+  const search = String(_orgState.search || '').trim().toLowerCase();
+  const isMatch = Boolean(search) && (
+    String(e.full_name || '').toLowerCase().includes(search) ||
+    id.toLowerCase().includes(search)
+  );
+
+  return `<li>
+    <div class="org-node ${isMatch ? 'is-match' : ''}" id="org-node-${_impulseEsc(id)}">
+      <div class="org-node-head">
+        ${_impulseAvatarHTML(id, e.full_name, 48)}
+        <div style="min-width:0">
+          <div class="org-node-name">${_impulseEsc(e.full_name || 'Sin nombre')}</div>
+          <div class="org-node-role">${_impulseEsc(e.position_title || _e_roleLabel(e.system_role) || '—')}</div>
+        </div>
+      </div>
+      ${(_orgState.showCampaign || _orgState.showId) ? `<div class="org-node-meta">
+        ${_orgState.showCampaign ? `<span class="org-node-pill">${_impulseEsc(e.campaign_id || 'Admin')}</span>` : ''}
+        ${_orgState.showId ? `<span class="org-node-pill">${_impulseEsc(id)}</span>` : ''}
+      </div>` : ''}
+      ${realChildren.length ? `<button class="org-collapse" title="${collapsed ? 'Expandir' : 'Contraer'}" onclick="_orgToggleBranch('${_impulseEsc(id)}');event.stopPropagation()">${collapsed ? '+' : '−'}</button>` : ''}
+    </div>
+    ${shownChildren.length ? `<ul>${shownChildren.map(_orgNodeHtml).join('')}</ul>` : ''}
+  </li>`;
+}
+
+function _orgCampaignOptions(){
+  return [...new Set((_e_EMPLEADOS || [])
+    .map(e => String(e.campaign_id || '').trim())
+    .filter(Boolean))]
+    .sort((a,b) => a.localeCompare(b,'es'));
+}
+
+function _orgRootOptions(){
+  return (_e_EMPLEADOS || [])
+    .filter(e => _orgState.status === 'all' || e.status === 'active')
+    .slice()
+    .sort((a,b) => {
+      const roleWeight = r => ({ceo:0,head_people:1,manager:2,supervisor:3,people:4,workforce:5,agent:6}[String(r||'').toLowerCase()] ?? 9);
+      const d = roleWeight(a.system_role) - roleWeight(b.system_role);
+      return d || String(a.full_name||'').localeCompare(String(b.full_name||''),'es');
+    });
+}
+
+function _orgRender(){
+  const c = document.getElementById('content');
+  if (!c) return;
+
+  if (!_orgCanAccess()){
+    c.innerHTML = '<div style="padding:60px;text-align:center;color:#64748B">No tienes acceso a Organigrama.</div>';
+    return;
+  }
+
+  const tree = _orgBuildTree();
+  const people = _orgFlattenTree(tree, []);
+  const rootOptions = _orgRootOptions();
+  const campaigns = _orgCampaignOptions();
+  const currentChart = _orgSavedCharts.find(x => x.id === _orgState.currentId) || null;
+  const isSnapshot = _orgState.mode === 'snapshot';
+
+  c.innerHTML = `<div class="org-shell">
+    <button class="org-presentation-exit" onclick="_orgExitPresentation()">Salir de presentación</button>
+
+    <div class="org-hero">
+      <div>
+        <div class="org-title">Organigrama</div>
+        <div class="org-sub">Crea vistas organizacionales directamente desde Impulse. Las vistas en vivo siguen la estructura actual de <b>employees.supervisor_id</b>; los snapshots congelan la estructura para una presentación histórica.</div>
+      </div>
+      <div class="org-hero-actions">
+        <button class="org-btn" onclick="_orgNewView()">＋ Nuevo</button>
+        <button class="org-btn" onclick="_orgSaveLive()">Guardar vista</button>
+        <button class="org-btn" onclick="_orgSaveSnapshot()">📌 Guardar snapshot</button>
+        <button class="org-btn primary" onclick="_orgPresentation()">▶ Presentación</button>
+        ${currentChart ? `<button class="org-btn danger" onclick="_orgArchiveCurrent()">Archivar</button>` : ''}
+      </div>
+    </div>
+
+    <div class="org-controls">
+      <div class="org-control-grid">
+        <div class="org-field">
+          <label>Organigrama guardado</label>
+          <select onchange="_orgSelectChart(this.value)">
+            <option value="" ${!_orgState.currentId ? 'selected' : ''}>Vista rápida · actual</option>
+            ${_orgSavedCharts.map(chart => `<option value="${_impulseEsc(chart.id)}" ${chart.id===_orgState.currentId?'selected':''}>${chart.mode==='snapshot'?'📌 ':'● '}${_impulseEsc(chart.name)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="org-field">
+          <label>Nombre</label>
+          <input value="${_impulseEsc(_orgState.name)}" oninput="_orgState.name=this.value" placeholder="Ej. People & Talent · Q3 2026">
+        </div>
+
+        <div class="org-field">
+          <label>Persona raíz</label>
+          <select onchange="_orgState.rootId=this.value;_orgState.collapsed=new Set();_orgRender()">
+            ${rootOptions.map(e => `<option value="${_impulseEsc(e.id)}" ${String(e.id)===String(_orgState.rootId)?'selected':''}>${_impulseEsc(e.full_name)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="org-field">
+          <label>Campaña</label>
+          <select onchange="_orgState.campaign=this.value;_orgRender()" ${isSnapshot?'disabled':''}>
+            <option value="all" ${_orgState.campaign==='all'?'selected':''}>Todas</option>
+            ${campaigns.map(camp => `<option value="${_impulseEsc(camp)}" ${_orgState.campaign===camp?'selected':''}>${_impulseEsc(camp)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="org-field">
+          <label>Niveles</label>
+          <select onchange="_orgState.maxDepth=Number(this.value);_orgRender()">
+            <option value="0" ${Number(_orgState.maxDepth)===0?'selected':''}>Todos</option>
+            <option value="1" ${Number(_orgState.maxDepth)===1?'selected':''}>1 nivel</option>
+            <option value="2" ${Number(_orgState.maxDepth)===2?'selected':''}>2 niveles</option>
+            <option value="3" ${Number(_orgState.maxDepth)===3?'selected':''}>3 niveles</option>
+            <option value="4" ${Number(_orgState.maxDepth)===4?'selected':''}>4 niveles</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="org-options">
+        <div class="org-checks">
+          <label class="org-check"><input type="checkbox" ${_orgState.showCampaign?'checked':''} onchange="_orgState.showCampaign=this.checked;_orgRender()"> Mostrar campaña</label>
+          <label class="org-check"><input type="checkbox" ${_orgState.showId?'checked':''} onchange="_orgState.showId=this.checked;_orgRender()"> Mostrar Employee ID</label>
+          <label class="org-check"><input type="checkbox" ${_orgState.status==='active'?'checked':''} onchange="_orgState.status=this.checked?'active':'all';_orgRender()" ${isSnapshot?'disabled':''}> Solo activos</label>
+        </div>
+
+        <div class="org-search-row">
+          <input class="org-search" placeholder="Buscar persona por nombre o CX..." value="${_impulseEsc(_orgState.search)}" onkeydown="if(event.key==='Enter')_orgFindEmployee(this.value)">
+          <button class="org-btn" onclick="_orgFindEmployee(document.querySelector('.org-search')?.value||'')">Buscar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="org-canvas-card" id="orgCanvas">
+      <div class="org-canvas-topbar">
+        <div class="org-canvas-meta">
+          <span class="org-badge ${isSnapshot?'snapshot':''}">${isSnapshot?'Snapshot':'En vivo'}</span>
+          <span><b>${people.length}</b> personas</span>
+          ${currentChart?.updated_at ? `<span>Actualizado ${_impulseEsc(fmtDateTimeCDMX(currentChart.updated_at,{year:undefined}))}</span>` : ''}
+        </div>
+        <div class="org-zoom">
+          <button onclick="_orgZoom(-.1)">−</button>
+          <span id="orgZoomLabel">${Math.round(_orgState.zoom*100)}%</span>
+          <button onclick="_orgZoom(.1)">＋</button>
+          <button onclick="_orgZoomReset()" title="Restablecer zoom">⌂</button>
+        </div>
+      </div>
+
+      ${tree ? `<div class="org-stage-wrap"><div class="org-stage" id="orgStage" style="transform:scale(${_orgState.zoom})"><ul class="org-tree">${_orgNodeHtml(tree)}</ul></div></div>` :
+      `<div class="org-empty"><strong>No hay estructura para mostrar</strong>Prueba cambiando la persona raíz o los filtros.</div>`}
+    </div>
+  </div>`;
+
+  _impulseScheduleAvatarHydrate();
+}
+
+window._orgToggleBranch = function(employeeId){
+  if (_orgState.collapsed.has(employeeId)) _orgState.collapsed.delete(employeeId);
+  else _orgState.collapsed.add(employeeId);
+  _orgRender();
+};
+
+window._orgZoom = function(delta){
+  _orgState.zoom = Math.min(1.4, Math.max(.45, Number((_orgState.zoom + delta).toFixed(2))));
+  const stage = document.getElementById('orgStage');
+  if (stage) stage.style.transform = `scale(${_orgState.zoom})`;
+  const label = document.getElementById('orgZoomLabel');
+  if (label) label.textContent = `${Math.round(_orgState.zoom*100)}%`;
+};
+
+window._orgZoomReset = function(){
+  _orgState.zoom = 1;
+  const stage = document.getElementById('orgStage');
+  if (stage) stage.style.transform = 'scale(1)';
+  const label = document.getElementById('orgZoomLabel');
+  if (label) label.textContent = '100%';
+};
+
+window._orgFindEmployee = function(query){
+  const q = String(query || '').trim().toLowerCase();
+  _orgState.search = q;
+  if (!q){
+    _orgRender();
+    return;
+  }
+
+  const tree = _orgBuildTree();
+  const match = _orgFlattenTree(tree, []).find(e =>
+    String(e.full_name || '').toLowerCase().includes(q) ||
+    String(e.id || '').toLowerCase() === q
+  );
+
+  _orgRender();
+
+  if (!match){
+    alert('No encontré a esa persona dentro del organigrama actual.');
+    return;
+  }
+
+  window.setTimeout(() => {
+    document.getElementById(`org-node-${match.id}`)?.scrollIntoView({
+      behavior:'smooth',
+      block:'center',
+      inline:'center'
+    });
+  }, 60);
+};
+
+window._orgNewView = function(){
+  const root = _orgDefaultRoot();
+  _orgState.currentId = null;
+  _orgState.name = 'Nuevo organigrama';
+  _orgState.rootId = root?.id || '';
+  _orgState.campaign = 'all';
+  _orgState.status = 'active';
+  _orgState.maxDepth = 0;
+  _orgState.showCampaign = true;
+  _orgState.showId = false;
+  _orgState.mode = 'live';
+  _orgState.snapshotData = null;
+  _orgState.collapsed = new Set();
+  _orgState.search = '';
+  _orgState.zoom = 1;
+  _orgRender();
+};
+
+function _orgPayload(mode='live'){
+  const actorId = ROLES[currentRole]?.id || null;
+  const tree = _orgBuildTree();
+  const visibleEmployees = _orgFlattenTree(tree, []).map(e => ({
+    id:e.id,
+    full_name:e.full_name,
+    position_title:e.position_title,
+    system_role:e.system_role,
+    supervisor_id:e.supervisor_id,
+    supervisor_name:e.supervisor_name,
+    campaign_id:e.campaign_id,
+    status:e.status
+  }));
+
+  return {
+    name:String(_orgState.name || 'Organigrama').trim() || 'Organigrama',
+    description:null,
+    root_employee_id:_orgState.rootId || null,
+    mode,
+    filters:{
+      campaign:_orgState.campaign || 'all',
+      status:_orgState.status || 'active',
+      max_depth:Number(_orgState.maxDepth || 0)
+    },
+    display_options:{
+      show_photo:true,
+      show_campaign:Boolean(_orgState.showCampaign),
+      show_id:Boolean(_orgState.showId)
+    },
+    snapshot_data:mode === 'snapshot'
+      ? { captured_at:new Date().toISOString(), employees:visibleEmployees }
+      : null,
+    created_by:actorId,
+    updated_by:actorId,
+    is_archived:false
+  };
+}
+
+async function _orgSave(mode='live'){
+  if (!_orgCanAccess()) return;
+
+  const payload = _orgPayload(mode);
+
+  try{
+    let saved = null;
+
+    if (mode === 'live' && _orgState.currentId && _orgState.mode === 'live'){
+      const updatePayload = { ...payload };
+      delete updatePayload.created_by;
+      const { data, error } = await _auth_sb
+        .from('org_charts')
+        .update(updatePayload)
+        .eq('id', _orgState.currentId)
+        .select('*')
+        .single();
+      if (error) throw error;
+      saved = data;
+    }else{
+      if (mode === 'snapshot'){
+        const stamp = new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric',timeZone:'America/Mexico_City'});
+        payload.name = `${payload.name} · ${stamp}`;
+      }
+      const { data, error } = await _auth_sb
+        .from('org_charts')
+        .insert(payload)
+        .select('*')
+        .single();
+      if (error) throw error;
+      saved = data;
+    }
+
+    await _orgLoadSavedCharts();
+    if (saved?.id) _orgApplySavedChart(saved.id);
+
+    alert(mode === 'snapshot'
+      ? 'Snapshot guardado. Esta estructura ya no cambiará aunque cambien los reportes.'
+      : 'Organigrama guardado.');
+  }catch(error){
+    console.error('[Organigrama] Guardar:', error);
+    alert(error?.message || 'No se pudo guardar el organigrama.');
+  }
+}
+
+window._orgSaveLive = () => _orgSave('live');
+window._orgSaveSnapshot = () => _orgSave('snapshot');
+
+window._orgArchiveCurrent = async function(){
+  if (!_orgState.currentId) return;
+  if (!confirm('¿Archivar este organigrama guardado?')) return;
+
+  try{
+    const { error } = await _auth_sb
+      .from('org_charts')
+      .update({ is_archived:true, updated_by:ROLES[currentRole]?.id || null })
+      .eq('id', _orgState.currentId);
+    if (error) throw error;
+
+    await _orgLoadSavedCharts();
+    _orgNewView();
+  }catch(error){
+    console.error('[Organigrama] Archivar:', error);
+    alert(error?.message || 'No se pudo archivar.');
+  }
+};
+
+window._orgPresentation = function(){
+  document.body.classList.add('org-presentation-active');
+  const canvas = document.getElementById('orgCanvas');
+  if (canvas) canvas.scrollTop = 0;
+};
+
+window._orgExitPresentation = function(){
+  document.body.classList.remove('org-presentation-active');
+};
+
+window._init_organigrama = async function(){
+  updateSidebarUser();
+
+  const c = document.getElementById('content');
+  if (!c) return;
+
+  if (!_orgCanAccess()){
+    c.innerHTML = '<div style="padding:60px;text-align:center;color:#64748B">No tienes acceso a Organigrama.</div>';
+    return;
+  }
+
+  c.innerHTML = '<div style="padding:80px;text-align:center;color:#64748B"><div style="width:34px;height:34px;border:3px solid #E2E8F0;border-top-color:#0EA5E9;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>Cargando organigrama…</div>';
+
+  if (!_e_EMPLEADOS.length){
+    const ok = await _e_cargarEmpleados();
+    if (!ok){
+      c.innerHTML = '<div style="padding:60px;text-align:center;color:#B91C1C">No se pudo cargar employees para construir el organigrama.</div>';
+      return;
+    }
+  }
+
+  await _orgLoadSavedCharts();
+
+  if (!_orgState.loaded){
+    const root = _orgDefaultRoot();
+    _orgState.rootId = root?.id || '';
+    _orgState.loaded = true;
+  }
+
+  _orgRender();
+};
+
+
 </script>
 
 </body>
