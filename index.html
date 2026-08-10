@@ -1931,8 +1931,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.73';
-const APP_BUILD = '1.0.73-asistencia-carga-compartida';
+const APP_VERSION   = '1.0.70';
+const APP_BUILD = '1.0.70-arranque-rapido-checador';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2333,7 +2333,7 @@ function _impulseStartDeferredServicesOnce() {
   _impulseDeferredServicesStarted = true;
   window._impulseInitialLoadComplete = true;
 
-  // Realtime y versión no deben competir con el checador inicial; Tickets queda bajo demanda.
+  // Realtime, versión y polling no deben competir con el checador inicial.
   window.setTimeout(() => {
     try { _startVersionCheck(); } catch (error) {
       console.warn('[Impulse] Version check diferido:', error);
@@ -2845,8 +2845,8 @@ function _buildAppShell() {
   const allMods = [
     {id:'asistencia',   icon:'👤', label:'Asistencia',   roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
     {id:'nomina',       icon:'💰', label:'Nómina',        roles:['supervisor','manager','people','head_people','ceo']},
-    {id:'tickets',      icon:'🎫', label:'Tickets HR',    roles:['agent','supervisor','manager','people','head_people','ceo']},
-    {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people','ceo']},
+    {id:'tickets',      icon:'🎫', label:'Tickets HR',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
+    {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
@@ -4712,123 +4712,6 @@ let _a_PUNCHES_HOY  = [];  // ya no se usa (feed eliminado)
 let _a_EARLY_ENTRY_REVIEWS = [];
 let _a_EARLY_ENTRY_LOADING = false;
 
-// IMPULSE 1.0.72 · Sincronización incremental no bloqueante.
-// Las bandejas leen primero los datos existentes. La reconstrucción reciente
-// corre después del render, máximo una vez cada 15 minutos por navegador.
-const _a_DERIVED_SYNC_TTL_MS = 15 * 60 * 1000;
-const _a_DERIVED_SYNC_DAYS = 7;
-const _a_DERIVED_SYNC_PREFIX = 'impulse:derived-attendance-sync:';
-const _a_DERIVED_SYNC_INFLIGHT = new Map();
-
-function _a_derivedSyncAllowedRole() {
-  return [
-    'supervisor',
-    'manager',
-    'people',
-    'head_people',
-    'ceo'
-  ].includes(currentRole);
-}
-
-function _a_derivedSyncKey(rpcName) {
-  return `${_a_DERIVED_SYNC_PREFIX}${rpcName}`;
-}
-
-function _a_derivedSyncLastRun(rpcName) {
-  try {
-    return Number(localStorage.getItem(_a_derivedSyncKey(rpcName)) || 0);
-  } catch (_) {
-    return 0;
-  }
-}
-
-function _a_setDerivedSyncLastRun(rpcName, value) {
-  try {
-    if (value) localStorage.setItem(_a_derivedSyncKey(rpcName), String(value));
-    else localStorage.removeItem(_a_derivedSyncKey(rpcName));
-  } catch (_) {}
-}
-
-async function _a_runDerivedSyncOnce(rpcName, { force = false } = {}) {
-  if (!_a_derivedSyncAllowedRole()) {
-    return { ok: true, skipped: true, reason: 'role' };
-  }
-
-  const now = Date.now();
-  const lastRun = _a_derivedSyncLastRun(rpcName);
-
-  if (!force && lastRun && now - lastRun < _a_DERIVED_SYNC_TTL_MS) {
-    return { ok: true, skipped: true, reason: 'ttl' };
-  }
-
-  if (_a_DERIVED_SYNC_INFLIGHT.has(rpcName)) {
-    return _a_DERIVED_SYNC_INFLIGHT.get(rpcName);
-  }
-
-  // Reservamos el intervalo antes de llamar para evitar duplicados entre
-  // pestañas del mismo navegador. Si falla, se libera la reserva.
-  _a_setDerivedSyncLastRun(rpcName, now);
-
-  const promise = (async () => {
-    const { data, error } = await _a_sb.rpc(
-      rpcName,
-      { p_days_back: _a_DERIVED_SYNC_DAYS }
-    );
-
-    const issue = error || (data?.ok === false ? data : null);
-
-    if (issue) {
-      _a_setDerivedSyncLastRun(rpcName, 0);
-      console.warn(
-        `[Impulse Performance] Sync incremental falló: ${rpcName}`,
-        issue
-      );
-      return { ok: false, issue };
-    }
-
-    console.info(
-      `[Impulse Performance] Sync incremental completado: ${rpcName}`,
-      { daysBack: _a_DERIVED_SYNC_DAYS }
-    );
-
-    return data || { ok: true };
-  })();
-
-  _a_DERIVED_SYNC_INFLIGHT.set(rpcName, promise);
-
-  try {
-    return await promise;
-  } finally {
-    _a_DERIVED_SYNC_INFLIGHT.delete(rpcName);
-  }
-}
-
-async function _a_refreshDerivedAttendanceInBackground() {
-  if (!_a_derivedSyncAllowedRole()) return;
-
-  const results = await Promise.allSettled([
-    _a_runDerivedSyncOnce('sync_attendance_early_entry_reviews'),
-    _a_runDerivedSyncOnce('sync_attendance_late_regularizations')
-  ]);
-
-  const changed = results.some(result =>
-    result.status === 'fulfilled' &&
-    result.value?.ok !== false &&
-    result.value?.skipped !== true
-  );
-
-  if (!changed || activeModule !== 'asistencia') return;
-
-  // Las funciones de lectura ya no sincronizan; esta recarga sólo consulta
-  // las tablas preparadas y no vuelve a disparar los RPC pesados.
-  await Promise.allSettled([
-    _a_loadEarlyEntryReviews(),
-    _a_loadLateRegularizations()
-  ]);
-
-  if (activeModule === 'asistencia') _a_render();
-}
-
 function _a_timeMinutes(value) {
   if (value === null || value === undefined) {
     return null;
@@ -5124,8 +5007,21 @@ async function _a_loadEarlyEntryReviews() {
   _a_EARLY_ENTRY_LOADING = true;
 
   try {
-    // 1.0.72: esta función sólo consulta la bandeja existente.
-    // La sincronización incremental se ejecuta después del render y con TTL.
+    const sync = await _a_sb.rpc(
+      'sync_attendance_early_entry_reviews',
+      { p_days_back: 120 }
+    );
+
+    if (
+      sync.error ||
+      sync.data?.ok === false
+    ) {
+      console.warn(
+        '[Impulse Entradas anticipadas] No se pudo sincronizar:',
+        sync.error || sync.data
+      );
+    }
+
     const { data, error } = await _a_sb
       .from('attendance_early_entry_reviews')
       .select('*')
@@ -5980,8 +5876,18 @@ async function _a_loadLateRegularizations() {
   _a_LATE_REGULARIZATION_LOADING = true;
 
   try {
-    // 1.0.72: esta función sólo consulta la bandeja existente.
-    // La sincronización incremental se ejecuta después del render y con TTL.
+    const sync = await _a_sb.rpc(
+      'sync_attendance_late_regularizations',
+      { p_days_back: 120 }
+    );
+
+    if (sync.error || sync.data?.ok === false) {
+      console.warn(
+        '[Impulse Regularización retardos] Sync:',
+        sync.error || sync.data
+      );
+    }
+
     const regularizationResult = await _a_sb
       .from('attendance_late_regularizations')
       .select('*')
@@ -8889,133 +8795,33 @@ async function _a_cargarDatos(options = {}) {
     await _a_loadEarlyEntryReviews();
     await _a_loadLateRegularizations();
 
-    /*
-     * Carga compartida de Asistencia.
-     *
-     * En 1.0.72, People/Head People/Manager/Workforce/CEO consultaban dos veces
-     * durante la misma carga: primero para construir Equipo y después para KPI
-     * global. Eso repetía employees, resumen de hoy, excepciones, vacaciones y
-     * horarios efectivos. En 1.0.73 se resuelve una sola vez y se reutiliza.
-     */
-    const _a_TEAM_ROLES = [
-      'supervisor',
-      'manager',
-      'people',
-      'head_people',
-      'workforce',
-      'ceo'
-    ];
-
-    const _a_GLOBAL_ROLES = [
-      'people',
-      'head_people',
-      'manager',
-      'workforce',
-      'ceo'
-    ];
-
-    const needsGlobalAttendance =
-      _a_GLOBAL_ROLES.includes(currentRole);
-
-    let sharedEmployees = null;
-    let sharedTodaySummary = null;
-    let sharedTodayExceptions = null;
-    let sharedTodayVacations = null;
-    let sharedEffectiveSchedules = null;
-
-    async function _a_loadSharedGlobalAttendance() {
-      if (sharedEmployees !== null) return;
-
-      const sharedLoadStartedAt = performance.now();
-
-      const { data, error } = await _a_sb
+    // 3. Equipo del supervisor / manager / people / head / workforce / ceo
+    if (['supervisor', 'manager', 'people', 'head_people', 'workforce', 'ceo'].includes(currentRole)) {
+      let empQuery = _a_sb
         .from('employees')
         .select('*')
         .eq('status', 'active');
 
-      if (error) throw error;
+      if (currentRole === 'supervisor') {
+        empQuery = empQuery.eq('supervisor_id', ro.id);
+      }
 
-      const rawEmployees = data || [];
+      const { data: emps, error: empsErr } = await empQuery;
+      if (empsErr) throw empsErr;
 
-      sharedEmployees = currentRole === 'manager'
-        ? rawEmployees.filter(e =>
-            _a_descendantIds(
-              rawEmployees,
-              ro.id
-            ).has(String(e.id))
-          )
-        : rawEmployees;
+      const rawEmployees = emps || [];
 
-      const sharedIds = sharedEmployees.map(e => e.id);
+      let scopedEmployees = rawEmployees;
 
-      [
-        sharedTodaySummary,
-        sharedTodayExceptions,
-        sharedTodayVacations,
-        sharedEffectiveSchedules
-      ] = await Promise.all([
-        _a_fetchTodaySummaries(sharedIds),
-        _a_fetchTodayExceptions(sharedIds),
-        _a_fetchTodayVacations(sharedIds),
-        _a_fetchEffectiveSchedules(sharedIds)
-      ]);
+      if (currentRole === 'manager') {
+        const descendantIds = _a_descendantIds(
+          rawEmployees,
+          ro.id
+        );
 
-      console.info(
-        '[Impulse Performance] Carga compartida Asistencia completada en',
-        Math.round(performance.now() - sharedLoadStartedAt),
-        'ms',
-        {
-          role: currentRole,
-          employees: sharedEmployees.length,
-          summaries: sharedTodaySummary.length,
-          exceptions: sharedTodayExceptions.length,
-          vacations: sharedTodayVacations.length,
-          schedules: sharedEffectiveSchedules.length
-        }
-      );
-    }
-
-    // 3. Equipo del supervisor / manager / people / head / workforce / ceo
-    if (_a_TEAM_ROLES.includes(currentRole)) {
-      let scopedEmployees = [];
-      let todaySummary = [];
-      let excepcionesHoy = [];
-      let vacacionesHoy = [];
-      let effectiveSchedulesHoy = [];
-
-      if (needsGlobalAttendance) {
-        await _a_loadSharedGlobalAttendance();
-
-        scopedEmployees = sharedEmployees || [];
-        todaySummary = sharedTodaySummary || [];
-        excepcionesHoy = sharedTodayExceptions || [];
-        vacacionesHoy = sharedTodayVacations || [];
-        effectiveSchedulesHoy = sharedEffectiveSchedules || [];
-      } else {
-        // Supervisor: conservar el alcance directo de su equipo.
-        const { data: emps, error: empsErr } = await _a_sb
-          .from('employees')
-          .select('*')
-          .eq('status', 'active')
-          .eq('supervisor_id', ro.id);
-
-        if (empsErr) throw empsErr;
-
-        scopedEmployees = emps || [];
-
-        const scopedIds = scopedEmployees.map(e => e.id);
-
-        [
-          todaySummary,
-          excepcionesHoy,
-          vacacionesHoy,
-          effectiveSchedulesHoy
-        ] = await Promise.all([
-          _a_fetchTodaySummaries(scopedIds),
-          _a_fetchTodayExceptions(scopedIds),
-          _a_fetchTodayVacations(scopedIds),
-          _a_fetchEffectiveSchedules(scopedIds)
-        ]);
+        scopedEmployees = rawEmployees.filter(e =>
+          descendantIds.has(String(e.id))
+        );
       }
 
       const empList = currentRole === 'supervisor'
@@ -9024,6 +8830,20 @@ async function _a_cargarDatos(options = {}) {
             e.supervisor_id !== null &&
             _a_isAgentLike(e)
           );
+
+      const empIds = empList.map(e => e.id);
+
+      const [
+        todaySummary,
+        excepcionesHoy,
+        vacacionesHoy,
+        effectiveSchedulesHoy
+      ] = await Promise.all([
+        _a_fetchTodaySummaries(empIds),
+        _a_fetchTodayExceptions(empIds),
+        _a_fetchTodayVacations(empIds),
+        _a_fetchEffectiveSchedules(empIds)
+      ]);
 
       _a_TEAM = empList.map(e =>
         _a_buildTeamRow(
@@ -9037,14 +8857,38 @@ async function _a_cargarDatos(options = {}) {
     }
 
     // 4. KPIs globales para Head of People / People / Manager / Workforce / CEO
-    if (needsGlobalAttendance) {
-      await _a_loadSharedGlobalAttendance();
+    if (['people', 'head_people', 'manager', 'workforce', 'ceo'].includes(currentRole)) {
+      const { data: allEmps, error: allErr } = await _a_sb
+        .from('employees')
+        .select('*')
+        .eq('status', 'active');
 
-      const allEmployees = sharedEmployees || [];
-      const todayAll = sharedTodaySummary || [];
-      const exceptionsAll = sharedTodayExceptions || [];
-      const vacationsAll = sharedTodayVacations || [];
-      const effectiveSchedulesAll = sharedEffectiveSchedules || [];
+      if (allErr) throw allErr;
+
+      const rawAllEmployees = allEmps || [];
+
+      const allEmployees = currentRole === 'manager'
+        ? rawAllEmployees.filter(e =>
+            _a_descendantIds(
+              rawAllEmployees,
+              ro.id
+            ).has(String(e.id))
+          )
+        : rawAllEmployees;
+
+      const allIds = allEmployees.map(e => e.id);
+
+      const [
+        todayAll,
+        exceptionsAll,
+        vacationsAll,
+        effectiveSchedulesAll
+      ] = await Promise.all([
+        _a_fetchTodaySummaries(allIds),
+        _a_fetchTodayExceptions(allIds),
+        _a_fetchTodayVacations(allIds),
+        _a_fetchEffectiveSchedules(allIds)
+      ]);
 
       const contextById = new Map(
         allEmployees.map(e => [
@@ -17242,8 +17086,7 @@ window['_init_asistencia']=async function(){
   _impulseStartDeferredServicesOnce();
 
   const secondaryLoads = [
-    _a_loadPeopleActionFollowupSummary(),
-    _a_refreshDerivedAttendanceInBackground()
+    _a_loadPeopleActionFollowupSummary()
   ];
 
   if (['supervisor','manager','people','head_people'].includes(currentRole)) {
@@ -28298,18 +28141,13 @@ function _t_refreshTicketNotificationsUI() {
 async function _t_refreshTicketNotifications() {
   if (typeof _t_cargarTickets !== 'function') return;
 
-  // 1.0.72: Tickets se consulta bajo demanda. La campana no debe descargar
-  // toda la bandeja mientras el usuario trabaja en otro módulo.
-  if (activeModule !== 'tickets') {
-    _t_refreshTicketNotificationsUI();
-    return;
-  }
-
   try {
     await _t_cargarTickets({ silent: true });
 
-    if (typeof _t_render === 'function') {
+    if (activeModule === 'tickets' && typeof _t_render === 'function') {
       _t_render();
+    } else {
+      _t_refreshTicketNotificationsUI();
     }
   } catch(e) {
     console.warn('No se pudieron refrescar notificaciones de tickets:', e);
@@ -28317,28 +28155,26 @@ async function _t_refreshTicketNotifications() {
 }
 
 function _t_startTicketNotificationPolling() {
-  // 1.0.72: polling global desactivado. Tickets carga al abrir su módulo
-  // o mediante una actualización explícita del usuario.
-  _t_notifPollingStarted = true;
-
-  if (_t_notifPollingTimer) {
-    clearInterval(_t_notifPollingTimer);
-    _t_notifPollingTimer = null;
+  if (_t_notifPollingStarted) {
+    _t_refreshTicketNotificationsUI();
+    return;
   }
 
-  _t_refreshTicketNotificationsUI();
-  console.info(
-    '[Impulse Performance] Polling global de Tickets HR desactivado; carga bajo demanda.'
-  );
+  _t_notifPollingStarted = true;
+
+  // Primera carga ligera al entrar
+  setTimeout(() => {
+    _t_refreshTicketNotifications();
+  }, 1200);
+
+  // Polling cada minuto
+  _t_notifPollingTimer = setInterval(() => {
+    _t_refreshTicketNotifications();
+  }, 60000);
 }
 
 async function _t_cargarTickets(options = {}) {
   try {
-    if (options?.silent && activeModule !== 'tickets') {
-      _t_refreshTicketNotificationsUI();
-      return true;
-    }
-
     const ro = ROLES[currentRole] || {};
     const role = String(currentRole || '').toLowerCase();
 
@@ -34615,9 +34451,7 @@ async function _d_syncFollowups({ force = false } = {}) {
 }
 
 async function _d_cargarDatos({
-  // 1.0.72: la apertura y los refresh de pantalla sólo leen datos existentes.
-  // El botón de actualización manual conserva la sincronización explícita.
-  syncFollowups = false,
+  syncFollowups = true,
   forceSync = false
 } = {}) {
   try {
