@@ -2,7 +2,16 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+<meta name="theme-color" content="#0F172A"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Impulse"/>
+<meta name="application-name" content="Impulse"/>
+<link rel="manifest" href="./manifest.webmanifest"/>
+<link rel="apple-touch-icon" sizes="180x180" href="./impulse-icon-180.png"/>
+<link rel="icon" type="image/png" sizes="192x192" href="./impulse-icon-192.png"/>
 <title>Impulse · Evolve CX</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -1919,6 +1928,461 @@ body{font-family:var(--f);background:#F0F2F7;min-height:100vh;color:#0F172A;font
   }
 </style>
 
+
+<style id="impulse-mobile-pwa-css">
+/* ═══════════════════════════════════════════════════════════════
+   IMPULSE MOBILE · PWA / IPHONE
+   Desktop remains unchanged. Mobile-specific shell begins at 820px.
+   ═══════════════════════════════════════════════════════════════ */
+.mobile-bottom-nav,
+.mobile-more-backdrop{display:none}
+
+@supports (height:100dvh){
+  .app{height:100dvh}
+}
+
+@media (max-width:820px){
+  :root{
+    --imp-mobile-nav-h:66px;
+    --imp-safe-top:env(safe-area-inset-top,0px);
+    --imp-safe-bottom:env(safe-area-inset-bottom,0px);
+  }
+
+  html,body{
+    width:100%;
+    height:100%;
+    min-height:100%;
+    overflow:hidden;
+    overscroll-behavior:none;
+    -webkit-text-size-adjust:100%;
+    background:#F0F2F7;
+  }
+
+  body{
+    touch-action:manipulation;
+  }
+
+  .app{
+    width:100vw;
+    height:100dvh;
+    min-height:-webkit-fill-available;
+    overflow:hidden;
+  }
+
+  /* Desktop sidebar becomes a touch-first bottom navigation. */
+  .sidebar{display:none!important}
+
+  .main{
+    width:100vw;
+    min-width:0;
+    height:100dvh;
+    min-height:-webkit-fill-available;
+    overflow:hidden;
+  }
+
+  .topbar{
+    height:calc(54px + var(--imp-safe-top))!important;
+    min-height:calc(54px + var(--imp-safe-top));
+    padding:var(--imp-safe-top) 12px 0!important;
+    gap:8px!important;
+    flex-shrink:0;
+    position:relative;
+    z-index:40;
+    box-shadow:0 1px 0 rgba(15,23,42,.04);
+  }
+
+  #tbIcon{font-size:18px!important;flex:0 0 auto}
+  .tb-title{
+    font-size:15px!important;
+    font-weight:800!important;
+    min-width:0;
+    max-width:46vw;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .tb-date{display:none!important}
+  .tb-sp{min-width:2px}
+  .rt-status{flex:0 0 auto}
+  .rt-status .rt-label{display:none}
+
+  #updateBanner{
+    position:fixed!important;
+    top:calc(58px + var(--imp-safe-top))!important;
+    left:10px!important;
+    right:10px!important;
+    margin:0!important;
+    z-index:155!important;
+    text-align:center;
+    box-shadow:0 8px 24px rgba(15,23,42,.16);
+  }
+
+  .content{
+    flex:1 1 auto!important;
+    min-height:0!important;
+    width:100%;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior-y:contain;
+    padding:12px 12px calc(var(--imp-mobile-nav-h) + var(--imp-safe-bottom) + 18px)!important;
+    scroll-padding-bottom:calc(var(--imp-mobile-nav-h) + var(--imp-safe-bottom) + 18px);
+  }
+
+  /* Bottom navigation */
+  .mobile-bottom-nav{
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:0;
+    z-index:140;
+    height:calc(var(--imp-mobile-nav-h) + var(--imp-safe-bottom));
+    padding:6px 8px var(--imp-safe-bottom);
+    background:rgba(255,255,255,.96);
+    border-top:1px solid #E2E8F0;
+    box-shadow:0 -10px 30px rgba(15,23,42,.08);
+    backdrop-filter:saturate(180%) blur(18px);
+    -webkit-backdrop-filter:saturate(180%) blur(18px);
+    display:flex;
+    align-items:stretch;
+    justify-content:space-around;
+    gap:2px;
+  }
+
+  .mobile-nav-item{
+    appearance:none;
+    -webkit-appearance:none;
+    border:0;
+    background:transparent;
+    color:#64748B;
+    min-width:0;
+    flex:1 1 0;
+    border-radius:12px;
+    padding:5px 3px 4px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:3px;
+    font-family:var(--f);
+    cursor:pointer;
+    position:relative;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  .mobile-nav-item:active{background:#F1F5F9}
+  .mobile-nav-item.active{
+    color:#0369A1;
+    background:#F0F9FF;
+  }
+  .mobile-nav-icon{font-size:20px;line-height:1}
+  .mobile-nav-label{
+    max-width:100%;
+    font-size:9.5px;
+    line-height:1.05;
+    font-weight:800;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .mobile-nav-item .ticket-nav-badge,
+  .mobile-nav-item .d-followup-sidebar-badge{
+    position:absolute!important;
+    top:2px!important;
+    right:calc(50% - 23px)!important;
+    margin:0!important;
+    min-width:17px!important;
+    height:17px!important;
+    line-height:17px!important;
+    font-size:9px!important;
+  }
+
+  /* "Más" bottom sheet */
+  .mobile-more-backdrop{
+    position:fixed;
+    inset:0;
+    z-index:210;
+    background:rgba(15,23,42,.48);
+    align-items:flex-end;
+    justify-content:center;
+    padding:0;
+    backdrop-filter:blur(2px);
+    -webkit-backdrop-filter:blur(2px);
+  }
+  .mobile-more-backdrop.open{display:flex}
+
+  .mobile-more-sheet{
+    width:100%;
+    max-height:min(82dvh,720px);
+    overflow:auto;
+    background:#F8FAFC;
+    border-radius:22px 22px 0 0;
+    box-shadow:0 -20px 60px rgba(15,23,42,.25);
+    padding:10px 14px calc(18px + var(--imp-safe-bottom));
+    animation:impMobileSheetIn .18s ease-out;
+  }
+  @keyframes impMobileSheetIn{
+    from{transform:translateY(22px);opacity:.5}
+    to{transform:translateY(0);opacity:1}
+  }
+
+  .mobile-sheet-handle{
+    width:42px;
+    height:5px;
+    border-radius:999px;
+    background:#CBD5E1;
+    margin:2px auto 12px;
+  }
+
+  .mobile-sheet-user{
+    display:flex;
+    align-items:center;
+    gap:11px;
+    padding:10px 4px 14px;
+    border-bottom:1px solid #E2E8F0;
+    margin-bottom:12px;
+  }
+  .mobile-sheet-avatar{
+    width:42px;height:42px;border-radius:14px;
+    display:grid;place-items:center;
+    background:#0F172A;color:#7DD3FC;
+    font-size:12px;font-weight:900;
+    flex:0 0 auto;
+  }
+  .mobile-sheet-name{font-size:14px;font-weight:900;color:#0F172A}
+  .mobile-sheet-role{font-size:11px;color:#64748B;margin-top:2px}
+
+  .mobile-sheet-title{
+    font-size:10px;
+    font-weight:900;
+    letter-spacing:.8px;
+    text-transform:uppercase;
+    color:#64748B;
+    margin:12px 2px 8px;
+  }
+
+  .mobile-module-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+  }
+  .mobile-module-btn{
+    border:1px solid #E2E8F0;
+    background:#fff;
+    min-height:60px;
+    border-radius:13px;
+    padding:10px 11px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    text-align:left;
+    color:#334155;
+    font-family:var(--f);
+    font-size:12px;
+    font-weight:800;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .mobile-module-btn:active{background:#F1F5F9}
+  .mobile-module-btn.active{
+    border-color:#7DD3FC;
+    background:#F0F9FF;
+    color:#075985;
+  }
+  .mobile-module-icon{font-size:20px;flex:0 0 auto}
+
+  .mobile-sheet-actions{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    margin-top:12px;
+  }
+  .mobile-sheet-action{
+    min-height:46px;
+    border:1px solid #CBD5E1;
+    border-radius:12px;
+    background:#fff;
+    color:#334155;
+    font-family:var(--f);
+    font-size:11px;
+    font-weight:850;
+    cursor:pointer;
+  }
+  .mobile-sheet-action.danger{color:#B91C1C;border-color:#FECACA;background:#FFF7F7}
+
+  /* Modal = native-like full-screen sheet on phone */
+  .modal-backdrop{
+    z-index:1000!important;
+    padding:0!important;
+    align-items:stretch!important;
+    justify-content:stretch!important;
+    background:rgba(15,23,42,.55)!important;
+  }
+  .modal{
+    width:100vw!important;
+    max-width:none!important;
+    min-height:100dvh!important;
+    height:100dvh!important;
+    border-radius:0!important;
+    display:flex!important;
+    flex-direction:column!important;
+    box-shadow:none!important;
+  }
+  .modal-hd{
+    flex:0 0 auto;
+    padding:calc(14px + var(--imp-safe-top)) 14px 14px!important;
+    align-items:center!important;
+  }
+  .modal-hd h3{font-size:16px!important}
+  .modal-hd-close{
+    width:40px!important;
+    height:40px!important;
+    font-size:18px!important;
+  }
+  .modal-body{
+    flex:1 1 auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch;
+    padding:14px!important;
+  }
+  .modal-footer{
+    flex:0 0 auto;
+    position:sticky;
+    bottom:0;
+    padding:10px 12px calc(10px + var(--imp-safe-bottom))!important;
+    background:#fff;
+    box-shadow:0 -8px 22px rgba(15,23,42,.06);
+  }
+  .modal-footer>button{flex:1 1 140px}
+
+  /* Forms: avoid iOS zoom and make targets comfortable */
+  input,select,textarea{
+    max-width:100%!important;
+    font-size:16px!important;
+  }
+  input,select{
+    min-height:42px;
+  }
+  textarea{min-height:96px}
+
+  button,
+  [onclick]{
+    -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+  }
+
+  .btn-ghost,.btn-primary,.btn-green,.btn-warn,.btn-red,.btn-cyan,
+  .df-preset,.df-apply,.rs-btn{
+    min-height:42px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  /* High-use grids collapse cleanly */
+  .hoy-grid,
+  .kgrid,
+  .kpi-grid,
+  .dd-hero-grid,
+  .dd-grid-2,
+  .dd4-grid,
+  .dd5-grid{
+    grid-template-columns:1fr!important;
+  }
+  .dd-metric-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+
+  /* Filters stack/wrap rather than shrinking into unreadable controls */
+  .date-filter-bar,
+  .filter-bar,
+  .dd-toolbar,
+  .dd4-toolbar,
+  .dd4-filters{
+    width:100%;
+    align-items:stretch!important;
+    gap:8px!important;
+  }
+  .date-filter-bar .df-label:first-child{width:100%}
+  .date-filter-bar .df-sep{display:none}
+  .date-filter-bar input[type="date"]{flex:1 1 145px}
+  .filter-bar input,
+  .filter-bar select{flex:1 1 150px}
+
+  /* Existing table wrappers remain horizontally scrollable on phone. */
+  .tw,
+  .dd-table-scroll,
+  .dd4-table-scroll,
+  .dd4-table-wrap{
+    max-width:100%;
+    overflow-x:auto!important;
+    -webkit-overflow-scrolling:touch;
+  }
+  .tw table{min-width:680px}
+  .data-table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .dd-exec-table{min-width:900px!important}
+  .dd4-table{min-width:960px!important}
+
+  /* Deep Dive/detail overlays */
+  .dd5-panel{
+    width:100vw!important;
+    height:100dvh!important;
+  }
+  .dd5-head{
+    padding:calc(14px + var(--imp-safe-top)) 14px 14px!important;
+  }
+  .dd5-main{
+    padding:14px 12px calc(92px + var(--imp-safe-bottom))!important;
+  }
+  .dd5-footer{
+    padding:10px 12px calc(10px + var(--imp-safe-bottom))!important;
+  }
+
+  /* Login */
+  .lw{min-height:100dvh!important}
+  .l-left{display:none!important}
+  .l-right{
+    width:100%!important;
+    min-height:100dvh!important;
+    padding:calc(30px + var(--imp-safe-top)) 22px calc(28px + var(--imp-safe-bottom))!important;
+    justify-content:center!important;
+  }
+  .l-logo img{height:30px!important}
+  .l-sub{margin-bottom:28px!important}
+  .l-input{font-size:16px!important;min-height:48px}
+  .l-btn{min-height:50px;font-size:15px!important}
+
+  /* Toast should sit above bottom nav */
+  .rt-toast{
+    left:12px!important;
+    right:12px!important;
+    bottom:calc(var(--imp-mobile-nav-h) + var(--imp-safe-bottom) + 10px)!important;
+  }
+
+  /* Prevent text/table content from forcing the page wider than the phone */
+  .card,
+  .dd-shell,
+  .dd-section,
+  .dd-table-card,
+  .dd4-section{
+    max-width:100%;
+    min-width:0;
+  }
+}
+
+@media (max-width:430px){
+  .mobile-nav-label{font-size:9px}
+  .mobile-bottom-nav{padding-left:4px;padding-right:4px}
+  .mobile-module-grid{grid-template-columns:1fr 1fr}
+  .mobile-sheet-actions{grid-template-columns:1fr}
+  .dd-metric-grid{grid-template-columns:1fr!important}
+  .tb-title{max-width:42vw}
+}
+</style>
+
 </head>
 <body>
 <div id="app-root" style="font-family:'DM Sans',-apple-system,sans-serif"></div>
@@ -1931,8 +2395,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.70';
-const APP_BUILD = '1.0.70-arranque-rapido-checador';
+const APP_VERSION   = '1.0.72';
+const APP_BUILD = '1.0.72-mobile-pwa-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -2333,7 +2797,7 @@ function _impulseStartDeferredServicesOnce() {
   _impulseDeferredServicesStarted = true;
   window._impulseInitialLoadComplete = true;
 
-  // Realtime, versión y polling no deben competir con el checador inicial.
+  // Realtime y versión no deben competir con el checador inicial; Tickets queda bajo demanda.
   window.setTimeout(() => {
     try { _startVersionCheck(); } catch (error) {
       console.warn('[Impulse] Version check diferido:', error);
@@ -2845,8 +3309,8 @@ function _buildAppShell() {
   const allMods = [
     {id:'asistencia',   icon:'👤', label:'Asistencia',   roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
     {id:'nomina',       icon:'💰', label:'Nómina',        roles:['supervisor','manager','people','head_people','ceo']},
-    {id:'tickets',      icon:'🎫', label:'Tickets HR',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
-    {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
+    {id:'tickets',      icon:'🎫', label:'Tickets HR',    roles:['agent','supervisor','manager','people','head_people','ceo']},
+    {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
@@ -2921,7 +3385,251 @@ function _buildAppShell() {
     </div>
   </div>`;
 
+  _mobileBuildShell(visible);
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// IMPULSE MOBILE · navegación y experiencia instalable
+// No agrega whitelist ni restricciones móviles: usa los mismos
+// usuarios autenticados y el mismo RBAC de Impulse.
+// ═══════════════════════════════════════════════════════════════
+let _mobileVisibleModules = [];
+let _mobilePrimaryModuleIds = [];
+
+function _mobileIsStandalone() {
+  return Boolean(
+    window.matchMedia?.('(display-mode: standalone)')?.matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function _mobileBuildShell(visibleModules) {
+  _mobileVisibleModules = Array.isArray(visibleModules)
+    ? visibleModules.map(m => ({ ...m }))
+    : [];
+
+  const preferred = [
+    'asistencia',
+    'disciplinario',
+    'tickets',
+    'permutas'
+  ];
+
+  const primary = [];
+  preferred.forEach(id => {
+    const mod = _mobileVisibleModules.find(item => item.id === id);
+    if (mod && primary.length < 4) primary.push(mod);
+  });
+
+  _mobileVisibleModules.forEach(mod => {
+    if (
+      primary.length < 4 &&
+      !primary.some(item => item.id === mod.id)
+    ) {
+      primary.push(mod);
+    }
+  });
+
+  _mobilePrimaryModuleIds = primary.map(m => m.id);
+
+  document.getElementById('mobileBottomNav')?.remove();
+  document.getElementById('mobileMoreBackdrop')?.remove();
+
+  const nav = document.createElement('nav');
+  nav.id = 'mobileBottomNav';
+  nav.className = 'mobile-bottom-nav';
+  nav.setAttribute('aria-label', 'Navegación móvil de Impulse');
+
+  nav.innerHTML = [
+    ...primary.map(mod => `
+      <button
+        type="button"
+        class="mobile-nav-item"
+        data-mobile-mod="${mod.id}"
+        onclick="_mobileGo('${mod.id}')"
+        aria-label="${mod.label}"
+      >
+        <span class="mobile-nav-icon">${mod.icon}</span>
+        <span class="mobile-nav-label">${mod.label}</span>
+      </button>
+    `),
+    `
+      <button
+        type="button"
+        class="mobile-nav-item"
+        id="mobileMoreButton"
+        onclick="_mobileToggleMore(true)"
+        aria-label="Más módulos"
+      >
+        <span class="mobile-nav-icon">☰</span>
+        <span class="mobile-nav-label">Más</span>
+      </button>
+    `
+  ].join('');
+
+  const ro = ROLES[currentRole] || {};
+  const backdrop = document.createElement('div');
+  backdrop.id = 'mobileMoreBackdrop';
+  backdrop.className = 'mobile-more-backdrop';
+  backdrop.onclick = event => {
+    if (event.target === backdrop) _mobileToggleMore(false);
+  };
+
+  backdrop.innerHTML = `
+    <section class="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="Todos los módulos">
+      <div class="mobile-sheet-handle"></div>
+
+      <div class="mobile-sheet-user">
+        <div class="mobile-sheet-avatar">${ro.av || initials(ro.name || '??')}</div>
+        <div style="min-width:0">
+          <div class="mobile-sheet-name">${ro.name || 'Usuario Impulse'}</div>
+          <div class="mobile-sheet-role">${ro.label || currentRole}</div>
+        </div>
+        <button
+          type="button"
+          onclick="_mobileToggleMore(false)"
+          aria-label="Cerrar menú"
+          style="margin-left:auto;border:0;background:#E2E8F0;width:40px;height:40px;border-radius:50%;font-size:18px;cursor:pointer"
+        >✕</button>
+      </div>
+
+      <div class="mobile-sheet-title">Todos los módulos disponibles</div>
+      <div class="mobile-module-grid">
+        ${_mobileVisibleModules.map(mod => `
+          <button
+            type="button"
+            class="mobile-module-btn"
+            data-mobile-sheet-mod="${mod.id}"
+            onclick="_mobileGo('${mod.id}')"
+          >
+            <span class="mobile-module-icon">${mod.icon}</span>
+            <span>${mod.label}</span>
+          </button>
+        `).join('')}
+      </div>
+
+      <div class="mobile-sheet-actions">
+        <button
+          type="button"
+          class="mobile-sheet-action"
+          onclick="_mobileShowInstallHelp()"
+        >
+          ${_mobileIsStandalone() ? '✅ Impulse instalado' : '📲 Agregar a pantalla de inicio'}
+        </button>
+
+        <button
+          type="button"
+          class="mobile-sheet-action danger"
+          onclick="_doLogout()"
+        >
+          🚪 Cerrar sesión
+        </button>
+      </div>
+    </section>
+  `;
+
+  document.body.appendChild(nav);
+  document.body.appendChild(backdrop);
+
+  _mobileSyncNav(activeModule);
+}
+
+function _mobileGo(mod) {
+  _mobileToggleMore(false);
+  switchModule(mod);
+}
+
+function _mobileToggleMore(open) {
+  const backdrop = document.getElementById('mobileMoreBackdrop');
+  if (!backdrop) return;
+  backdrop.classList.toggle('open', Boolean(open));
+  document.body.classList.toggle('mobile-menu-open', Boolean(open));
+}
+
+function _mobileSyncNav(mod) {
+  document.querySelectorAll('[data-mobile-mod]').forEach(button => {
+    button.classList.toggle(
+      'active',
+      button.dataset.mobileMod === mod
+    );
+  });
+
+  document.querySelectorAll('[data-mobile-sheet-mod]').forEach(button => {
+    button.classList.toggle(
+      'active',
+      button.dataset.mobileSheetMod === mod
+    );
+  });
+
+  const more = document.getElementById('mobileMoreButton');
+  if (more) {
+    more.classList.toggle(
+      'active',
+      !_mobilePrimaryModuleIds.includes(mod)
+    );
+  }
+}
+
+function _mobileShowInstallHelp() {
+  _mobileToggleMore(false);
+
+  if (_mobileIsStandalone()) {
+    document.getElementById('modalTitle').textContent = 'Impulse ya está instalado';
+    document.getElementById('modalSub').textContent = 'Acceso móvil';
+    document.getElementById('modalBody').innerHTML = `
+      <div class="card" style="margin:0">
+        <div style="font-size:38px;margin-bottom:10px">✅</div>
+        <div style="font-size:17px;font-weight:900;color:#0F172A">Ya estás usando Impulse como app.</div>
+        <div style="font-size:13px;line-height:1.6;color:#64748B;margin-top:8px">
+          Puedes abrirlo directamente desde el ícono de Impulse en tu pantalla de inicio.
+        </div>
+      </div>
+    `;
+  } else {
+    const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+    document.getElementById('modalTitle').textContent = 'Agregar Impulse al teléfono';
+    document.getElementById('modalSub').textContent = isiOS
+      ? 'iPhone · Safari'
+      : 'Acceso rápido';
+
+    document.getElementById('modalBody').innerHTML = isiOS
+      ? `
+        <div class="card" style="margin:0">
+          <div style="font-size:15px;font-weight:900;color:#0F172A;margin-bottom:12px">
+            Instálalo desde Safari
+          </div>
+          <div style="display:grid;gap:12px;font-size:13px;color:#334155;line-height:1.5">
+            <div><strong>1.</strong> Abre esta misma página en <strong>Safari</strong>.</div>
+            <div><strong>2.</strong> Toca el botón <strong>Compartir</strong> <span style="font-size:20px">□↑</span>.</div>
+            <div><strong>3.</strong> Selecciona <strong>Agregar a pantalla de inicio</strong>.</div>
+            <div><strong>4.</strong> Toca <strong>Agregar</strong>.</div>
+          </div>
+          <div style="margin-top:14px;padding:11px 12px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;color:#1E40AF;font-size:12px;line-height:1.5">
+            Después se abrirá como una app independiente, usando tu misma cuenta de Impulse.
+          </div>
+        </div>
+      `
+      : `
+        <div class="card" style="margin:0">
+          <div style="font-size:15px;font-weight:900;color:#0F172A;margin-bottom:10px">
+            Agrega Impulse a tu pantalla principal
+          </div>
+          <div style="font-size:13px;color:#475569;line-height:1.6">
+            Abre el menú de tu navegador y busca <strong>Instalar app</strong>,
+            <strong>Agregar a pantalla principal</strong> o una opción equivalente.
+          </div>
+        </div>
+      `;
+  }
+
+  document.getElementById('modalFooter').innerHTML =
+    '<button class="btn-primary" onclick="closeModal()">Entendido</button>';
+
+  document.getElementById('modalBackdrop').style.display = 'flex';
+}
+
 
 // ── TIMERS DE SEGURIDAD ───────────────────────────────────────
 function _startSecurityTimers() {
@@ -3190,6 +3898,13 @@ function switchModule(mod) {
   document.querySelectorAll('.sb-item').forEach(el =>
     el.classList.toggle('active', el.dataset.mod === mod)
   );
+
+  if (typeof _mobileSyncNav === 'function') {
+    _mobileSyncNav(mod);
+  }
+  if (typeof _mobileToggleMore === 'function') {
+    _mobileToggleMore(false);
+  }
 
   const icon = document.getElementById('tbIcon');
   const title = document.getElementById('tbTitle');
@@ -4712,6 +5427,123 @@ let _a_PUNCHES_HOY  = [];  // ya no se usa (feed eliminado)
 let _a_EARLY_ENTRY_REVIEWS = [];
 let _a_EARLY_ENTRY_LOADING = false;
 
+// IMPULSE 1.0.72 · Sincronización incremental no bloqueante.
+// Las bandejas leen primero los datos existentes. La reconstrucción reciente
+// corre después del render, máximo una vez cada 15 minutos por navegador.
+const _a_DERIVED_SYNC_TTL_MS = 15 * 60 * 1000;
+const _a_DERIVED_SYNC_DAYS = 7;
+const _a_DERIVED_SYNC_PREFIX = 'impulse:derived-attendance-sync:';
+const _a_DERIVED_SYNC_INFLIGHT = new Map();
+
+function _a_derivedSyncAllowedRole() {
+  return [
+    'supervisor',
+    'manager',
+    'people',
+    'head_people',
+    'ceo'
+  ].includes(currentRole);
+}
+
+function _a_derivedSyncKey(rpcName) {
+  return `${_a_DERIVED_SYNC_PREFIX}${rpcName}`;
+}
+
+function _a_derivedSyncLastRun(rpcName) {
+  try {
+    return Number(localStorage.getItem(_a_derivedSyncKey(rpcName)) || 0);
+  } catch (_) {
+    return 0;
+  }
+}
+
+function _a_setDerivedSyncLastRun(rpcName, value) {
+  try {
+    if (value) localStorage.setItem(_a_derivedSyncKey(rpcName), String(value));
+    else localStorage.removeItem(_a_derivedSyncKey(rpcName));
+  } catch (_) {}
+}
+
+async function _a_runDerivedSyncOnce(rpcName, { force = false } = {}) {
+  if (!_a_derivedSyncAllowedRole()) {
+    return { ok: true, skipped: true, reason: 'role' };
+  }
+
+  const now = Date.now();
+  const lastRun = _a_derivedSyncLastRun(rpcName);
+
+  if (!force && lastRun && now - lastRun < _a_DERIVED_SYNC_TTL_MS) {
+    return { ok: true, skipped: true, reason: 'ttl' };
+  }
+
+  if (_a_DERIVED_SYNC_INFLIGHT.has(rpcName)) {
+    return _a_DERIVED_SYNC_INFLIGHT.get(rpcName);
+  }
+
+  // Reservamos el intervalo antes de llamar para evitar duplicados entre
+  // pestañas del mismo navegador. Si falla, se libera la reserva.
+  _a_setDerivedSyncLastRun(rpcName, now);
+
+  const promise = (async () => {
+    const { data, error } = await _a_sb.rpc(
+      rpcName,
+      { p_days_back: _a_DERIVED_SYNC_DAYS }
+    );
+
+    const issue = error || (data?.ok === false ? data : null);
+
+    if (issue) {
+      _a_setDerivedSyncLastRun(rpcName, 0);
+      console.warn(
+        `[Impulse Performance] Sync incremental falló: ${rpcName}`,
+        issue
+      );
+      return { ok: false, issue };
+    }
+
+    console.info(
+      `[Impulse Performance] Sync incremental completado: ${rpcName}`,
+      { daysBack: _a_DERIVED_SYNC_DAYS }
+    );
+
+    return data || { ok: true };
+  })();
+
+  _a_DERIVED_SYNC_INFLIGHT.set(rpcName, promise);
+
+  try {
+    return await promise;
+  } finally {
+    _a_DERIVED_SYNC_INFLIGHT.delete(rpcName);
+  }
+}
+
+async function _a_refreshDerivedAttendanceInBackground() {
+  if (!_a_derivedSyncAllowedRole()) return;
+
+  const results = await Promise.allSettled([
+    _a_runDerivedSyncOnce('sync_attendance_early_entry_reviews'),
+    _a_runDerivedSyncOnce('sync_attendance_late_regularizations')
+  ]);
+
+  const changed = results.some(result =>
+    result.status === 'fulfilled' &&
+    result.value?.ok !== false &&
+    result.value?.skipped !== true
+  );
+
+  if (!changed || activeModule !== 'asistencia') return;
+
+  // Las funciones de lectura ya no sincronizan; esta recarga sólo consulta
+  // las tablas preparadas y no vuelve a disparar los RPC pesados.
+  await Promise.allSettled([
+    _a_loadEarlyEntryReviews(),
+    _a_loadLateRegularizations()
+  ]);
+
+  if (activeModule === 'asistencia') _a_render();
+}
+
 function _a_timeMinutes(value) {
   if (value === null || value === undefined) {
     return null;
@@ -5007,21 +5839,8 @@ async function _a_loadEarlyEntryReviews() {
   _a_EARLY_ENTRY_LOADING = true;
 
   try {
-    const sync = await _a_sb.rpc(
-      'sync_attendance_early_entry_reviews',
-      { p_days_back: 120 }
-    );
-
-    if (
-      sync.error ||
-      sync.data?.ok === false
-    ) {
-      console.warn(
-        '[Impulse Entradas anticipadas] No se pudo sincronizar:',
-        sync.error || sync.data
-      );
-    }
-
+    // 1.0.72: esta función sólo consulta la bandeja existente.
+    // La sincronización incremental se ejecuta después del render y con TTL.
     const { data, error } = await _a_sb
       .from('attendance_early_entry_reviews')
       .select('*')
@@ -5876,18 +6695,8 @@ async function _a_loadLateRegularizations() {
   _a_LATE_REGULARIZATION_LOADING = true;
 
   try {
-    const sync = await _a_sb.rpc(
-      'sync_attendance_late_regularizations',
-      { p_days_back: 120 }
-    );
-
-    if (sync.error || sync.data?.ok === false) {
-      console.warn(
-        '[Impulse Regularización retardos] Sync:',
-        sync.error || sync.data
-      );
-    }
-
+    // 1.0.72: esta función sólo consulta la bandeja existente.
+    // La sincronización incremental se ejecuta después del render y con TTL.
     const regularizationResult = await _a_sb
       .from('attendance_late_regularizations')
       .select('*')
@@ -17086,7 +17895,8 @@ window['_init_asistencia']=async function(){
   _impulseStartDeferredServicesOnce();
 
   const secondaryLoads = [
-    _a_loadPeopleActionFollowupSummary()
+    _a_loadPeopleActionFollowupSummary(),
+    _a_refreshDerivedAttendanceInBackground()
   ];
 
   if (['supervisor','manager','people','head_people'].includes(currentRole)) {
@@ -28141,13 +28951,18 @@ function _t_refreshTicketNotificationsUI() {
 async function _t_refreshTicketNotifications() {
   if (typeof _t_cargarTickets !== 'function') return;
 
+  // 1.0.72: Tickets se consulta bajo demanda. La campana no debe descargar
+  // toda la bandeja mientras el usuario trabaja en otro módulo.
+  if (activeModule !== 'tickets') {
+    _t_refreshTicketNotificationsUI();
+    return;
+  }
+
   try {
     await _t_cargarTickets({ silent: true });
 
-    if (activeModule === 'tickets' && typeof _t_render === 'function') {
+    if (typeof _t_render === 'function') {
       _t_render();
-    } else {
-      _t_refreshTicketNotificationsUI();
     }
   } catch(e) {
     console.warn('No se pudieron refrescar notificaciones de tickets:', e);
@@ -28155,26 +28970,28 @@ async function _t_refreshTicketNotifications() {
 }
 
 function _t_startTicketNotificationPolling() {
-  if (_t_notifPollingStarted) {
-    _t_refreshTicketNotificationsUI();
-    return;
-  }
-
+  // 1.0.72: polling global desactivado. Tickets carga al abrir su módulo
+  // o mediante una actualización explícita del usuario.
   _t_notifPollingStarted = true;
 
-  // Primera carga ligera al entrar
-  setTimeout(() => {
-    _t_refreshTicketNotifications();
-  }, 1200);
+  if (_t_notifPollingTimer) {
+    clearInterval(_t_notifPollingTimer);
+    _t_notifPollingTimer = null;
+  }
 
-  // Polling cada minuto
-  _t_notifPollingTimer = setInterval(() => {
-    _t_refreshTicketNotifications();
-  }, 60000);
+  _t_refreshTicketNotificationsUI();
+  console.info(
+    '[Impulse Performance] Polling global de Tickets HR desactivado; carga bajo demanda.'
+  );
 }
 
 async function _t_cargarTickets(options = {}) {
   try {
+    if (options?.silent && activeModule !== 'tickets') {
+      _t_refreshTicketNotificationsUI();
+      return true;
+    }
+
     const ro = ROLES[currentRole] || {};
     const role = String(currentRole || '').toLowerCase();
 
@@ -34451,7 +35268,9 @@ async function _d_syncFollowups({ force = false } = {}) {
 }
 
 async function _d_cargarDatos({
-  syncFollowups = true,
+  // 1.0.72: la apertura y los refresh de pantalla sólo leen datos existentes.
+  // El botón de actualización manual conserva la sincronización explícita.
+  syncFollowups = false,
   forceSync = false
 } = {}) {
   try {
