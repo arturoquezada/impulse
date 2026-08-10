@@ -2395,8 +2395,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.72';
-const APP_BUILD = '1.0.72-mobile-pwa-01';
+const APP_VERSION   = '1.0.73';
+const APP_BUILD = '1.0.73-tickets-vacaciones-mobile-pwa-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3309,8 +3309,8 @@ function _buildAppShell() {
   const allMods = [
     {id:'asistencia',   icon:'👤', label:'Asistencia',   roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
     {id:'nomina',       icon:'💰', label:'Nómina',        roles:['supervisor','manager','people','head_people','ceo']},
-    {id:'tickets',      icon:'🎫', label:'Tickets HR',    roles:['agent','supervisor','manager','people','head_people','ceo']},
-    {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people','ceo']},
+    {id:'tickets',      icon:'🎫', label:'Tickets HR',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
+    {id:'permutas',     icon:'🔄', label:'Permutas',      roles:['agent','supervisor','manager','people','head_people','ceo','workforce']},
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
@@ -16527,6 +16527,7 @@ function _a_incidentTypeLabel(type) {
     falta_justificada: 'Falta justificada',
     incapacidad: 'Incapacidad',
     permiso: 'Permiso',
+    vacaciones: 'Vacaciones',
     permuta_descanso: 'Descanso'
   };
   return map[String(type || '').toLowerCase()] || type || '—';
@@ -29722,6 +29723,7 @@ async function _t_resolverTicket(id) {
           <option value="incapacidad">🏥 Incapacidad</option>
           <option value="falta_justificada">📋 Falta justificada</option>
           <option value="permiso">🤝 Permiso</option>
+          <option value="vacaciones">🏖️ Vacaciones</option>
           <option value="falta_injustificada">🚫 Falta injustificada</option>
         </select>
       </span></div>
@@ -29738,6 +29740,11 @@ async function _t_resolverTicket(id) {
         </div>
         <div id="tr-worked-source" style="font-size:10px;color:#15803D;margin-top:8px"></div>
         <div style="font-size:10px;color:#166534;margin-top:6px">Las marcas quedarán identificadas como administrativas y ligadas a este ticket.</div>
+      </div>
+      <div id="tr-vacation-balance" style="display:none;margin-top:12px;background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;padding:12px">
+        <div style="font-size:11px;font-weight:800;color:#9A3412;margin-bottom:5px">🏖️ Vacaciones · consumo de saldo</div>
+        <div id="tr-vacation-balance-text" style="font-size:11px;color:#9A3412">Consultando saldo disponible...</div>
+        <div style="font-size:10px;color:#C2410C;margin-top:6px">Al aplicar esta clasificación se registrará 1 día aprobado en Vacaciones y se descontará del saldo. Si el día ya estaba dentro de una solicitud aprobada, no se descontará dos veces.</div>
       </div>
       <div style="font-size:11px;color:#1E40AF;margin-top:9px">Para ausencias se actualizará la excepción y se limpiarán los punches. Si eliges “Sí trabajó”, se quitará la falta y se crearán entrada y salida con el horario indicado.</div>
       <div style="font-size:11px;color:#7C3AED;margin-top:6px"><strong>Acción People:</strong> si la incidencia deja de ser falta o retardo, cualquier sanción vinculada a esta persona y fecha se anulará automáticamente, conservando el registro para auditoría.</div>
@@ -29769,7 +29776,10 @@ async function _t_resolverTicket(id) {
 
   if (esCorreccionIncidencia) {
     const selector = document.getElementById('tr-incident-final-type');
-    selector?.addEventListener('change', () => _t_toggleJornadaTrabajada(t));
+    selector?.addEventListener('change', () => {
+      _t_toggleJornadaTrabajada(t);
+      _t_toggleVacaciones(t);
+    });
   }
 }
 
@@ -29804,6 +29814,64 @@ async function _t_toggleJornadaTrabajada(t) {
   if (fields) fields.style.display = 'grid';
   if (source) source.textContent = `Horario detectado: ${data.source_label || data.source || 'horario efectivo'}. Puedes ajustarlo antes de guardar.`;
   box.dataset.loaded = '1';
+}
+
+async function _t_toggleVacaciones(t) {
+  const finalType = document.getElementById('tr-incident-final-type')?.value;
+  const box = document.getElementById('tr-vacation-balance');
+  const text = document.getElementById('tr-vacation-balance-text');
+  if (!box || !text) return;
+
+  box.style.display = finalType === 'vacaciones' ? 'block' : 'none';
+  if (finalType !== 'vacaciones') return;
+
+  text.textContent = 'Consultando saldo disponible...';
+
+  try {
+    const empId = t?.target_employee_id;
+    const d = _t_parseIncidentCorrectionData(t);
+    const workDate = d?.original_date || t?.target_date;
+
+    // Si ya existe una solicitud aprobada que cubre ese día, el backend
+    // reutilizará ese consumo y NO descontará un día adicional.
+    const { data: existing, error: existingError } = await _t_sb
+      .from('vacation_requests')
+      .select('id,start_date,end_date,status,days_requested')
+      .eq('employee_id', empId)
+      .eq('status', 'approved')
+      .lte('start_date', workDate)
+      .gte('end_date', workDate)
+      .limit(1);
+
+    if (!existingError && existing?.length) {
+      text.innerHTML = '✅ Este día ya está cubierto por vacaciones aprobadas. <strong>No se descontará dos veces.</strong>';
+      return;
+    }
+
+    const { data: bal, error: balError } = await _t_sb
+      .from('vacation_balances')
+      .select('days_earned,days_used,days_pending')
+      .eq('employee_id', empId)
+      .maybeSingle();
+
+    if (balError || !bal) {
+      text.textContent = 'El saldo se validará en Supabase al aplicar la clasificación.';
+      return;
+    }
+
+    const earned = Number(bal.days_earned || 0);
+    const used = Number(bal.days_used || 0);
+    const pending = Number(bal.days_pending || 0);
+    const available = Math.max(0, earned - used - pending);
+    const after = Math.max(0, available - 1);
+
+    text.innerHTML = available >= 1
+      ? `Saldo disponible: <strong>${available}</strong> día${available === 1 ? '' : 's'} → después: <strong>${after}</strong>.`
+      : '⚠️ No hay días disponibles. La operación será bloqueada y no se modificará el ticket.';
+  } catch (e) {
+    console.warn('[Tickets HR] No se pudo previsualizar saldo de vacaciones:', e);
+    text.textContent = 'El saldo se validará en Supabase al aplicar la clasificación.';
+  }
 }
 
 
@@ -29880,13 +29948,16 @@ async function _t_confirmarResolver(id) {
       alert('Indica la hora de entrada y salida que se registrarán.');
       return;
     }
+    const esVacaciones = finalType === 'vacaciones';
     const mensaje = esJornada
       ? `Se quitará la falta y se registrará una jornada administrativa de ${inTime} a ${outTime}. ¿Continuar?`
-      : `Esta acción clasificará el día como ${finalLabel.toUpperCase()} y eliminará cualquier entrada o salida registrada para ese día. ¿Continuar?`;
+      : esVacaciones
+        ? 'Esta acción clasificará el día como VACACIONES, eliminará cualquier punch de ese día y descontará 1 día del saldo de vacaciones (salvo que ya exista una solicitud aprobada que cubra esa fecha). ¿Continuar?'
+        : `Esta acción clasificará el día como ${finalLabel.toUpperCase()} y eliminará cualquier entrada o salida registrada para ese día. ¿Continuar?`;
     const ok = confirm(mensaje);
     if (!ok) return;
 
-    const { error: errInc } = await _t_aplicarCorreccionIncidencia(t, finalType);
+    const { data: correctionData, error: errInc } = await _t_aplicarCorreccionIncidencia(t, finalType);
     if (errInc) {
       alert('No se pudo aplicar la corrección. No se realizó ningún cambio.\n\n' + errInc.message);
       return;
@@ -29903,7 +29974,9 @@ async function _t_confirmarResolver(id) {
     } catch (e) { console.warn('Corrección aplicada, pero no se pudo refrescar asistencia en memoria:', e); }
     alert(esJornada
       ? `✅ Se registró la jornada administrativa ${inTime}–${outTime} y el ticket quedó completado.`
-      : `✅ La incidencia se clasificó como ${finalLabel} y el ticket quedó completado.`);
+      : esVacaciones
+        ? `✅ Se registró el día como Vacaciones y el ticket quedó completado.${correctionData?.vacation_already_covered ? '\nNo se descontó un día adicional porque la fecha ya estaba cubierta.' : correctionData?.vacation_available_after != null ? `\nSaldo disponible después: ${correctionData.vacation_available_after} día(s).` : ''}`
+        : `✅ La incidencia se clasificó como ${finalLabel} y el ticket quedó completado.`);
     return;
   }
 
