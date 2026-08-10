@@ -2830,6 +2830,265 @@ body{font-family:var(--f);background:#F0F2F7;min-height:100vh;color:#0F172A;font
 }
 </style>
 
+
+<style id="impulse-mobile2-foundation-css">
+/* ═══════════════════════════════════════════════════════════════
+   IMPULSE MOBILE 2.0 · Foundation · v1.0.76
+   Mobile is now a task-first product surface, not desktop shrunk.
+   Desktop rules are intentionally untouched.
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width:820px){
+  :root{
+    --m2-bg:#F5F5F7;
+    --m2-surface:#FFFFFF;
+    --m2-label:#111114;
+    --m2-secondary:#6E6E73;
+    --m2-tertiary:#8E8E93;
+    --m2-blue:#007AFF;
+    --m2-cyan:#38BDF8;
+    --m2-green:#30D158;
+    --m2-orange:#FF9F0A;
+    --m2-red:#FF3B30;
+    --m2-purple:#AF52DE;
+    --m2-separator:rgba(60,60,67,.14);
+    --m2-nav-h:78px;
+  }
+
+  html,body{background:var(--m2-bg)!important}
+  body.impulse-mobile-2{
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif!important;
+    background:var(--m2-bg)!important;color:var(--m2-label)!important;
+    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  }
+  body.impulse-mobile-2 .main{background:var(--m2-bg)!important}
+  body.impulse-mobile-2 .content{
+    padding:10px 16px calc(var(--m2-nav-h) + var(--imp-safe-bottom) + 22px)!important;
+    max-width:720px;margin:0 auto;width:100%;
+  }
+
+  /* Pseudo-native screens own their header. */
+  body.impulse-mobile-2.m2-pseudo .topbar{display:none!important}
+  body.impulse-mobile-2.m2-pseudo .content{
+    padding-top:calc(var(--imp-safe-top) + 12px)!important;
+  }
+  body.impulse-mobile-2:not(.m2-pseudo) .topbar{
+    height:calc(54px + var(--imp-safe-top))!important;
+    min-height:calc(54px + var(--imp-safe-top))!important;
+    padding:var(--imp-safe-top) 16px 0!important;
+    background:rgba(245,245,247,.88)!important;
+    border-bottom:.5px solid var(--m2-separator)!important;
+    backdrop-filter:saturate(180%) blur(22px)!important;
+    -webkit-backdrop-filter:saturate(180%) blur(22px)!important;
+  }
+  body.impulse-mobile-2:not(.m2-pseudo) #tbIcon{display:none!important}
+  body.impulse-mobile-2:not(.m2-pseudo) .tb-title{
+    font-size:17px!important;font-weight:650!important;letter-spacing:-.25px!important;
+    max-width:58vw!important;color:var(--m2-label)!important;
+  }
+  body.impulse-mobile-2:not(.m2-pseudo) #realtimeStatus{display:none!important}
+  body.impulse-mobile-2:not(.m2-pseudo) #tbDate{display:none!important}
+
+  /* The old objective hero is intentionally absent on Mobile 2.0. */
+  body.impulse-mobile-2 .d-objective-hero{display:none!important}
+
+  /* Mobile 2 pages */
+  body.impulse-mobile-2 .m2-page{animation:m2PageIn .22s cubic-bezier(.2,.8,.2,1)}
+  @keyframes m2PageIn{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+  body.impulse-mobile-2 .m2-nav-header{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 18px;
+  }
+  body.impulse-mobile-2 .m2-eyebrow{
+    font-size:13px;font-weight:550;color:var(--m2-secondary);letter-spacing:-.1px;margin-bottom:3px;
+  }
+  body.impulse-mobile-2 .m2-large-title{
+    font-size:32px;line-height:1.05;font-weight:760;letter-spacing:-1.05px;color:var(--m2-label);
+  }
+  body.impulse-mobile-2 .m2-title{
+    font-size:28px;line-height:1.08;font-weight:760;letter-spacing:-.8px;color:var(--m2-label);
+  }
+  body.impulse-mobile-2 .m2-icon-button{
+    width:42px;height:42px;border:0;border-radius:50%;background:rgba(118,118,128,.12);
+    color:var(--m2-blue);display:grid;place-items:center;flex:0 0 auto;padding:0;cursor:pointer;
+  }
+  body.impulse-mobile-2 .m2-icon-button svg{width:20px;height:20px}
+  body.impulse-mobile-2 .m2-back{
+    border:0;background:transparent;color:var(--m2-blue);font:inherit;font-size:16px;font-weight:500;
+    min-height:42px;padding:0 8px 0 0;display:flex;align-items:center;gap:3px;cursor:pointer;
+  }
+
+  body.impulse-mobile-2 .m2-section{margin:0 0 22px}
+  body.impulse-mobile-2 .m2-section-head{
+    display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 2px 9px;
+  }
+  body.impulse-mobile-2 .m2-section-title{
+    font-size:20px;font-weight:730;letter-spacing:-.45px;color:var(--m2-label);
+  }
+  body.impulse-mobile-2 .m2-section-link{
+    border:0;background:transparent;color:var(--m2-blue);font:inherit;font-size:14px;font-weight:520;
+    padding:2px 0;cursor:pointer;
+  }
+
+  body.impulse-mobile-2 .m2-card{
+    background:var(--m2-surface);border:.5px solid var(--m2-separator);border-radius:22px;
+    box-shadow:0 1px 0 rgba(0,0,0,.02);overflow:hidden;
+  }
+  body.impulse-mobile-2 .m2-card-pad{padding:18px}
+  body.impulse-mobile-2 .m2-hero{
+    background:linear-gradient(145deg,#FFFFFF 0%,#F8FBFF 62%,#EDF7FF 100%);
+    border:.5px solid rgba(0,122,255,.15);border-radius:24px;padding:20px;overflow:hidden;position:relative;
+  }
+  body.impulse-mobile-2 .m2-hero::after{
+    content:"";position:absolute;width:150px;height:150px;border-radius:50%;right:-72px;top:-78px;
+    background:radial-gradient(circle,rgba(56,189,248,.17),rgba(56,189,248,0) 68%);pointer-events:none;
+  }
+  body.impulse-mobile-2 .m2-hero-label{
+    font-size:12px;font-weight:650;color:var(--m2-secondary);text-transform:uppercase;letter-spacing:.42px;
+  }
+  body.impulse-mobile-2 .m2-hero-value{
+    margin-top:6px;font-size:28px;font-weight:760;letter-spacing:-.85px;color:var(--m2-label);line-height:1.08;
+  }
+  body.impulse-mobile-2 .m2-hero-sub{
+    margin-top:5px;font-size:14px;color:var(--m2-secondary);line-height:1.35;
+  }
+  body.impulse-mobile-2 .m2-status-row{display:flex;align-items:center;gap:7px;margin-top:15px;font-size:13px;font-weight:600}
+  body.impulse-mobile-2 .m2-status-dot{width:8px;height:8px;border-radius:50%;background:var(--m2-green);box-shadow:0 0 0 4px rgba(48,209,88,.1)}
+
+  body.impulse-mobile-2 .m2-primary{
+    width:100%;min-height:50px;border:0;border-radius:15px;background:var(--m2-blue);color:#fff;
+    font:inherit;font-size:16px;font-weight:650;letter-spacing:-.15px;padding:12px 16px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+  }
+  body.impulse-mobile-2 .m2-primary:disabled{background:#D1D1D6;color:#8E8E93}
+  body.impulse-mobile-2 .m2-secondary-btn{
+    min-height:46px;border:0;border-radius:14px;background:rgba(118,118,128,.12);color:var(--m2-blue);
+    font:inherit;font-size:15px;font-weight:600;padding:10px 15px;cursor:pointer;
+  }
+  body.impulse-mobile-2 .m2-danger-btn{background:rgba(255,59,48,.1);color:var(--m2-red)}
+  body.impulse-mobile-2 .m2-primary:active,
+  body.impulse-mobile-2 .m2-secondary-btn:active,
+  body.impulse-mobile-2 .m2-icon-button:active{transform:scale(.975)}
+
+  body.impulse-mobile-2 .m2-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  body.impulse-mobile-2 .m2-metric{
+    background:#fff;border:.5px solid var(--m2-separator);border-radius:18px;padding:15px;min-width:0;
+  }
+  body.impulse-mobile-2 .m2-metric-icon{
+    width:34px;height:34px;border-radius:11px;display:grid;place-items:center;margin-bottom:10px;
+  }
+  body.impulse-mobile-2 .m2-metric-value{font-size:27px;font-weight:750;letter-spacing:-.75px;line-height:1;color:var(--m2-label)}
+  body.impulse-mobile-2 .m2-metric-label{font-size:12px;font-weight:550;color:var(--m2-secondary);margin-top:5px;line-height:1.25}
+
+  body.impulse-mobile-2 .m2-list{background:#fff;border:.5px solid var(--m2-separator);border-radius:20px;overflow:hidden}
+  body.impulse-mobile-2 .m2-row{
+    width:100%;border:0;background:#fff;display:grid;grid-template-columns:44px minmax(0,1fr) 18px;
+    gap:12px;align-items:center;text-align:left;padding:14px 14px;min-height:72px;font:inherit;cursor:pointer;color:inherit;
+  }
+  body.impulse-mobile-2 .m2-row + .m2-row{border-top:.5px solid var(--m2-separator)}
+  body.impulse-mobile-2 .m2-row:active{background:#F6F6F8}
+  body.impulse-mobile-2 .m2-row-icon{
+    width:42px;height:42px;border-radius:13px;display:grid;place-items:center;flex:0 0 auto;
+  }
+  body.impulse-mobile-2 .m2-row-title{
+    font-size:15px;font-weight:650;line-height:1.25;letter-spacing:-.15px;color:var(--m2-label);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  body.impulse-mobile-2 .m2-row-sub{font-size:12.5px;color:var(--m2-secondary);line-height:1.35;margin-top:3px}
+  body.impulse-mobile-2 .m2-chevron{color:#C7C7CC;font-size:22px;font-weight:300;text-align:right}
+  body.impulse-mobile-2 .m2-badge{
+    display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:650;
+    margin-top:6px;background:#F2F2F7;color:var(--m2-secondary);
+  }
+  body.impulse-mobile-2 .m2-badge.red{background:rgba(255,59,48,.1);color:#D70015}
+  body.impulse-mobile-2 .m2-badge.orange{background:rgba(255,159,10,.12);color:#B25000}
+  body.impulse-mobile-2 .m2-badge.blue{background:rgba(0,122,255,.1);color:#0066CC}
+  body.impulse-mobile-2 .m2-badge.green{background:rgba(48,209,88,.1);color:#188038}
+
+  body.impulse-mobile-2 .m2-segment{
+    display:flex;background:rgba(118,118,128,.12);padding:3px;border-radius:10px;margin-bottom:14px;overflow-x:auto;
+  }
+  body.impulse-mobile-2 .m2-segment button{
+    flex:1;min-width:max-content;border:0;background:transparent;border-radius:8px;padding:7px 10px;
+    font:inherit;font-size:12px;font-weight:550;color:var(--m2-secondary);cursor:pointer;
+  }
+  body.impulse-mobile-2 .m2-segment button.active{background:#fff;color:var(--m2-label);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+
+  body.impulse-mobile-2 .m2-empty{text-align:center;padding:28px 18px}
+  body.impulse-mobile-2 .m2-empty-icon{
+    width:54px;height:54px;border-radius:18px;background:rgba(48,209,88,.11);color:#188038;
+    display:grid;place-items:center;margin:0 auto 12px;
+  }
+  body.impulse-mobile-2 .m2-empty-title{font-size:17px;font-weight:700;letter-spacing:-.25px}
+  body.impulse-mobile-2 .m2-empty-sub{font-size:13px;color:var(--m2-secondary);line-height:1.45;margin-top:5px}
+
+  /* Attendance mini app */
+  body.impulse-mobile-2 .m2-clock-card{padding:20px}
+  body.impulse-mobile-2 .m2-clock-main{text-align:center;padding:10px 0 18px}
+  body.impulse-mobile-2 .m2-clock-time{font-size:42px;font-weight:760;letter-spacing:-1.6px;line-height:1;color:var(--m2-label)}
+  body.impulse-mobile-2 .m2-clock-caption{font-size:13px;color:var(--m2-secondary);margin-top:7px}
+  body.impulse-mobile-2 .m2-clock-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 14px}
+  body.impulse-mobile-2 .m2-clock-chip{background:#F7F7F8;border-radius:16px;padding:14px;text-align:center}
+  body.impulse-mobile-2 .m2-clock-chip-label{font-size:11px;color:var(--m2-secondary);font-weight:600}
+  body.impulse-mobile-2 .m2-clock-chip-value{font-size:21px;font-weight:720;letter-spacing:-.4px;margin-top:4px}
+
+  /* Detail */
+  body.impulse-mobile-2 .m2-detail-person{
+    display:flex;align-items:center;gap:13px;background:#fff;border:.5px solid var(--m2-separator);border-radius:20px;padding:15px;
+  }
+  body.impulse-mobile-2 .m2-avatar{
+    width:50px;height:50px;border-radius:16px;background:linear-gradient(145deg,#EAF3FF,#D9F1FF);
+    color:#0066CC;font-size:16px;font-weight:760;display:grid;place-items:center;flex:0 0 auto;
+  }
+  body.impulse-mobile-2 .m2-detail-group{background:#fff;border:.5px solid var(--m2-separator);border-radius:18px;overflow:hidden}
+  body.impulse-mobile-2 .m2-detail-line{display:flex;justify-content:space-between;gap:16px;padding:13px 15px;font-size:14px}
+  body.impulse-mobile-2 .m2-detail-line + .m2-detail-line{border-top:.5px solid var(--m2-separator)}
+  body.impulse-mobile-2 .m2-detail-key{color:var(--m2-secondary);flex:0 0 38%}
+  body.impulse-mobile-2 .m2-detail-value{font-weight:550;text-align:right;word-break:break-word}
+  body.impulse-mobile-2 .m2-note{font-size:14px;line-height:1.5;color:#3A3A3C;background:#fff;border:.5px solid var(--m2-separator);border-radius:18px;padding:15px}
+  body.impulse-mobile-2 .m2-sticky-action{
+    position:sticky;bottom:calc(var(--m2-nav-h) + var(--imp-safe-bottom) + 8px);z-index:12;
+    padding-top:14px;background:linear-gradient(to bottom,rgba(245,245,247,0),rgba(245,245,247,.96) 35%);
+  }
+
+  /* Skeleton */
+  body.impulse-mobile-2 .m2-skeleton{background:linear-gradient(90deg,#ECECEF 25%,#F5F5F7 37%,#ECECEF 63%);background-size:400% 100%;animation:m2Shimmer 1.2s ease infinite;border-radius:10px}
+  @keyframes m2Shimmer{0%{background-position:100% 0}100%{background-position:0 0}}
+
+  /* Tab bar: content areas, not desktop modules. */
+  body.impulse-mobile-2 .mobile-bottom-nav{
+    height:calc(var(--m2-nav-h) + var(--imp-safe-bottom))!important;
+    padding:7px 8px var(--imp-safe-bottom)!important;
+    background:rgba(249,249,249,.92)!important;border-top:.5px solid var(--m2-separator)!important;
+    backdrop-filter:saturate(190%) blur(26px)!important;-webkit-backdrop-filter:saturate(190%) blur(26px)!important;
+    box-shadow:none!important;
+  }
+  body.impulse-mobile-2 .mobile-nav-item{color:#8E8E93!important;gap:2px!important;padding:3px 1px!important;border-radius:12px!important}
+  body.impulse-mobile-2 .mobile-nav-item.active{color:var(--m2-blue)!important;background:transparent!important}
+  body.impulse-mobile-2 .mobile-nav-icon{width:34px!important;height:30px!important;background:transparent!important;color:inherit!important;border-radius:0!important}
+  body.impulse-mobile-2 .mobile-nav-item.active .mobile-nav-icon{background:transparent!important;transform:none!important}
+  body.impulse-mobile-2 .mobile-nav-label{font-size:10px!important;font-weight:520!important;letter-spacing:-.08px!important;color:inherit!important;max-width:68px}
+  body.impulse-mobile-2 .mobile-native-svg{display:block}
+
+  /* More keeps every desktop module available. */
+  body.impulse-mobile-2 .mobile-more-sheet{background:var(--m2-bg)!important}
+  body.impulse-mobile-2 .mobile-sheet-title{color:var(--m2-secondary)!important;font-weight:600!important}
+  body.impulse-mobile-2 .mobile-module-btn{background:#fff!important;border:.5px solid var(--m2-separator)!important;border-radius:18px!important;box-shadow:none!important}
+  body.impulse-mobile-2 .mobile-module-icon{color:var(--m2-blue)!important}
+
+  /* Full modules remain usable but calmer. */
+  body.impulse-mobile-2:not(.m2-pseudo) .card{border:.5px solid var(--m2-separator)!important;box-shadow:none!important;border-radius:20px!important}
+  body.impulse-mobile-2:not(.m2-pseudo) .date-filter-bar,
+  body.impulse-mobile-2:not(.m2-pseudo) .filter-bar,
+  body.impulse-mobile-2:not(.m2-pseudo) .q-nav{box-shadow:none!important;border:.5px solid var(--m2-separator)!important}
+}
+
+@media (max-width:390px){
+  body.impulse-mobile-2 .content{padding-left:13px!important;padding-right:13px!important}
+  body.impulse-mobile-2 .m2-large-title{font-size:30px}
+  body.impulse-mobile-2 .m2-hero{padding:18px}
+  body.impulse-mobile-2 .m2-metric{padding:13px}
+}
+</style>
+
 </head>
 <body>
 <div id="app-root" style="font-family:'DM Sans',-apple-system,sans-serif"></div>
@@ -2842,8 +3101,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.75';
-const APP_BUILD = '1.0.75-mobile-pro-ios-01';
+const APP_VERSION   = '1.0.76';
+const APP_BUILD = '1.0.76-mobile2-foundation-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3334,8 +3593,12 @@ async function _startApp(user) {
   console.log('[Impulse] _buildAppShell OK, content='+!!document.getElementById('content'));
   _startClock();
   _startSecurityTimers();
-  console.log('[Impulse] switching to asistencia...');
-  switchModule('asistencia');
+  console.log('[Impulse] iniciando experiencia...');
+  if (window.matchMedia?.('(max-width:820px)')?.matches && typeof window._mobile2OpenPage === 'function') {
+    window._mobile2OpenPage('m2_home');
+  } else {
+    switchModule('asistencia');
+  }
 }
 
 // ── CONSTRUIR SHELL ───────────────────────────────────────────
@@ -4245,7 +4508,11 @@ async function _initImpulse() {
           _buildAppShell();
           _startClock();
           _startSecurityTimers();
-          switchModule('asistencia');
+          if (window.matchMedia?.('(max-width:820px)')?.matches && typeof window._mobile2OpenPage === 'function') {
+            window._mobile2OpenPage('m2_home');
+          } else {
+            switchModule('asistencia');
+          }
           return;
         }
       }
@@ -42940,6 +43207,656 @@ window['_init_equipo']=async function(){
 };
 window['_rerender_equipo']=function(){ _e_render(); };
 
+
+
+/* IMPULSE MOBILE 2.0 FOUNDATION JS */
+(() => {
+  const M2_HOME = 'm2_home';
+  const M2_ATTENDANCE = 'm2_attendance';
+  const M2_PENDING = 'm2_pending';
+  const M2_DETAIL = 'm2_detail';
+  const MOBILE_QUERY = '(max-width:820px)';
+
+  const state = {
+    visibleModules: [],
+    tabs: [],
+    pending: [],
+    pendingById: new Map(),
+    pendingFilter: 'all',
+    lastPendingAt: 0,
+    loadingPending: null,
+    balance: null,
+    punchReady: false
+  };
+
+  function isMobile(){
+    return Boolean(window.matchMedia?.(MOBILE_QUERY)?.matches);
+  }
+
+  function esc(value){
+    return String(value ?? '')
+      .replaceAll('&','&amp;')
+      .replaceAll('<','&lt;')
+      .replaceAll('>','&gt;')
+      .replaceAll('"','&quot;')
+      .replaceAll("'",'&#039;');
+  }
+
+  function shortName(name){
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return 'Usuario';
+    return parts.length === 1 ? parts[0] : `${parts[0]} ${parts[1]}`;
+  }
+
+  function initText(name){
+    return String(name || 'U').trim().split(/\s+/).slice(0,2).map(x => x[0] || '').join('').toUpperCase();
+  }
+
+  function greeting(){
+    const h = Number(new Intl.DateTimeFormat('en-US',{hour:'2-digit',hour12:false,timeZone:'America/Mexico_City'}).format(new Date()));
+    if (h < 12) return 'Buenos días';
+    if (h < 19) return 'Buenas tardes';
+    return 'Buenas noches';
+  }
+
+  function todayLabel(){
+    return new Intl.DateTimeFormat('es-MX',{
+      weekday:'long',day:'numeric',month:'long',timeZone:'America/Mexico_City'
+    }).format(new Date()).replace(/^./, c => c.toUpperCase());
+  }
+
+  function fmtDateM2(value){
+    if (!value) return '—';
+    const raw = String(value).slice(0,10);
+    const d = new Date(raw + 'T12:00:00');
+    if (Number.isNaN(d.getTime())) return raw;
+    return d.toLocaleDateString('es-MX',{day:'numeric',month:'short',year:'numeric'});
+  }
+
+  function icon(id, size=23){
+    const paths = {
+      home:'<path d="M3.5 11 12 4l8.5 7"></path><path d="M5.5 10.5V20h13v-9.5"></path><path d="M9.5 20v-5.5h5V20"></path>',
+      pending:'<circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5v5l3 1.8"></path>',
+      asistencia:'<circle cx="12" cy="8" r="3.2"></circle><path d="M5.5 20c.7-4.1 3-6.2 6.5-6.2s5.8 2.1 6.5 6.2"></path>',
+      nomina:'<rect x="3.5" y="6" width="17" height="12.5" rx="3"></rect><path d="M3.5 9.5h17"></path><circle cx="16.5" cy="14" r="1.4"></circle>',
+      tickets:'<path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v2a3 3 0 0 0 0 6v2A1.5 1.5 0 0 1 19 18.5H5A1.5 1.5 0 0 1 3.5 17v-2a3 3 0 0 0 0-6V7A1.5 1.5 0 0 1 5 5.5Z"></path><path d="M9 8.5v7"></path>',
+      permutas:'<path d="M4 8h12"></path><path d="m13 5 3 3-3 3"></path><path d="M20 16H8"></path><path d="m11 13-3 3 3 3"></path>',
+      vacaciones:'<rect x="3.5" y="5.5" width="17" height="15" rx="3"></rect><path d="M7.5 3.5v4"></path><path d="M16.5 3.5v4"></path><path d="M3.5 9.5h17"></path><path d="m8.3 15 2.2 2.1 4.7-5"></path>',
+      disciplinario:'<rect x="5" y="4" width="14" height="17" rx="3"></rect><path d="M9 4V2.8h6V4"></path><path d="M8.5 9.5h7"></path><path d="M8.5 13h7"></path><path d="M8.5 16.5h4"></path>',
+      equipo:'<circle cx="9" cy="8" r="3"></circle><circle cx="17" cy="9.5" r="2.3"></circle><path d="M3.5 20c.6-4 2.5-6 5.5-6 3.1 0 5 2 5.6 6"></path><path d="M14.5 15c2.8-.5 4.8 1.2 5.7 4.3"></path>',
+      deepdive:'<path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20H2"></path>',
+      more:'<circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"></circle><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"></circle>',
+      refresh:'<path d="M20 6v5h-5"></path><path d="M18.3 15.5A7.5 7.5 0 1 1 19.7 9"></path>',
+      chevron:'<path d="m9 5 7 7-7 7"></path>',
+      back:'<path d="m15 18-6-6 6-6"></path>',
+      check:'<path d="m5 12 4 4L19 6"></path>',
+      bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path>'
+    };
+    const body = paths[id] || paths.more;
+    return `<svg class="mobile-native-svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+  }
+
+  function hasModule(id){
+    return state.visibleModules.some(m => m.id === id);
+  }
+
+  function moduleById(id){
+    return state.visibleModules.find(m => m.id === id) || null;
+  }
+
+  function roleTabs(){
+    const role = String(currentRole || '').toLowerCase();
+    const rows = [];
+    const add = (target,label,iconId,kind='pseudo') => {
+      if (rows.some(x => x.target === target) || rows.length >= 4) return;
+      rows.push({target,label,iconId,kind});
+    };
+
+    add(M2_HOME,'Inicio','home');
+
+    if (role === 'agent') {
+      if (hasModule('asistencia')) add(M2_ATTENDANCE,'Asistencia','asistencia');
+      if (hasModule('vacaciones')) add('vacaciones','Vacaciones','vacaciones','module');
+      if (hasModule('tickets')) add('tickets','Tickets','tickets','module');
+    } else if (role === 'supervisor') {
+      if (hasModule('equipo')) add('equipo','Equipo','equipo','module');
+      add(M2_PENDING,'Pendientes','pending');
+      if (hasModule('asistencia')) add(M2_ATTENDANCE,'Asistencia','asistencia');
+    } else if (role === 'workforce') {
+      add(M2_PENDING,'Pendientes','pending');
+      if (hasModule('permutas')) add('permutas','Permutas','permutas','module');
+      if (hasModule('asistencia')) add(M2_ATTENDANCE,'Asistencia','asistencia');
+    } else if (['manager','people','head_people','ceo'].includes(role)) {
+      add(M2_PENDING,'Pendientes','pending');
+      if (hasModule('equipo')) add('equipo','Equipo','equipo','module');
+      if (hasModule('asistencia')) add(M2_ATTENDANCE,'Asistencia','asistencia');
+    } else {
+      if (hasModule('asistencia')) add(M2_ATTENDANCE,'Asistencia','asistencia');
+      if (hasModule('vacaciones')) add('vacaciones','Vacaciones','vacaciones','module');
+      if (hasModule('tickets')) add('tickets','Tickets','tickets','module');
+    }
+
+    state.visibleModules.forEach(mod => {
+      if (rows.length < 4 && !rows.some(x => x.target === mod.id)) {
+        add(mod.id,mod.label,mod.id,'module');
+      }
+    });
+    return rows;
+  }
+
+  function buildMore(){
+    const ro = ROLES[currentRole] || {};
+    const backdrop = document.createElement('div');
+    backdrop.id = 'mobileMoreBackdrop';
+    backdrop.className = 'mobile-more-backdrop';
+    backdrop.onclick = event => { if (event.target === backdrop) window._mobileToggleMore(false); };
+    backdrop.innerHTML = `
+      <section class="mobile-more-sheet" role="dialog" aria-modal="true" aria-label="Todos los módulos">
+        <div class="mobile-sheet-handle"></div>
+        <div class="mobile-sheet-user">
+          <div class="mobile-sheet-avatar">${esc(ro.av || initText(ro.name))}</div>
+          <div style="min-width:0">
+            <div class="mobile-sheet-name">${esc(ro.name || 'Usuario Impulse')}</div>
+            <div class="mobile-sheet-role">${esc(ro.label || currentRole)}</div>
+          </div>
+          <button type="button" onclick="_mobileToggleMore(false)" aria-label="Cerrar menú" style="margin-left:auto;border:0;background:rgba(118,118,128,.12);width:40px;height:40px;border-radius:50%;font-size:18px;cursor:pointer">✕</button>
+        </div>
+        <div class="mobile-sheet-title">Módulos</div>
+        <div class="mobile-module-grid">
+          ${state.visibleModules.map(mod => `
+            <button type="button" class="mobile-module-btn" data-mobile-sheet-mod="${esc(mod.id)}" onclick="_mobileGo('${esc(mod.id)}')">
+              <span class="mobile-module-icon">${icon(mod.id,24)}</span>
+              <span>${esc(mod.label)}</span>
+            </button>
+          `).join('')}
+        </div>
+        <div class="mobile-sheet-actions">
+          <button type="button" class="mobile-sheet-action" onclick="_mobileShowInstallHelp()">${window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator.standalone === true ? '✅ Impulse instalado' : '📲 Agregar a pantalla de inicio'}</button>
+          <button type="button" class="mobile-sheet-action danger" onclick="_doLogout()">🚪 Cerrar sesión</button>
+        </div>
+      </section>`;
+    return backdrop;
+  }
+
+  window._mobileBuildShell = function(visibleModules){
+    state.visibleModules = Array.isArray(visibleModules) ? visibleModules.map(x => ({...x})) : [];
+    state.tabs = roleTabs();
+
+    document.getElementById('mobileBottomNav')?.remove();
+    document.getElementById('mobileMoreBackdrop')?.remove();
+
+    const nav = document.createElement('nav');
+    nav.id = 'mobileBottomNav';
+    nav.className = 'mobile-bottom-nav';
+    nav.setAttribute('aria-label','Navegación principal de Impulse');
+    nav.innerHTML = [
+      ...state.tabs.map(tab => `
+        <button type="button" class="mobile-nav-item" data-mobile-target="${esc(tab.target)}" onclick="_mobileGo('${esc(tab.target)}')" aria-label="${esc(tab.label)}">
+          <span class="mobile-nav-icon">${icon(tab.iconId,23)}</span>
+          <span class="mobile-nav-label">${esc(tab.label)}</span>
+        </button>`),
+      `<button type="button" class="mobile-nav-item" id="mobileMoreButton" onclick="_mobileToggleMore(true)" aria-label="Más módulos">
+        <span class="mobile-nav-icon">${icon('more',23)}</span><span class="mobile-nav-label">Más</span>
+      </button>`
+    ].join('');
+
+    document.body.appendChild(nav);
+    document.body.appendChild(buildMore());
+    document.body.classList.toggle('impulse-mobile-2',isMobile());
+    window._mobileSyncNav(activeModule);
+  };
+
+  window._mobileToggleMore = function(open){
+    const el = document.getElementById('mobileMoreBackdrop');
+    if (!el) return;
+    el.classList.toggle('open',Boolean(open));
+    document.body.classList.toggle('mobile-menu-open',Boolean(open));
+  };
+
+  window._mobileGo = function(target){
+    window._mobileToggleMore(false);
+    if ([M2_HOME,M2_ATTENDANCE,M2_PENDING].includes(target)) {
+      window._mobile2OpenPage(target);
+      return;
+    }
+    switchModule(target);
+  };
+
+  window._mobileSyncNav = function(mod){
+    const resolved = mod === 'asistencia' && state.tabs.some(t => t.target === M2_ATTENDANCE)
+      ? M2_ATTENDANCE
+      : mod === M2_DETAIL
+        ? M2_PENDING
+        : mod;
+
+    document.querySelectorAll('[data-mobile-target]').forEach(btn => {
+      btn.classList.toggle('active',btn.dataset.mobileTarget === resolved);
+    });
+
+    document.querySelectorAll('[data-mobile-sheet-mod]').forEach(btn => {
+      btn.classList.toggle('active',btn.dataset.mobileSheetMod === mod);
+    });
+
+    const more = document.getElementById('mobileMoreButton');
+    if (more) {
+      const tabTargets = state.tabs.map(x => x.target);
+      more.classList.toggle('active',!tabTargets.includes(resolved) && ![M2_HOME,M2_PENDING,M2_ATTENDANCE,M2_DETAIL].includes(mod));
+    }
+  };
+
+  function content(){ return document.getElementById('content'); }
+
+  function setPseudo(page){
+    activeModule = page;
+    document.body.classList.add('m2-pseudo','impulse-mobile-2');
+    document.querySelectorAll('.sb-item').forEach(el => el.classList.remove('active'));
+    window._mobileSyncNav(page);
+    window._mobileToggleMore(false);
+    const c = content();
+    if (c) c.removeAttribute('style');
+  }
+
+  function skeleton(title='Impulse'){
+    return `<div class="m2-page">
+      <div class="m2-nav-header"><div><div class="m2-eyebrow">${todayLabel()}</div><div class="m2-large-title">${esc(title)}</div></div></div>
+      <div class="m2-hero"><div class="m2-skeleton" style="height:13px;width:34%"></div><div class="m2-skeleton" style="height:34px;width:72%;margin-top:12px"></div><div class="m2-skeleton" style="height:16px;width:54%;margin-top:10px"></div><div class="m2-skeleton" style="height:50px;width:100%;margin-top:18px;border-radius:15px"></div></div>
+      <div class="m2-section" style="margin-top:22px"><div class="m2-metrics"><div class="m2-metric"><div class="m2-skeleton" style="height:34px;width:34px"></div><div class="m2-skeleton" style="height:28px;width:46%;margin-top:10px"></div><div class="m2-skeleton" style="height:12px;width:70%;margin-top:8px"></div></div><div class="m2-metric"><div class="m2-skeleton" style="height:34px;width:34px"></div><div class="m2-skeleton" style="height:28px;width:46%;margin-top:10px"></div><div class="m2-skeleton" style="height:12px;width:70%;margin-top:8px"></div></div></div></div>
+    </div>`;
+  }
+
+  async function loadPunch(){
+    if (!['agent','supervisor'].includes(currentRole) || typeof _a_loadPunchHoyFast !== 'function') return null;
+    try {
+      await _a_loadPunchHoyFast();
+      state.punchReady = true;
+      return _a_getPunch();
+    } catch (e) {
+      console.warn('[Impulse Mobile 2] No se pudo cargar checador rápido:',e);
+      return null;
+    }
+  }
+
+  async function loadBalance(){
+    const ro = ROLES[currentRole] || {};
+    if (!ro.id || !hasModule('vacaciones')) return null;
+    try {
+      const {data,error} = await _auth_sb.from('vacation_balances').select('employee_id,days_earned,days_used,days_pending').eq('employee_id',ro.id).maybeSingle();
+      if (error) throw error;
+      state.balance = data || null;
+      return state.balance;
+    } catch(e){
+      console.warn('[Impulse Mobile 2] Balance de vacaciones:',e);
+      return null;
+    }
+  }
+
+  function availableVacation(balance){
+    if (!balance) return null;
+    return Math.max(0,Number(balance.days_earned||0)-Number(balance.days_used||0)-Number(balance.days_pending||0));
+  }
+
+  function categoryMeta(kind){
+    return {
+      people:{label:'Acción People',icon:'disciplinario',bg:'rgba(255,59,48,.10)',color:'#D70015'},
+      ticket:{label:'Ticket HR',icon:'tickets',bg:'rgba(0,122,255,.10)',color:'#0066CC'},
+      vacation:{label:'Vacaciones',icon:'vacaciones',bg:'rgba(48,209,88,.11)',color:'#188038'},
+      swap:{label:'Permuta',icon:'permutas',bg:'rgba(175,82,222,.10)',color:'#8944AB'}
+    }[kind] || {label:'Pendiente',icon:'pending',bg:'rgba(255,159,10,.12)',color:'#B25000'};
+  }
+
+  function pendingOpenFollowup(row){
+    return !['case_created','not_applicable','cancelled'].includes(String(row?.status||'').toLowerCase());
+  }
+
+  async function loadPending(force=false){
+    if (!force && state.pending.length && Date.now()-state.lastPendingAt < 60000) return state.pending;
+    if (state.loadingPending) return state.loadingPending;
+
+    state.loadingPending = (async() => {
+      const ro = ROLES[currentRole] || {};
+      const role = String(currentRole||'').toLowerCase();
+      const tasks = [];
+
+      if (hasModule('disciplinario') && ['supervisor','manager','people','head_people','ceo'].includes(role)) {
+        tasks.push((async() => {
+          const {data,error} = await _auth_sb.rpc('list_people_action_followups');
+          if (error) throw error;
+          return {kind:'people',rows:(data||[]).filter(pendingOpenFollowup)};
+        })());
+      }
+
+      if (hasModule('tickets')) {
+        tasks.push((async() => {
+          let base = _auth_sb.from('hr_tickets').select('*').order('created_at',{ascending:false}).limit(24);
+          if (!['people','head_people','ceo'].includes(role)) base = base.eq('employee_id',ro.id);
+          const {data,error} = await base;
+          if (error) throw error;
+          let rows = (data||[]).filter(t => !['resolved','cancelled'].includes(String(t.status||'').toLowerCase()));
+          if (role === 'supervisor') {
+            try {
+              const team = await _auth_sb.rpc('get_supervisor_team_tickets');
+              if (!team.error) rows = [...rows,...(team.data||[]).filter(t => !['resolved','cancelled'].includes(String(t.status||'').toLowerCase()))];
+            } catch(_) {}
+          }
+          const map = new Map(); rows.forEach(x => x?.id && map.set(x.id,x));
+          return {kind:'ticket',rows:[...map.values()]};
+        })());
+      }
+
+      if (hasModule('vacaciones') && ['agent','manager','people','head_people','ceo'].includes(role)) {
+        tasks.push((async() => {
+          let q = _auth_sb.from('vacation_requests').select('*').eq('status','pending').order('created_at',{ascending:false}).limit(24);
+          if (role === 'agent') q = q.eq('employee_id',ro.id);
+          const {data,error} = await q;
+          if (error) throw error;
+          return {kind:'vacation',rows:data||[]};
+        })());
+      }
+
+      if (hasModule('permutas')) {
+        tasks.push((async() => {
+          const rows=[];
+          const a = await _auth_sb.from('swaps').select('*').in('status',['pending','pending_approval']).order('created_at',{ascending:false}).limit(30);
+          if (!a.error) rows.push(...(a.data||[]).map(x=>({...x,_partial:false})));
+          const b = await _auth_sb.from('partial_shift_swaps').select('*').in('status',['pending','pending_approval']).order('created_at',{ascending:false}).limit(30);
+          if (!b.error) rows.push(...(b.data||[]).map(x=>({...x,_partial:true})));
+          let filtered = rows;
+          if (role === 'agent') filtered = rows.filter(x => (x.swap_with_id===ro.id && x.status==='pending') || (x.requester_id===ro.id && x.status==='pending_approval'));
+          else if (['manager','people','head_people'].includes(role)) filtered = rows.filter(x => x.status==='pending_approval');
+          else filtered = [];
+          return {kind:'swap',rows:filtered};
+        })());
+      }
+
+      const settled = await Promise.allSettled(tasks);
+      const groups = settled.filter(x=>x.status==='fulfilled').map(x=>x.value);
+      settled.filter(x=>x.status==='rejected').forEach(x=>console.warn('[Impulse Mobile 2] Pendiente omitido:',x.reason));
+
+      const rawItems=[];
+      const employeeIds=new Set();
+      const pushEmployee = id => { if(id) employeeIds.add(String(id)); };
+
+      groups.forEach(group => {
+        (group.rows||[]).forEach(row => {
+          if (group.kind==='people') pushEmployee(row.employee_id);
+          if (group.kind==='ticket') pushEmployee(row.target_employee_id || row.employee_id);
+          if (group.kind==='vacation') pushEmployee(row.employee_id);
+          if (group.kind==='swap') { pushEmployee(row.requester_id); pushEmployee(row.swap_with_id); }
+          rawItems.push({kind:group.kind,row});
+        });
+      });
+
+      const names={};
+      if(employeeIds.size){
+        try{
+          const {data,error}=await _auth_sb.from('employees').select('id,full_name,campaign_id').in('id',[...employeeIds]);
+          if(!error)(data||[]).forEach(e=>names[e.id]=e);
+        }catch(_){}
+      }
+
+      const items=[];
+      rawItems.forEach(({kind,row},idx)=>{
+        const id = `${kind}:${row.id || idx}`;
+        if(kind==='people'){
+          const emp=names[row.employee_id]||{};
+          items.push({id,kind,module:'disciplinario',priority:1,person:row.employee_name||emp.full_name||row.employee_id,title:(typeof _d_followupIncidentLabel==='function'?_d_followupIncidentLabel(row):(row.incident_type||'Incidencia de asistencia')),subtitle:`${fmtDateM2(row.incident_date)} · ${row.campaign_id||emp.campaign_id||'Sin campaña'}`,date:row.incident_date,status:row.status||'open',note:row.supervisor_context||row.manager_context||'',raw:row});
+        }else if(kind==='ticket'){
+          const empId=row.target_employee_id||row.employee_id; const emp=names[empId]||{};
+          items.push({id,kind,module:'tickets',priority:2,person:emp.full_name||empId||'Ticket HR',title:(typeof _t_categoriaLabel==='function'?(_t_categoriaLabel(row.type)||row.type):row.type)||'Ticket HR',subtitle:`${row.id||''}${row.target_date?` · ${fmtDateM2(row.target_date)}`:''}`,date:row.target_date||String(row.created_at||'').slice(0,10),status:row.status||'open',note:row.description||row.notes||row.resolution_notes||'',raw:row});
+        }else if(kind==='vacation'){
+          const emp=names[row.employee_id]||{};
+          items.push({id,kind,module:'vacaciones',priority:3,person:emp.full_name||row.employee_id,title:`${Number(row.days_requested||1)} día${Number(row.days_requested||1)===1?'':'s'} de vacaciones`,subtitle:`${fmtDateM2(row.start_date)} → ${fmtDateM2(row.end_date)}`,date:row.start_date,status:row.status||'pending',note:row.notes||'',raw:row});
+        }else if(kind==='swap'){
+          const a=names[row.requester_id]||{}; const b=names[row.swap_with_id]||{};
+          items.push({id,kind,module:'permutas',priority:4,person:a.full_name||row.requester_id,title:row._partial?'Permuta parcial 7x7':'Permuta',subtitle:`con ${b.full_name||row.swap_with_id||'compañero'} · ${String(row.status||'').replaceAll('_',' ')}`,date:row.shift_date||row.work_date||row.created_at,status:row.status||'pending',note:row.notes||'',raw:row});
+        }
+      });
+
+      items.sort((a,b)=>a.priority-b.priority || new Date(b.raw?.created_at||b.date||0)-new Date(a.raw?.created_at||a.date||0));
+      state.pending = items;
+      state.pendingById = new Map(items.map(x=>[x.id,x]));
+      state.lastPendingAt = Date.now();
+      return items;
+    })();
+
+    try { return await state.loadingPending; }
+    finally { state.loadingPending=null; }
+  }
+
+  function pendingCounts(items){
+    const c={people:0,ticket:0,vacation:0,swap:0};
+    (items||[]).forEach(x=>{if(c[x.kind]!==undefined)c[x.kind]++});
+    return c;
+  }
+
+  function rowHtml(item){
+    const meta=categoryMeta(item.kind);
+    const badgeClass=item.kind==='people'?'red':item.kind==='ticket'?'blue':item.kind==='vacation'?'green':'orange';
+    return `<button class="m2-row" onclick="_mobile2OpenPendingDetail('${esc(item.id)}')">
+      <span class="m2-row-icon" style="background:${meta.bg};color:${meta.color}">${icon(meta.icon,22)}</span>
+      <span style="min-width:0">
+        <div class="m2-row-title">${esc(item.person||item.title)}</div>
+        <div class="m2-row-sub">${esc(item.title)}${item.subtitle?` · ${esc(item.subtitle)}`:''}</div>
+        <span class="m2-badge ${badgeClass}">${esc(meta.label)}</span>
+      </span>
+      <span class="m2-chevron">›</span>
+    </button>`;
+  }
+
+  async function renderHome(force=false){
+    const c=content(); if(!c)return;
+    const ro=ROLES[currentRole]||{};
+    c.innerHTML=skeleton(shortName(ro.name));
+
+    const [punch,balance,items]=await Promise.all([loadPunch(),loadBalance(),loadPending(force)]);
+    const counts=pendingCounts(items);
+    const canPunch=['agent','supervisor'].includes(currentRole);
+    const shift=ro.shift || (ro.shift_start&&ro.shift_end?`${String(ro.shift_start).slice(0,5)}–${String(ro.shift_end).slice(0,5)}`:'Horario no configurado');
+    const entrada=punch?.entrada||null, salida=punch?.salida||null;
+    const vacAvailable=availableVacation(balance);
+    const top=items.slice(0,3);
+    const management=['supervisor','manager','people','head_people','ceo','workforce'].includes(currentRole);
+
+    let hero='';
+    if(canPunch){
+      const stateLabel=salida?'Jornada completada':entrada?'Turno en progreso':'Listo para iniciar';
+      hero=`<div class="m2-hero">
+        <div class="m2-hero-label">Tu jornada</div>
+        <div class="m2-hero-value">${esc(shift.replace('-', '–'))}</div>
+        <div class="m2-hero-sub">${entrada?`Entrada ${esc(entrada)}`:'Aún no registras entrada'}${salida?` · Salida ${esc(salida)}`:''}</div>
+        <div class="m2-status-row"><span class="m2-status-dot" style="${!entrada?'background:#8E8E93;box-shadow:none':''}"></span>${esc(stateLabel)}</div>
+        <button class="m2-primary" style="margin-top:17px" onclick="_mobile2OpenPage('${M2_ATTENDANCE}')">${salida?'Ver mi asistencia':entrada?'Abrir checador':'Registrar entrada'}</button>
+      </div>`;
+    }else{
+      hero=`<div class="m2-hero">
+        <div class="m2-hero-label">Centro de control</div>
+        <div class="m2-hero-value">${items.length ? `${items.length} pendiente${items.length===1?'':'s'}` : 'Todo al día'}</div>
+        <div class="m2-hero-sub">${items.length?'Prioricé lo que requiere seguimiento en tu alcance.':'No encontré acciones abiertas que requieran tu atención.'}</div>
+        ${items.length?`<button class="m2-primary" style="margin-top:17px" onclick="_mobile2OpenPage('${M2_PENDING}')">Revisar pendientes</button>`:''}
+      </div>`;
+    }
+
+    const metricCards = management
+      ? [
+          hasModule('disciplinario')?['people',counts.people,'Acciones People']:null,
+          hasModule('tickets')?['ticket',counts.ticket,'Tickets abiertos']:null,
+          hasModule('vacaciones') && ['manager','people','head_people','ceo'].includes(currentRole)?['vacation',counts.vacation,'Vacaciones']:null,
+          hasModule('permutas') && ['manager','people','head_people'].includes(currentRole)?['swap',counts.swap,'Permutas']:null
+        ].filter(Boolean).slice(0,4)
+      : [
+          vacAvailable!==null?['vacation',vacAvailable,'Días disponibles']:null,
+          hasModule('tickets')?['ticket',counts.ticket,'Tickets abiertos']:null
+        ].filter(Boolean);
+
+    c.innerHTML=`<div class="m2-page">
+      <div class="m2-nav-header">
+        <div><div class="m2-eyebrow">${esc(greeting())}</div><div class="m2-large-title">${esc(shortName(ro.name))}</div></div>
+        <button class="m2-icon-button" onclick="_mobile2RefreshHome()" aria-label="Actualizar">${icon('refresh',20)}</button>
+      </div>
+      <div style="font-size:13px;color:var(--m2-secondary);margin:-9px 1px 16px">${esc(todayLabel())}</div>
+      <div class="m2-section">${hero}</div>
+
+      ${metricCards.length?`<div class="m2-section">
+        <div class="m2-section-head"><div class="m2-section-title">${management?'Necesita atención':'Para ti'}</div>${management&&items.length?`<button class="m2-section-link" onclick="_mobile2OpenPage('${M2_PENDING}')">Ver todo</button>`:''}</div>
+        <div class="m2-metrics">${metricCards.map(([kind,value,label])=>{const m=categoryMeta(kind);return `<div class="m2-metric"><div class="m2-metric-icon" style="background:${m.bg};color:${m.color}">${icon(m.icon,20)}</div><div class="m2-metric-value">${esc(value)}</div><div class="m2-metric-label">${esc(label)}</div></div>`}).join('')}</div>
+      </div>`:''}
+
+      <div class="m2-section">
+        <div class="m2-section-head"><div class="m2-section-title">${top.length?'Prioridad':'Estado'}</div>${top.length?`<button class="m2-section-link" onclick="_mobile2OpenPage('${M2_PENDING}')">Todos</button>`:''}</div>
+        ${top.length?`<div class="m2-list">${top.map(rowHtml).join('')}</div>`:`<div class="m2-card"><div class="m2-empty"><div class="m2-empty-icon">${icon('check',27)}</div><div class="m2-empty-title">Todo al corriente</div><div class="m2-empty-sub">Cuando algo necesite tu atención aparecerá aquí primero.</div></div></div>`}
+      </div>
+    </div>`;
+
+    try { _impulseStartDeferredServicesOnce(); } catch(_) {}
+  }
+
+  async function renderAttendance(){
+    const c=content(); if(!c)return;
+    const ro=ROLES[currentRole]||{};
+    c.innerHTML=skeleton('Asistencia');
+    const punch=await loadPunch();
+    const canPunch=['agent','supervisor'].includes(currentRole);
+    const shift=ro.shift || (ro.shift_start&&ro.shift_end?`${String(ro.shift_start).slice(0,5)}–${String(ro.shift_end).slice(0,5)}`:'Horario no configurado');
+
+    if(!canPunch){
+      c.innerHTML=`<div class="m2-page">
+        <div class="m2-nav-header"><div><div class="m2-eyebrow">${esc(todayLabel())}</div><div class="m2-large-title">Asistencia</div></div></div>
+        <div class="m2-card m2-card-pad"><div class="m2-empty"><div class="m2-empty-icon" style="background:rgba(0,122,255,.1);color:#0066CC">${icon('asistencia',26)}</div><div class="m2-empty-title">Vista operativa</div><div class="m2-empty-sub">Tu rol no utiliza el checador personal. Abre Asistencia completa para revisar la operación.</div></div><button class="m2-primary" onclick="switchModule('asistencia')">Abrir Asistencia completa</button></div>
+      </div>`;
+      return;
+    }
+
+    const entrada=punch?.entrada||null, salida=punch?.salida||null;
+    const mainTime=salida?salida:entrada||'—:—';
+    const caption=salida?'Última marca · salida':entrada?'Turno en progreso · entrada':'Aún no has iniciado tu jornada';
+    c.innerHTML=`<div class="m2-page">
+      <div class="m2-nav-header"><div><div class="m2-eyebrow">${esc(todayLabel())}</div><div class="m2-large-title">Asistencia</div></div><button class="m2-icon-button" onclick="_mobile2RefreshAttendance()" aria-label="Actualizar">${icon('refresh',20)}</button></div>
+      <div class="m2-section"><div class="m2-card m2-clock-card">
+        <div class="m2-clock-main"><div class="m2-clock-time">${esc(mainTime)}</div><div class="m2-clock-caption">${esc(caption)}</div></div>
+        <div class="m2-clock-pair"><div class="m2-clock-chip"><div class="m2-clock-chip-label">Entrada</div><div class="m2-clock-chip-value">${esc(entrada||'—:—')}</div></div><div class="m2-clock-chip"><div class="m2-clock-chip-label">Salida</div><div class="m2-clock-chip-value">${esc(salida||'—:—')}</div></div></div>
+        <div style="font-size:12.5px;color:var(--m2-secondary);text-align:center;margin:-2px 0 14px">Horario · ${esc(shift.replace('-', '–'))}</div>
+        <button class="m2-primary" ${salida?'disabled':''} onclick="_mobile2Punch('${entrada?'salida':'entrada'}')">${salida?'Jornada completada':entrada?'Registrar salida':'Registrar entrada'}</button>
+      </div></div>
+      <div class="m2-section"><div class="m2-section-head"><div class="m2-section-title">Más detalle</div></div><div class="m2-list"><button class="m2-row" onclick="switchModule('asistencia')"><span class="m2-row-icon" style="background:rgba(0,122,255,.10);color:#0066CC">${icon('asistencia',22)}</span><span><div class="m2-row-title">Historial e indicadores</div><div class="m2-row-sub">Quincena, puntualidad, equipo y detalle completo.</div></span><span class="m2-chevron">›</span></button></div></div>
+    </div>`;
+  }
+
+  async function renderPending(force=false){
+    const c=content(); if(!c)return;
+    c.innerHTML=skeleton('Pendientes');
+    const items=await loadPending(force);
+    const counts=pendingCounts(items);
+    const filters=[['all','Todos',items.length],['people','People',counts.people],['ticket','Tickets',counts.ticket],['vacation','Vacaciones',counts.vacation],['swap','Permutas',counts.swap]].filter(([k,,n])=>k==='all'||n>0);
+    if(!filters.some(x=>x[0]===state.pendingFilter))state.pendingFilter='all';
+    const visible=state.pendingFilter==='all'?items:items.filter(x=>x.kind===state.pendingFilter);
+
+    c.innerHTML=`<div class="m2-page">
+      <div class="m2-nav-header"><div><div class="m2-eyebrow">Tu bandeja</div><div class="m2-large-title">Pendientes</div></div><button class="m2-icon-button" onclick="_mobile2RefreshPending()" aria-label="Actualizar">${icon('refresh',20)}</button></div>
+      ${filters.length>1?`<div class="m2-segment">${filters.map(([k,l,n])=>`<button class="${state.pendingFilter===k?'active':''}" onclick="_mobile2SetPendingFilter('${k}')">${esc(l)}${n?` · ${n}`:''}</button>`).join('')}</div>`:''}
+      <div class="m2-section">
+        ${visible.length?`<div class="m2-list">${visible.map(rowHtml).join('')}</div>`:`<div class="m2-card"><div class="m2-empty"><div class="m2-empty-icon">${icon('check',27)}</div><div class="m2-empty-title">Sin pendientes</div><div class="m2-empty-sub">No hay elementos abiertos en esta categoría.</div></div></div>`}
+      </div>
+    </div>`;
+  }
+
+  function detailLines(item){
+    const r=item.raw||{};
+    if(item.kind==='people') return [
+      ['Fecha',fmtDateM2(item.date)],['Campaña',r.campaign_id||'—'],['Supervisor',r.supervisor_name||r.supervisor_id||'—'],['Estado',r.status||'Abierto']
+    ];
+    if(item.kind==='ticket') return [
+      ['Ticket',r.id||'—'],['Fecha',fmtDateM2(item.date)],['Tipo',item.title],['Estado',r.status||'Abierto']
+    ];
+    if(item.kind==='vacation') return [
+      ['Inicio',fmtDateM2(r.start_date)],['Fin',fmtDateM2(r.end_date)],['Días',Number(r.days_requested||1)],['Estado',r.status||'Pendiente']
+    ];
+    if(item.kind==='swap') return [
+      ['Tipo',r._partial?'Parcial 7x7':'Permuta'],['Fecha',fmtDateM2(item.date)],['Estado',String(r.status||'').replaceAll('_',' ')||'Pendiente']
+    ];
+    return [['Estado',item.status||'Pendiente']];
+  }
+
+  window._mobile2OpenPendingDetail=function(id){
+    const item=state.pendingById.get(id); if(!item)return;
+    setPseudo(M2_DETAIL);
+    const c=content(); if(!c)return;
+    const meta=categoryMeta(item.kind);
+    const lines=detailLines(item);
+    c.innerHTML=`<div class="m2-page">
+      <div class="m2-nav-header"><button class="m2-back" onclick="_mobile2OpenPage('${M2_PENDING}')">${icon('back',20)} Pendientes</button></div>
+      <div style="margin:2px 1px 16px"><div class="m2-eyebrow">${esc(meta.label)}</div><div class="m2-title">${esc(item.title)}</div></div>
+      <div class="m2-section"><div class="m2-detail-person"><div class="m2-avatar">${esc(initText(item.person))}</div><div style="min-width:0"><div style="font-size:17px;font-weight:700;letter-spacing:-.25px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.person||'—')}</div><div style="font-size:13px;color:var(--m2-secondary);margin-top:3px">${esc(item.subtitle||meta.label)}</div></div></div></div>
+      <div class="m2-section"><div class="m2-section-head"><div class="m2-section-title">Detalle</div></div><div class="m2-detail-group">${lines.map(([k,v])=>`<div class="m2-detail-line"><div class="m2-detail-key">${esc(k)}</div><div class="m2-detail-value">${esc(v)}</div></div>`).join('')}</div></div>
+      ${item.note?`<div class="m2-section"><div class="m2-section-head"><div class="m2-section-title">Contexto</div></div><div class="m2-note">${esc(item.note)}</div></div>`:''}
+      <div class="m2-sticky-action"><button class="m2-primary" onclick="_mobile2OpenPendingModule('${esc(id)}')">Abrir ${esc(MODULE_INFO[item.module]?.label||meta.label)}</button></div>
+    </div>`;
+  };
+
+  window._mobile2OpenPendingModule=function(id){
+    const item=state.pendingById.get(id); if(!item)return;
+    switchModule(item.module);
+    if(item.kind==='ticket' && typeof _t_abrirTicket==='function'){
+      window.setTimeout(()=>{try{_t_abrirTicket(item.raw.id)}catch(_){}},650);
+    }
+  };
+
+  window._mobile2SetPendingFilter=function(filter){state.pendingFilter=filter;renderPending(false)};
+  window._mobile2RefreshPending=function(){state.lastPendingAt=0;renderPending(true)};
+  window._mobile2RefreshHome=function(){state.lastPendingAt=0;renderHome(true)};
+  window._mobile2RefreshAttendance=function(){renderAttendance()};
+
+  window._mobile2Punch=async function(type){
+    if(!['agent','supervisor'].includes(currentRole))return;
+    const p=_a_getPunch();
+    if(type==='entrada'){
+      if(p.entrada)return;
+      const ok=await _a_punchSB('entrada');
+      if(!ok){alert('No se pudo registrar tu entrada. Intenta de nuevo.');return;}
+      p.entrada=fmtTimeCDMX(new Date(),{hour12:false});
+      await renderAttendance();
+      return;
+    }
+    if(!p.entrada||p.salida)return;
+    let serverNow;
+    try{const {data}=await _a_sb.rpc('get_server_time');serverNow=data?new Date(data):new Date()}catch{serverNow=new Date()}
+    const ahoraMin=serverNow.getHours()*60+serverNow.getMinutes();
+    const [h,m]=String(p.entrada).split(':').map(Number);const diff=ahoraMin-(h*60+m);
+    if(diff<120){const falta=120-diff;alert(`⚠️ Solo llevas ${diff} minuto${diff!==1?'s':''} desde tu entrada (${p.entrada}).\n\nFaltan ${falta} minuto${falta!==1?'s':''} para poder marcar salida.`);return;}
+    const ok=await _a_punchSB('salida');
+    if(!ok){alert('No se pudo registrar tu salida. Intenta de nuevo.');return;}
+    p.salida=fmtTimeCDMX(serverNow,{hour12:false});
+    await renderAttendance();
+  };
+
+  window._mobile2OpenPage=function(page){
+    if(!isMobile()){
+      if(page===M2_ATTENDANCE) switchModule('asistencia');
+      else if(page===M2_PENDING) switchModule(hasModule('disciplinario')?'disciplinario':'tickets');
+      else switchModule('asistencia');
+      return;
+    }
+    setPseudo(page);
+    if(page===M2_HOME)renderHome(false);
+    else if(page===M2_ATTENDANCE)renderAttendance();
+    else if(page===M2_PENDING)renderPending(false);
+  };
+
+  /* Full modules can still be opened from More. They exit pseudo-screen mode. */
+  const originalSwitch = window.switchModule;
+  window.switchModule = function(mod){
+    document.body.classList.remove('m2-pseudo');
+    const result=originalSwitch(mod);
+    window._mobileSyncNav(mod);
+    return result;
+  };
+
+  function applyMode(){document.body?.classList.toggle('impulse-mobile-2',isMobile())}
+  window.matchMedia?.(MOBILE_QUERY)?.addEventListener?.('change',()=>{
+    applyMode();
+    if(isMobile() && window._auth_loggedIn) window._mobile2OpenPage(M2_HOME);
+  });
+  applyMode();
+})();
 
 // ── ARRANQUE — Auth primero ──
 _initImpulse();
