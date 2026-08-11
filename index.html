@@ -3404,8 +3404,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.79';
-const APP_BUILD = '1.0.79-hotfix-ticket-hierarchy-supervisors-01';
+const APP_VERSION   = '1.0.80';
+const APP_BUILD = '1.0.80-people-actions-matrix-automation-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -37094,8 +37094,8 @@ function _d_levelLabel(level) {
     last_warning: 'Última advertencia',
     ultima_advertencia: 'Última advertencia',
 
-    termination: 'Baja / terminación',
-    baja: 'Baja / terminación'
+    termination: 'Recomendación de baja',
+    baja: 'Recomendación de baja'
   };
 
   return map[level] || level || '—';
@@ -37188,6 +37188,11 @@ function _d_queueBadge(q) {
 }
 
 function _d_rutaBadge(c) {
+  const nivel = _d_normalizeLevel(c?.issued_level || c?.recommended_level);
+  if (nivel === 'termination') {
+    return `<span class="pill" style="background:#111827;color:#FFFFFF"><span class="dot"></span>Recomendación de baja</span>`;
+  }
+
   const accountability = String(
     c?.leadership_accountability || ''
   ).toLowerCase();
@@ -37205,7 +37210,7 @@ function _d_rutaBadge(c) {
   }
 
   if (c?.auto_issued || c?.approval_required === false) {
-    return `<span class="pill pill-green"><span class="dot"></span>Emisión directa</span>`;
+    return `<span class="pill pill-green"><span class="dot"></span>Matriz automática</span>`;
   }
 
   return _d_queueBadge(c?.review_queue);
@@ -37216,11 +37221,9 @@ function _d_puedeSolicitar() {
 }
 
 function _d_puedeRevisarCaso(caso) {
-  if (!caso || caso.status !== 'pending_review') return false;
-  const ro = ROLES[currentRole];
-  if (caso.requested_by === ro.id) return false;
-  if (['people','head_people'].includes(currentRole)) return true;
-  if (currentRole === 'manager' && caso.review_queue === 'manager_or_people') return true;
+  // v1.0.80: la matriz emite las Acciones People automáticamente.
+  // People conserva gobierno, auditoría y cancelación/anulación, pero ya no
+  // existe un paso operativo de Aprobar/Rechazar caso por caso.
   return false;
 }
 
@@ -39276,22 +39279,18 @@ async function _d_resolveFollowupCase(id) {
   _d_cargando = false;
   _d_render();
 
-  if (data?.case_status === 'pending_review') {
+  const casoCreado = (_d_CASES || []).find(c => c.id === data?.case_id);
+  const nivelCreado = _d_normalizeLevel(casoCreado?.issued_level || casoCreado?.recommended_level);
+
+  if (casoCreado?.status === 'approved' && casoCreado?.auto_issued) {
     alert(
-      currentRole === 'manager'
-        ? 'Expediente preparado y enviado a People.\n\n' +
-          'People tomará la decisión final. El retraso y el Supervisor ' +
-          'responsable quedaron registrados.'
-        : 'Caso enviado a revisión de People.\n\n' +
-          'La acción todavía no está emitida.'
+      nivelCreado === 'termination'
+        ? 'La matriz generó una Recomendación de baja automáticamente.\n\nEsto NO da de baja al colaborador; la terminación se procesa por el flujo separado de baja/Ticket HR.'
+        : 'Acción People emitida automáticamente por la matriz.\n\nLa incidencia quedó atendida y conserva su trazabilidad.'
     );
   } else {
     alert(
-      currentRole === 'supervisor'
-        ? 'Decisión registrada correctamente.\n\n' +
-          'La incidencia quedó atendida y conservará su fecha real.'
-        : 'Decisión de People registrada correctamente.\n\n' +
-          'La acción conservará la fecha real de emisión y su trazabilidad.'
+      'La incidencia se procesó, pero el caso no aparece como auto-emitido. Actualiza Impulse o revisa que el backend v1.0.80 esté instalado.'
     );
   }
 }
@@ -39540,9 +39539,7 @@ function _d_tabsDisponibles() {
   if (_d_canReviewCases()) {
     tabs.push([
       'pendientes',
-      ['people','head_people'].includes(currentRole)
-        ? 'Aprobaciones'
-        : 'En revisión'
+      'Control People'
     ]);
   }
 
@@ -39605,13 +39602,15 @@ function _d_kpisHTML() {
   ));
 
   const total = casosContables.length;
-  const pendientes = casosContables.filter(c => c.status === 'pending_review').length;
-  const aprobados = casosContables.filter(c => c.status === 'approved').length;
-  const graves = casosContables.filter(c =>
-    c.is_grave ||
-    c.recommended_level === 'termination' ||
-    c.issued_level === 'termination'
+  const automaticas = casosContables.filter(c =>
+    c.status === 'approved' &&
+    (c.auto_issued === true || c.approval_required === false)
   ).length;
+  const atencion = casosContables.filter(c => {
+    const nivel = _d_normalizeLevel(c.issued_level || c.recommended_level);
+    return c.status === 'pending_review' || nivel === 'termination' || c.is_grave === true;
+  }).length;
+  const graves = casosContables.filter(c => c.is_grave === true).length;
   const firmaPendiente = casosContables.filter(c =>
     c.status === 'approved' &&
     c.employee_ack_status === 'pending'
@@ -39620,9 +39619,9 @@ function _d_kpisHTML() {
   return `
     <div class="kgrid kg4">
       <div class="kbox"><div class="klabel">Total casos</div><div class="kval">${total}</div></div>
-      <div class="kbox warn"><div class="klabel">Pendientes</div><div class="kval">${pendientes}</div></div>
-      <div class="kbox ok"><div class="klabel">Aprobados</div><div class="kval">${aprobados}</div></div>
-      <div class="kbox danger"><div class="klabel">Firma pendiente</div><div class="kval">${firmaPendiente}</div><div class="kdelta">Graves: ${graves}</div></div>
+      <div class="kbox ok"><div class="klabel">Emitidas por matriz</div><div class="kval">${automaticas}</div></div>
+      <div class="kbox warn"><div class="klabel">Control People</div><div class="kval">${atencion}</div><div class="kdelta">Graves: ${graves}</div></div>
+      <div class="kbox danger"><div class="klabel">Firma pendiente</div><div class="kval">${firmaPendiente}</div></div>
     </div>
   `;
 }
@@ -39638,7 +39637,7 @@ function _d_renderNuevo() {
     <div class="card">
       <div class="card-title">Nuevo caso · Acción People</div>
       <div class="alert alert-blue">
-        El supervisor o manager captura los hechos. La herramienta calcula el nivel recomendado y decide si se emite automático o si requiere revisión de People.
+        El supervisor o manager captura los hechos. La matriz determina el nivel y lo emite automáticamente. People gobierna la política, audita y atiende excepciones; ya no aprueba caso por caso.
       </div>
       <div class="alert alert-amber">
   Solo se pueden levantar Acciones People con fecha de incidente de hoy, ayer o antier.
@@ -39717,21 +39716,10 @@ function _d_actualizarResumenNuevo() {
     return;
   }
 
-  let reviewText = 'Emisión automática';
-  const nivelBase = m.default_level;
-
-  if (
-    m.is_grave ||
-    m.requires_people_review ||
-    nivelBase === 'last_warning' ||
-    nivelBase === 'termination' ||
-    currentRole === 'manager' ||
-    currentRole === 'people' ||
-    currentRole === 'head_people' ||
-    (emp && emp.system_role !== 'agent')
-  ) {
-    reviewText = 'Revisión People';
-  }
+  const nivelBase = _d_normalizeLevel(m.default_level);
+  const reviewText = nivelBase === 'termination'
+    ? 'Recomendación de baja automática'
+    : 'Emisión automática por matriz';
 
   const durationText = m.sanction_duration_text || (m.sanction_duration_days ? `${m.sanction_duration_days} días` : 'Sin vigencia');
   const requiresAck = m.requires_employee_ack !== false;
@@ -39744,7 +39732,7 @@ function _d_actualizarResumenNuevo() {
       <div class="kv"><span class="k">Duración</span><span class="v">${_d_esc(durationText)}</span></div>
       <div class="kv"><span class="k">Revisión</span><span class="v">${reviewText}</span></div>
       <div class="kv"><span class="k">Firma</span><span class="v">${requiresAck ? 'Sí requiere acuse' : 'No requiere'}</span></div>
-      ${m.is_grave ? `<div class="alert alert-red" style="margin-top:10px;margin-bottom:0">Falta grave · se manda directo a People.</div>` : ''}
+      ${m.is_grave ? `<div class="alert alert-red" style="margin-top:10px;margin-bottom:0">Falta grave · la matriz aplica el nivel automáticamente y el caso queda visible en Control People para auditoría.</div>` : ''}
       ${_d_resumenIncidenciaAsistenciaHTML()}
       ${m.behavior_examples ? `<div style="font-size:12px;color:#64748B;margin-top:10px;line-height:1.5"><b>Ejemplos:</b><br>${_d_esc(m.behavior_examples).replace(/\n/g, '<br>')}</div>` : ''}
       ${m.escalation_condition ? `<div style="font-size:12px;color:#64748B;margin-top:10px;line-height:1.5"><b>Escalación:</b><br>${_d_esc(m.escalation_condition).replace(/\n/g, '<br>')}</div>` : ''}
@@ -39825,11 +39813,16 @@ _d_cargando = false;
 if (creado?.status === 'approved' && creado?.auto_issued) {
   _d_vista = 'historial';
   _d_render();
-  alert('Acción People emitida automáticamente. Queda pendiente el acuse del colaborador.');
+  const nivelCreado = _d_normalizeLevel(creado?.issued_level || creado?.recommended_level);
+  if (nivelCreado === 'termination') {
+    alert('La matriz alcanzó Recomendación de baja. El registro quedó emitido automáticamente; esto NO da de baja al colaborador. La terminación se procesa por el flujo de baja/Ticket HR.');
+  } else {
+    alert('Acción People emitida automáticamente por la matriz. Queda pendiente el acuse del colaborador cuando aplique.');
+  }
 } else {
-  _d_vista = 'pendientes';
+  _d_vista = 'historial';
   _d_render();
-  alert('Caso enviado a revisión de People.');
+  alert('El caso no quedó auto-emitido. Actualiza Impulse o revisa que el backend v1.0.80 esté instalado.');
 }
 }
 
@@ -40088,20 +40081,31 @@ function _d_caseRows(lista, opts = {}) {
 
 function _d_renderPendientes() {
   if (!_d_canReviewCases()) {
-    return `<div class="card"><div class="alert alert-amber">No tienes permisos para revisar casos pendientes.</div></div>`;
+    return `<div class="card"><div class="alert alert-amber">Control People está disponible para People y Head People.</div></div>`;
   }
 
-  const pendientes = _d_CASES.filter(c => c.status === 'pending_review' && _d_puedeRevisarCaso(c));
-  const lista = _d_casesFiltrados(pendientes);
+  const casosAtencion = (_d_CASES || []).filter(c => {
+    const nivel = _d_normalizeLevel(c.issued_level || c.recommended_level);
+    return c.status === 'pending_review' || nivel === 'termination' || c.is_grave === true;
+  });
+  const lista = _d_casesFiltrados(casosAtencion);
+  const recomendacionesBaja = casosAtencion.filter(c => _d_normalizeLevel(c.issued_level || c.recommended_level) === 'termination').length;
+  const graves = casosAtencion.filter(c => c.is_grave === true).length;
+  const legacyPendientes = casosAtencion.filter(c => c.status === 'pending_review').length;
 
   return `
     <div class="card">
-      <div class="card-title">Pendientes de revisión</div>
-      <div class="alert alert-amber">
-        Manager puede aprobar casos de agentes cuando la cola sea Manager/People. People y Head People pueden revisar todo.
+      <div class="card-title">Control People</div>
+      <div class="alert alert-blue">
+        No es una bandeja de aprobaciones. La matriz emite las Acciones People automáticamente. Aquí People monitorea recomendaciones de baja, faltas graves y cualquier caso legacy que haya quedado pendiente.
+      </div>
+      <div class="kgrid kg3" style="margin-bottom:14px">
+        <div class="kbox danger"><div class="klabel">Recomendación de baja</div><div class="kval">${recomendacionesBaja}</div></div>
+        <div class="kbox warn"><div class="klabel">Faltas graves</div><div class="kval">${graves}</div></div>
+        <div class="kbox"><div class="klabel">Pendientes legacy</div><div class="kval">${legacyPendientes}</div></div>
       </div>
       ${_d_filtrosHTML(false)}
-      ${_d_caseRows(lista)}
+      ${_d_caseRows(lista, { actions:false })}
     </div>
   `;
 }
@@ -40132,7 +40136,8 @@ function _d_canCreateCase() {
 }
 
 function _d_canReviewCases() {
-  return ['manager', 'people', 'head_people'].includes(currentRole);
+  // El tab se conserva como Control People, no como bandeja de aprobaciones.
+  return ['people', 'head_people'].includes(currentRole);
 }
 
 function _d_canViewMatrix() {
@@ -40162,7 +40167,7 @@ function _d_levelOptionsHTML(selectedLevels = []) {
     ['first_written', 'Primera escrita'],
     ['second_written', 'Segunda escrita'],
     ['last_warning', 'Última advertencia'],
-    ['termination', 'Baja / terminación']
+    ['termination', 'Recomendación de baja']
   ];
 
   return levels.map(([value, label]) => `
@@ -40280,7 +40285,7 @@ function _d_openMatrixRuleModal(ruleId = null) {
                   <option value="first_written" ${r?.default_level === 'first_written' ? 'selected' : ''}>Primera escrita</option>
                   <option value="second_written" ${r?.default_level === 'second_written' ? 'selected' : ''}>Segunda escrita</option>
                   <option value="last_warning" ${r?.default_level === 'last_warning' ? 'selected' : ''}>Última advertencia</option>
-                  <option value="termination" ${r?.default_level === 'termination' ? 'selected' : ''}>Baja / terminación</option>
+                  <option value="termination" ${r?.default_level === 'termination' ? 'selected' : ''}>Recomendación de baja</option>
                 </select>
               </div>
 
@@ -40317,15 +40322,10 @@ function _d_openMatrixRuleModal(ruleId = null) {
             <textarea id="d-m-note" rows="3" placeholder="Notas para People o managers...">${_d_esc(r?.note || '')}</textarea>
           </div>
 
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
             <label style="display:flex;gap:8px;align-items:center;border:1px solid #E2E8F0;border-radius:12px;padding:10px;font-size:13px">
               <input id="d-m-is-grave" type="checkbox" ${_d_checked(r?.is_grave === true)} style="width:auto">
               Falta grave
-            </label>
-
-            <label style="display:flex;gap:8px;align-items:center;border:1px solid #E2E8F0;border-radius:12px;padding:10px;font-size:13px">
-              <input id="d-m-requires-people" type="checkbox" ${_d_checked(r?.requires_people_review === true)} style="width:auto">
-              Revisión People
             </label>
 
             <label style="display:flex;gap:8px;align-items:center;border:1px solid #E2E8F0;border-radius:12px;padding:10px;font-size:13px">
@@ -40337,6 +40337,9 @@ function _d_openMatrixRuleModal(ruleId = null) {
               <input id="d-m-active" type="checkbox" ${_d_checked(r ? r.is_active !== false : true)} style="width:auto">
               Activa
             </label>
+          </div>
+          <div class="alert alert-blue" style="margin:10px 0 0">
+            Aplicación automática: la matriz define el nivel. People ya no aprueba casos individualmente.
           </div>
 
           <div class="alert alert-amber" style="margin:0">
@@ -40382,7 +40385,7 @@ async function _d_saveMatrixRule() {
   const escalation = document.getElementById('d-m-escalation')?.value.trim() || null;
   const note = document.getElementById('d-m-note')?.value.trim() || null;
   const isGrave = document.getElementById('d-m-is-grave')?.checked || false;
-  const requiresPeople = document.getElementById('d-m-requires-people')?.checked || false;
+  const requiresPeople = false; // v1.0.80: no hay aprobación People caso por caso.
   const requiresAck = document.getElementById('d-m-requires-ack')?.checked || false;
   const isActive = document.getElementById('d-m-active')?.checked || false;
 
@@ -40551,10 +40554,7 @@ function _d_renderMatriz() {
                 <td>
                   <div style="display:flex;gap:6px;flex-wrap:wrap">
                     ${m.is_grave ? `<span class="pill pill-red"><span class="dot"></span>Grave</span>` : ''}
-                    ${m.requires_people_review
-                      ? `<span class="pill pill-purple"><span class="dot"></span>People</span>`
-                      : `<span class="pill pill-green"><span class="dot"></span>Auto</span>`
-                    }
+                    <span class="pill pill-green"><span class="dot"></span>Matriz automática</span>
                   </div>
                 </td>
 
@@ -40765,7 +40765,7 @@ function _d_abrirMatrizDetalle(id) {
       <div class="kv"><span class="k">Niveles permitidos</span><span class="v">${(m.allowed_levels || []).map(_d_levelLabel).join(', ')}</span></div>
       <div class="kv"><span class="k">Duración</span><span class="v">${_d_esc(durationText)}</span></div>
       <div class="kv"><span class="k">Liga asistencia</span><span class="v">${_d_attendanceTypeLabel(m.attendance_link_type)}</span></div>
-      <div class="kv"><span class="k">People directo</span><span class="v">${m.requires_people_review ? 'Sí' : 'No'}</span></div>
+      <div class="kv"><span class="k">Aplicación</span><span class="v">Automática por matriz</span></div>
       <div class="kv"><span class="k">Falta grave</span><span class="v">${m.is_grave ? 'Sí' : 'No'}</span></div>
       <div class="kv"><span class="k">Firma</span><span class="v">${m.requires_employee_ack !== false ? 'Sí' : 'No'}</span></div>
     </div>
@@ -45669,5 +45669,6 @@ window._init_organigrama = async function(){
 
 </script>
 
+<!-- IMPULSE PEOPLE ACTIONS POLICY v1.0.80: MATRIX_AUTO_ISSUE -->
 </body>
 </html>
