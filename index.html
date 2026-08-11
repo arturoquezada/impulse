@@ -3404,8 +3404,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.81';
-const APP_BUILD = '1.0.81-roster-operativo-wfm-01';
+const APP_VERSION   = '1.0.82';
+const APP_BUILD = '1.0.82-roster-operativo-ux-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -45677,77 +45677,130 @@ window._init_organigrama = async function(){
 </script>
 
 <!-- IMPULSE PEOPLE ACTIONS POLICY v1.0.80: MATRIX_AUTO_ISSUE -->
-<!-- IMPULSE ROSTER OPERATIVO v1.0.81 -->
+<!-- IMPULSE ROSTER OPERATIVO v1.0.82 · UX REFRESH -->
 <style>
-  .roster-page{padding:4px 0 28px;max-width:100%;}
-  .roster-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px;}
-  .roster-title{font-size:24px;font-weight:800;color:#0F172A;letter-spacing:-.02em;margin:0 0 5px;}
-  .roster-sub{font-size:12px;color:#64748B;line-height:1.5;max-width:720px;}
-  .roster-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
-  .roster-btn{border:1px solid #CBD5E1;background:#fff;color:#0F172A;border-radius:10px;padding:9px 12px;font:700 12px var(--f);cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 1px 2px rgba(15,23,42,.04);}
-  .roster-btn:hover{background:#F8FAFC;border-color:#94A3B8;}
+  .roster-page{padding:2px 0 30px;max-width:100%;}
+  .roster-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:18px;}
+  .roster-eyebrow{font-size:10px;font-weight:850;letter-spacing:.09em;text-transform:uppercase;color:#0284C7;margin-bottom:5px;}
+  .roster-title{font-size:28px;font-weight:900;color:#0F172A;letter-spacing:-.035em;margin:0 0 5px;line-height:1.06;}
+  .roster-sub{font-size:12px;color:#64748B;line-height:1.5;max-width:730px;}
+  .roster-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center;}
+  .roster-btn{border:1px solid #D7E0EA;background:#fff;color:#0F172A;border-radius:11px;padding:9px 12px;font:750 11px var(--f);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 1px 2px rgba(15,23,42,.04);transition:.16s ease;white-space:nowrap;}
+  .roster-btn:hover{background:#F8FAFC;border-color:#AEBBCC;transform:translateY(-1px);box-shadow:0 4px 10px rgba(15,23,42,.06);}
   .roster-btn.primary{background:#0F172A;border-color:#0F172A;color:#fff;}
   .roster-btn.primary:hover{background:#1E293B;}
-  .roster-btn.blue{background:#0EA5E9;border-color:#0EA5E9;color:#fff;}
-  .roster-btn.blue:hover{background:#0284C7;}
-  .roster-btn.danger{color:#B91C1C;border-color:#FECACA;background:#FFF7F7;}
-  .roster-btn:disabled{opacity:.45;cursor:not-allowed;}
-  .roster-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px;}
-  .roster-kpi{background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:14px 15px;box-shadow:0 1px 2px rgba(15,23,42,.03);}
-  .roster-kpi-label{font-size:10px;color:#64748B;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;}
-  .roster-kpi-value{font-size:23px;font-weight:850;color:#0F172A;line-height:1;}
-  .roster-kpi-note{font-size:10px;color:#94A3B8;margin-top:5px;}
-  .roster-filters{display:grid;grid-template-columns:minmax(190px,2fr) repeat(5,minmax(120px,1fr));gap:8px;background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:12px;margin-bottom:12px;}
-  .roster-input,.roster-select{width:100%;border:1px solid #CBD5E1;background:#fff;color:#0F172A;border-radius:9px;padding:9px 10px;font:600 11px var(--f);outline:none;min-width:0;}
-  .roster-input:focus,.roster-select:focus{border-color:#38BDF8;box-shadow:0 0 0 3px rgba(56,189,248,.12);}
-  .roster-table-wrap{background:#fff;border:1px solid #E2E8F0;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,.03);}
-  .roster-table-scroll{overflow:auto;max-height:calc(100vh - 335px);}
-  .roster-table{width:100%;border-collapse:separate;border-spacing:0;min-width:1640px;font-size:11px;}
-  .roster-table th{position:sticky;top:0;z-index:2;background:#F8FAFC;color:#475569;text-align:left;padding:10px 9px;border-bottom:1px solid #E2E8F0;font-size:10px;text-transform:uppercase;letter-spacing:.035em;white-space:nowrap;}
-  .roster-table td{padding:10px 9px;border-bottom:1px solid #F1F5F9;color:#334155;vertical-align:top;white-space:nowrap;}
-  .roster-table tbody tr:hover td{background:#FAFCFE;}
-  .roster-person{font-weight:800;color:#0F172A;max-width:230px;white-space:normal;line-height:1.3;}
-  .roster-cx{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#64748B;font-size:10px;margin-top:2px;}
-  .roster-chip{display:inline-flex;align-items:center;border-radius:999px;padding:3px 7px;font-size:9px;font-weight:800;line-height:1.25;background:#F1F5F9;color:#475569;margin:1px 2px 1px 0;}
-  .roster-chip.active{background:#DCFCE7;color:#166534;}
-  .roster-chip.inactive{background:#FEE2E2;color:#991B1B;}
-  .roster-chip.license{background:#E0F2FE;color:#075985;}
-  .roster-chip.warn{background:#FEF3C7;color:#92400E;}
-  .roster-empty{padding:50px 20px;text-align:center;color:#94A3B8;font-size:12px;}
-  .roster-countbar{font-size:10px;color:#64748B;padding:8px 12px;border-top:1px solid #F1F5F9;background:#FAFCFE;}
-  .roster-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.42);z-index:9998;display:flex;align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(3px);}
-  .roster-modal{width:min(780px,96vw);max-height:88vh;overflow:auto;background:#fff;border-radius:18px;box-shadow:0 24px 70px rgba(15,23,42,.28);}
-  .roster-modal-head{padding:18px 20px;border-bottom:1px solid #E2E8F0;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;position:sticky;top:0;background:#fff;z-index:2;border-radius:18px 18px 0 0;}
-  .roster-modal-title{font-size:17px;font-weight:850;color:#0F172A;}
-  .roster-modal-sub{font-size:11px;color:#64748B;margin-top:3px;}
-  .roster-modal-body{padding:18px 20px 22px;}
-  .roster-op-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:16px;}
-  .roster-op-cell{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:9px;min-width:0;}
-  .roster-op-k{font-size:9px;color:#64748B;text-transform:uppercase;font-weight:800;letter-spacing:.04em;}
-  .roster-op-v{font-size:11px;color:#0F172A;font-weight:800;margin-top:3px;overflow-wrap:anywhere;}
-  .roster-license-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #E2E8F0;border-radius:11px;padding:10px 11px;margin-bottom:7px;}
-  .roster-license-name{font-size:12px;font-weight:800;color:#0F172A;}
-  .roster-license-desc{font-size:10px;color:#64748B;margin-top:2px;}
-  .roster-section-title{font-size:11px;font-weight:850;color:#334155;margin:15px 0 8px;text-transform:uppercase;letter-spacing:.045em;}
-  .roster-new-license{display:grid;grid-template-columns:1fr 1.4fr auto;gap:7px;background:#F8FAFC;border:1px dashed #CBD5E1;border-radius:12px;padding:10px;margin-top:12px;}
-  .roster-history{font-size:10px;color:#64748B;line-height:1.45;border-left:2px solid #E2E8F0;padding-left:9px;margin:6px 0;}
-  @media(max-width:1100px){.roster-filters{grid-template-columns:repeat(3,minmax(0,1fr));}.roster-kpis{grid-template-columns:repeat(2,minmax(0,1fr));}.roster-op-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
-  @media(max-width:700px){.roster-page{padding-bottom:90px}.roster-hero{display:block}.roster-actions{justify-content:flex-start;margin-top:12px}.roster-title{font-size:21px}.roster-filters{grid-template-columns:1fr 1fr}.roster-filters .roster-search{grid-column:1/-1}.roster-kpis{grid-template-columns:1fr 1fr}.roster-table-scroll{max-height:none}.roster-op-grid{grid-template-columns:1fr 1fr}.roster-new-license{grid-template-columns:1fr}.roster-modal-backdrop{align-items:flex-end;padding:0}.roster-modal{width:100%;max-height:92vh;border-radius:20px 20px 0 0}.roster-modal-head{border-radius:20px 20px 0 0}}
+  .roster-btn.blue{background:#0284C7;border-color:#0284C7;color:#fff;}
+  .roster-btn.blue:hover{background:#0369A1;}
+  .roster-btn.ghost{background:#F8FAFC;border-color:#E2E8F0;color:#475569;box-shadow:none;}
+  .roster-btn.danger{color:#B42318;border-color:#FECDCA;background:#FFFBFA;}
+  .roster-btn.small{padding:7px 9px;border-radius:9px;font-size:10px;}
+  .roster-btn:disabled{opacity:.45;cursor:not-allowed;transform:none!important;}
+
+  .roster-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;}
+  .roster-kpi{background:linear-gradient(180deg,#fff 0%,#FCFDFE 100%);border:1px solid #E2E8F0;border-radius:16px;padding:14px 15px;box-shadow:0 1px 3px rgba(15,23,42,.035);display:flex;align-items:center;gap:12px;min-width:0;}
+  .roster-kpi-icon{width:36px;height:36px;border-radius:11px;background:#F1F5F9;display:flex;align-items:center;justify-content:center;font-size:17px;flex:0 0 auto;}
+  .roster-kpi-label{font-size:9px;color:#64748B;font-weight:850;text-transform:uppercase;letter-spacing:.075em;margin-bottom:3px;}
+  .roster-kpi-value{font-size:22px;font-weight:900;color:#0F172A;line-height:1;}
+  .roster-kpi-note{font-size:9px;color:#94A3B8;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+  .roster-toolbar{background:#fff;border:1px solid #E2E8F0;border-radius:16px;padding:11px;box-shadow:0 1px 3px rgba(15,23,42,.03);margin-bottom:10px;}
+  .roster-filter-grid{display:grid;grid-template-columns:minmax(230px,2fr) repeat(5,minmax(110px,1fr));gap:8px;align-items:center;}
+  .roster-search-wrap{position:relative;min-width:0;}
+  .roster-search-icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:12px;color:#94A3B8;pointer-events:none;}
+  .roster-input,.roster-select{width:100%;border:1px solid #D6DEE8;background:#fff;color:#0F172A;border-radius:10px;padding:9px 10px;font:650 10.5px var(--f);outline:none;min-width:0;transition:.15s ease;}
+  .roster-search-wrap .roster-input{padding-left:31px;}
+  .roster-input:focus,.roster-select:focus{border-color:#38BDF8;box-shadow:0 0 0 3px rgba(56,189,248,.11);}
+  .roster-filter-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px;min-height:24px;}
+  .roster-filter-chips{display:flex;gap:5px;flex-wrap:wrap;min-width:0;}
+  .roster-filter-chip{display:inline-flex;align-items:center;gap:5px;border-radius:999px;background:#F1F5F9;color:#475569;padding:4px 7px;font-size:9px;font-weight:750;border:1px solid #E2E8F0;}
+  .roster-filter-chip button{border:0;background:transparent;color:#64748B;padding:0;cursor:pointer;font-size:11px;line-height:1;}
+  .roster-results-label{font-size:9.5px;color:#64748B;white-space:nowrap;}
+
+  .roster-table-wrap{background:#fff;border:1px solid #E2E8F0;border-radius:16px;overflow:hidden;box-shadow:0 2px 7px rgba(15,23,42,.035);}
+  .roster-table-scroll{overflow:auto;max-height:calc(100vh - 330px);scrollbar-width:thin;}
+  .roster-table{width:100%;border-collapse:separate;border-spacing:0;min-width:1220px;font-size:10.5px;}
+  .roster-table th{position:sticky;top:0;z-index:3;background:rgba(248,250,252,.97);backdrop-filter:blur(8px);color:#64748B;text-align:left;padding:10px 11px;border-bottom:1px solid #E2E8F0;font-size:9px;text-transform:uppercase;letter-spacing:.065em;white-space:nowrap;font-weight:850;}
+  .roster-table td{padding:10px 11px;border-bottom:1px solid #EEF2F6;color:#334155;vertical-align:middle;background:#fff;transition:background .13s ease;}
+  .roster-table tbody tr:nth-child(even) td{background:#FDFEFF;}
+  .roster-table tbody tr:hover td{background:#F7FBFE;}
+  .roster-table tbody tr:last-child td{border-bottom:0;}
+  .roster-col-person{min-width:245px;position:sticky;left:0;z-index:1;box-shadow:1px 0 0 #EEF2F6;}
+  .roster-table th.roster-col-person{z-index:4;background:#F8FAFC;}
+  .roster-person-wrap{display:flex;align-items:center;gap:10px;min-width:0;}
+  .roster-avatar{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#E0F2FE,#F0F9FF);color:#0369A1;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;flex:0 0 auto;border:1px solid #BAE6FD;}
+  .roster-person{font-weight:850;color:#0F172A;max-width:215px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25;}
+  .roster-cx{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#94A3B8;font-size:9px;margin-top:2px;}
+  .roster-meta{font-size:9.5px;color:#64748B;line-height:1.4;}
+  .roster-meta strong{color:#334155;font-weight:750;}
+  .roster-main{font-size:10.5px;color:#0F172A;font-weight:780;line-height:1.35;}
+  .roster-secondary{font-size:9px;color:#94A3B8;margin-top:2px;line-height:1.35;}
+  .roster-chip{display:inline-flex;align-items:center;border-radius:999px;padding:3px 7px;font-size:8.5px;font-weight:850;line-height:1.25;background:#F1F5F9;color:#475569;margin:1px 3px 1px 0;border:1px solid transparent;}
+  .roster-chip.active{background:#ECFDF3;color:#027A48;border-color:#D1FADF;}
+  .roster-chip.inactive{background:#FEF3F2;color:#B42318;border-color:#FEE4E2;}
+  .roster-chip.license{background:#EFF8FF;color:#175CD3;border-color:#D1E9FF;}
+  .roster-chip.warn{background:#FFFAEB;color:#B54708;border-color:#FEF0C7;}
+  .roster-chip.neutral{background:#F8FAFC;color:#475569;border-color:#E2E8F0;}
+  .roster-license-stack{display:flex;gap:3px;flex-wrap:wrap;max-width:225px;}
+  .roster-empty{padding:52px 20px;text-align:center;color:#94A3B8;font-size:11px;}
+  .roster-countbar{font-size:9.5px;color:#64748B;padding:9px 12px;border-top:1px solid #EEF2F6;background:#FAFCFE;display:flex;justify-content:space-between;gap:10px;align-items:center;}
+  .roster-countbar strong{color:#334155;}
+
+  .roster-drawer-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.36);z-index:9998;backdrop-filter:blur(2px);animation:rosterFade .16s ease;}
+  .roster-drawer{position:absolute;right:0;top:0;bottom:0;width:min(520px,96vw);background:#fff;box-shadow:-18px 0 55px rgba(15,23,42,.18);display:flex;flex-direction:column;animation:rosterSlide .2s ease;}
+  .roster-drawer-head{padding:18px 19px 15px;border-bottom:1px solid #E2E8F0;background:#fff;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+  .roster-drawer-title{font-size:18px;font-weight:900;color:#0F172A;letter-spacing:-.02em;}
+  .roster-drawer-sub{font-size:10px;color:#64748B;margin-top:3px;}
+  .roster-drawer-body{padding:16px 19px 24px;overflow:auto;flex:1;}
+  .roster-profile{display:flex;align-items:center;gap:11px;margin-bottom:13px;}
+  .roster-profile .roster-avatar{width:42px;height:42px;border-radius:13px;font-size:12px;}
+  .roster-profile-name{font-size:13px;font-weight:900;color:#0F172A;}
+  .roster-op-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-bottom:15px;}
+  .roster-op-cell{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:11px;padding:9px 10px;min-width:0;}
+  .roster-op-k{font-size:8px;color:#94A3B8;text-transform:uppercase;font-weight:850;letter-spacing:.06em;}
+  .roster-op-v{font-size:10.5px;color:#0F172A;font-weight:800;margin-top:3px;overflow-wrap:anywhere;}
+  .roster-section-title{font-size:9px;font-weight:900;color:#64748B;margin:16px 0 8px;text-transform:uppercase;letter-spacing:.08em;}
+  .roster-assignment-box{background:linear-gradient(180deg,#F8FCFF 0%,#fff 100%);border:1px solid #D1E9FF;border-radius:13px;padding:11px;margin-bottom:11px;}
+  .roster-assignment-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:center;}
+  .roster-license-row{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #E2E8F0;border-radius:12px;padding:10px 11px;margin-bottom:7px;background:#fff;}
+  .roster-license-row.active{border-color:#D1E9FF;background:#FBFDFF;}
+  .roster-license-name{font-size:11px;font-weight:850;color:#0F172A;}
+  .roster-license-desc{font-size:9px;color:#94A3B8;margin-top:2px;line-height:1.4;}
+  .roster-history{font-size:9px;color:#64748B;line-height:1.5;border-left:2px solid #E2E8F0;padding-left:9px;margin:7px 0;}
+  .roster-warning{background:#FFFAEB;border:1px solid #FEDF89;color:#93370D;border-radius:11px;padding:9px 10px;font-size:9.5px;line-height:1.45;margin-bottom:12px;}
+  .roster-catalog-create{display:grid;grid-template-columns:1fr;gap:7px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:13px;padding:11px;margin-bottom:13px;}
+  .roster-catalog-item{display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid #EEF2F6;padding:10px 0;}
+  .roster-catalog-item:last-child{border-bottom:0;}
+  .roster-toast{position:fixed;right:22px;bottom:22px;z-index:10050;background:#0F172A;color:#fff;border-radius:12px;padding:10px 13px;font:750 10.5px var(--f);box-shadow:0 14px 35px rgba(15,23,42,.24);display:flex;align-items:center;gap:8px;animation:rosterToastIn .18s ease;max-width:min(390px,calc(100vw - 32px));}
+  .roster-toast.error{background:#B42318;}
+  @keyframes rosterFade{from{opacity:0}to{opacity:1}}
+  @keyframes rosterSlide{from{transform:translateX(22px);opacity:.6}to{transform:none;opacity:1}}
+  @keyframes rosterToastIn{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+
+  .roster-mobile-list{display:none;}
+  .roster-card{background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:12px;margin-bottom:8px;box-shadow:0 1px 3px rgba(15,23,42,.03);}
+  .roster-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+  .roster-card-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
+  .roster-card-cell{font-size:9px;color:#64748B;}
+  .roster-card-cell b{display:block;color:#334155;font-size:9.5px;margin-bottom:2px;}
+
+  @media(max-width:1200px){.roster-filter-grid{grid-template-columns:repeat(3,minmax(0,1fr));}.roster-search-wrap{grid-column:span 2}.roster-kpis{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  @media(max-width:760px){
+    .roster-page{padding-bottom:88px}.roster-hero{display:block}.roster-actions{justify-content:flex-start;margin-top:12px}.roster-title{font-size:23px}.roster-kpis{grid-template-columns:1fr 1fr}.roster-kpi{padding:11px}.roster-kpi-icon{display:none}.roster-filter-grid{grid-template-columns:1fr 1fr}.roster-search-wrap{grid-column:1/-1}.roster-filter-footer{align-items:flex-start;flex-direction:column}.roster-table-wrap{border:0;box-shadow:none;background:transparent}.roster-table-scroll,.roster-countbar{display:none}.roster-mobile-list{display:block}.roster-drawer{width:100%;top:auto;height:min(88vh,760px);border-radius:20px 20px 0 0}.roster-drawer-head{border-radius:20px 20px 0 0}.roster-drawer-backdrop{display:flex;align-items:flex-end}.roster-card-grid{grid-template-columns:1fr 1fr}.roster-toast{right:16px;left:16px;bottom:84px;max-width:none}.roster-op-grid{grid-template-columns:1fr 1fr}}
 </style>
 <script>
 (() => {
-  const _ROSTER_VERSION = '1.0.81';
+  const _ROSTER_VERSION = '1.0.82';
   let _ro_payload = null;
   let _ro_rows = [];
   let _ro_catalog = [];
   let _ro_loading = false;
   let _ro_modalEmployeeId = null;
+  let _ro_scrollTop = 0;
   const _ro_filters = { search:'', status:'all', campaign:'all', lob:'all', supervisor:'all', queue:'all', license:'all' };
 
   function _roEsc(v){
     return String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
   }
-
   function _roNorm(v){ return String(v ?? '').trim().toLowerCase(); }
   function _roIsActive(row){ return _roNorm(row?.status) === 'active' && !row?.termination_date; }
   function _roDate(v){ return v ? (typeof fmtDateShort === 'function' ? fmtDateShort(v) : String(v).slice(0,10)) : '—'; }
@@ -45759,29 +45812,49 @@ window._init_organigrama = async function(){
   }
   function _roDaysOff(row){ return Array.isArray(row?.days_off) ? row.days_off.map(_roDayLabel).filter(Boolean).join(', ') : '—'; }
   function _roLicenseNames(row){ return (row?.licenses || []).map(x=>x.license_name).filter(Boolean); }
-  function _roStatusLabel(row){ return _roIsActive(row) ? 'Activo' : 'Baja'; }
+  function _roInitials(name){
+    const p=String(name||'').trim().split(/\s+/).filter(Boolean);
+    return (p.slice(0,2).map(x=>x[0]).join('')||'CX').toUpperCase();
+  }
   function _roUnique(field){
     return [...new Set(_ro_rows.map(r=>String(r?.[field]||'').trim()).filter(Boolean))]
       .sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
   }
   function _roOption(value,label,current){ return `<option value="${_roEsc(value)}" ${String(current)===String(value)?'selected':''}>${_roEsc(label)}</option>`; }
+  function _roSortRows(rows){
+    return [...rows].sort((a,b)=>{
+      const aa=_roIsActive(a)?0:1, bb=_roIsActive(b)?0:1;
+      if(aa!==bb) return aa-bb;
+      const byName=String(a.full_name||'').localeCompare(String(b.full_name||''),'es',{sensitivity:'base'});
+      return byName || String(a.employee_id||'').localeCompare(String(b.employee_id||''),'es',{numeric:true});
+    });
+  }
+  function _roToast(message,type='ok'){
+    document.getElementById('rosterToast')?.remove();
+    const t=document.createElement('div'); t.id='rosterToast'; t.className=`roster-toast ${type==='error'?'error':''}`;
+    t.innerHTML=`<span>${type==='error'?'⚠️':'✅'}</span><span>${_roEsc(message)}</span>`;
+    document.body.appendChild(t); setTimeout(()=>t.remove(),3000);
+  }
+  function _roCaptureScroll(){ _ro_scrollTop=document.querySelector('.roster-table-scroll')?.scrollTop||0; }
+  function _roRestoreScroll(){ requestAnimationFrame(()=>{ const el=document.querySelector('.roster-table-scroll'); if(el)el.scrollTop=_ro_scrollTop; }); }
 
-  async function _roLoad(){
+  async function _roLoad({showLoading=true}={}){
     if (_ro_loading) return false;
     _ro_loading = true;
     const c=document.getElementById('content');
-    if(c) c.innerHTML='<div class="roster-empty"><div style="font-size:26px;margin-bottom:8px">🗂️</div>Cargando Roster Operativo…</div>';
+    if(showLoading&&c) c.innerHTML='<div class="roster-empty"><div style="font-size:26px;margin-bottom:8px">🗂️</div>Cargando Roster Operativo…</div>';
     try{
       if(typeof _auth_sb==='undefined') throw new Error('No existe una sesión Supabase activa.');
       const {data,error}=await _auth_sb.rpc('get_company_operational_roster_payload');
       if(error) throw error;
       _ro_payload=data||{};
-      _ro_rows=Array.isArray(_ro_payload.rows)?_ro_payload.rows:[];
-      _ro_catalog=Array.isArray(_ro_payload.license_catalog)?_ro_payload.license_catalog:[];
+      _ro_rows=_roSortRows(Array.isArray(_ro_payload.rows)?_ro_payload.rows:[]);
+      _ro_catalog=(Array.isArray(_ro_payload.license_catalog)?_ro_payload.license_catalog:[])
+        .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'es',{sensitivity:'base'}));
       return true;
     }catch(e){
       console.error('[Roster Operativo]',e);
-      if(c) c.innerHTML=`<div class="roster-empty"><div style="font-size:28px;margin-bottom:8px">⚠️</div><div style="font-weight:800;color:#B91C1C;margin-bottom:6px">No se pudo cargar Roster Operativo</div><div>${_roEsc(e?.message||e)}</div><div style="margin-top:8px">Verifica que el backend v${_ROSTER_VERSION} esté instalado.</div></div>`;
+      if(c) c.innerHTML=`<div class="roster-empty"><div style="font-size:28px;margin-bottom:8px">⚠️</div><div style="font-weight:800;color:#B91C1C;margin-bottom:6px">No se pudo cargar Roster Operativo</div><div>${_roEsc(e?.message||e)}</div><div style="margin-top:8px">Verifica que el backend v1.0.81+ esté instalado.</div></div>`;
       return false;
     }finally{ _ro_loading=false; }
   }
@@ -45811,6 +45884,24 @@ window._init_organigrama = async function(){
     const names=[...new Set(_ro_rows.flatMap(_roLicenseNames))].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
     return _roOption('all','Todas las licencias',current)+names.map(v=>_roOption(v,v,current)).join('');
   }
+  function _roFilterLabel(key,value){
+    const labels={status:value==='active'?'Activos':'Bajas',campaign:`Campaña: ${value}`,lob:`LOB: ${value}`,supervisor:`Supervisor: ${value}`,queue:`Queue: ${value}`,license:`Licencia: ${value}`};
+    return labels[key]||value;
+  }
+  function _roFilterChips(){
+    const chips=[];
+    Object.entries(_ro_filters).forEach(([key,value])=>{
+      if(key==='search'){ if(String(value).trim()) chips.push(`<span class="roster-filter-chip">Buscar: ${_roEsc(value)} <button onclick="_roClearFilter('search')">×</button></span>`); return; }
+      if(value!=='all') chips.push(`<span class="roster-filter-chip">${_roEsc(_roFilterLabel(key,value))} <button onclick="_roClearFilter('${_roEsc(key)}')">×</button></span>`);
+    });
+    return chips.join('');
+  }
+  function _roLicenseChips(r,inactive=false){
+    const lic=_roLicenseNames(r);
+    if(!lic.length) return '<span class="roster-secondary">Sin licencias</span>';
+    const visible=lic.slice(0,2).map(x=>`<span class="roster-chip ${inactive?'warn':'license'}">${_roEsc(x)}</span>`).join('');
+    return `<div class="roster-license-stack">${visible}${lic.length>2?`<span class="roster-chip neutral">+${lic.length-2}</span>`:''}</div>`;
+  }
 
   function _roRender(){
     const c=document.getElementById('content'); if(!c) return;
@@ -45821,181 +45912,205 @@ window._init_organigrama = async function(){
     const withLicense=_ro_rows.filter(r=>_roLicenseNames(r).length>0).length;
     const offboarding=_ro_rows.filter(r=>!_roIsActive(r)&&_roLicenseNames(r).length>0).length;
     const canManage=!!_ro_payload.can_manage_licenses;
+    const filterChips=_roFilterChips();
 
     c.innerHTML=`<div class="roster-page">
       <div class="roster-hero">
         <div>
+          <div class="roster-eyebrow">Workforce Intelligence</div>
           <h1 class="roster-title">Roster Operativo</h1>
-          <div class="roster-sub">Base operacional para CEO, WFM y People. Este módulo solo recibe campos autorizados; no carga salario, datos bancarios, RFC/CURP/NSS, domicilio, teléfono, datos médicos ni otra información confidencial.</div>
+          <div class="roster-sub">Vista segura y exportable de la operación. WFM trabaja únicamente con datos necesarios para staffing, horarios y licencias; la información confidencial de People no se carga en este módulo.</div>
         </div>
         <div class="roster-actions">
           <button class="roster-btn" onclick="_roExportCSV()">⬇ CSV</button>
           <button class="roster-btn primary" onclick="_roExportExcel()">⬇ Exportar Excel</button>
-          ${canManage?'<button class="roster-btn blue" onclick="_roOpenCatalogQuick()">＋ Nueva licencia</button>':''}
+          ${canManage?'<button class="roster-btn blue" onclick="_roOpenCatalogModal()">⚙ Catálogo de licencias</button>':''}
         </div>
       </div>
 
       <div class="roster-kpis">
-        <div class="roster-kpi"><div class="roster-kpi-label">Colaboradores</div><div class="roster-kpi-value">${_ro_rows.length}</div><div class="roster-kpi-note">Activos + historial de bajas</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Activos</div><div class="roster-kpi-value">${active}</div><div class="roster-kpi-note">Roster actual</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Con licencias activas</div><div class="roster-kpi-value">${withLicense}</div><div class="roster-kpi-note">Una o más licencias</div></div>
-        <div class="roster-kpi"><div class="roster-kpi-label">Bajas con licencia activa</div><div class="roster-kpi-value" style="color:${offboarding?'#B91C1C':'#0F172A'}">${offboarding}</div><div class="roster-kpi-note">Pendiente potencial de offboarding</div></div>
+        <div class="roster-kpi"><div class="roster-kpi-icon">👥</div><div><div class="roster-kpi-label">Colaboradores</div><div class="roster-kpi-value">${_ro_rows.length}</div><div class="roster-kpi-note">Base total disponible</div></div></div>
+        <div class="roster-kpi"><div class="roster-kpi-icon">🟢</div><div><div class="roster-kpi-label">Activos</div><div class="roster-kpi-value">${active}</div><div class="roster-kpi-note">Headcount actual</div></div></div>
+        <div class="roster-kpi"><div class="roster-kpi-icon">🔐</div><div><div class="roster-kpi-label">Con licencias</div><div class="roster-kpi-value">${withLicense}</div><div class="roster-kpi-note">Una o más activas</div></div></div>
+        <div class="roster-kpi"><div class="roster-kpi-icon">${offboarding?'⚠️':'✅'}</div><div><div class="roster-kpi-label">Bajas con licencia</div><div class="roster-kpi-value" style="color:${offboarding?'#B42318':'#0F172A'}">${offboarding}</div><div class="roster-kpi-note">Revisión de offboarding</div></div></div>
       </div>
 
-      <div class="roster-filters">
-        <input class="roster-input roster-search" placeholder="Buscar CX, nombre, supervisor, campaña, queue o licencia…" value="${_roEsc(_ro_filters.search)}" oninput="_roSetFilter('search',this.value)">
-        <select class="roster-select" onchange="_roSetFilter('status',this.value)">${_roOption('all','Todos',_ro_filters.status)}${_roOption('active','Activos',_ro_filters.status)}${_roOption('inactive','Bajas',_ro_filters.status)}</select>
-        <select class="roster-select" onchange="_roSetFilter('campaign',this.value)">${_roSelectOptions('campaign_id',_ro_filters.campaign,'Todas las campañas')}</select>
-        <select class="roster-select" onchange="_roSetFilter('lob',this.value)">${_roSelectOptions('lob',_ro_filters.lob,'Todos los LOB')}</select>
-        <select class="roster-select" onchange="_roSetFilter('supervisor',this.value)">${_roSelectOptions('supervisor_name',_ro_filters.supervisor,'Todos los supervisores')}</select>
-        <select class="roster-select" onchange="_roSetFilter('queue',this.value)">${_roSelectOptions('queue',_ro_filters.queue,'Todos los queues')}</select>
-        <select class="roster-select" onchange="_roSetFilter('license',this.value)">${_roLicenseOptions(_ro_filters.license)}</select>
+      <div class="roster-toolbar">
+        <div class="roster-filter-grid">
+          <div class="roster-search-wrap"><span class="roster-search-icon">⌕</span><input class="roster-input" placeholder="Buscar CX, nombre, supervisor, campaña, queue o licencia…" value="${_roEsc(_ro_filters.search)}" oninput="_roSetFilter('search',this.value)"></div>
+          <select class="roster-select" onchange="_roSetFilter('status',this.value)">${_roOption('all','Todos los estatus',_ro_filters.status)}${_roOption('active','Activos',_ro_filters.status)}${_roOption('inactive','Bajas',_ro_filters.status)}</select>
+          <select class="roster-select" onchange="_roSetFilter('campaign',this.value)">${_roSelectOptions('campaign_id',_ro_filters.campaign,'Todas las campañas')}</select>
+          <select class="roster-select" onchange="_roSetFilter('lob',this.value)">${_roSelectOptions('lob',_ro_filters.lob,'Todos los LOB')}</select>
+          <select class="roster-select" onchange="_roSetFilter('supervisor',this.value)">${_roSelectOptions('supervisor_name',_ro_filters.supervisor,'Todos los supervisores')}</select>
+          <select class="roster-select" onchange="_roSetFilter('queue',this.value)">${_roSelectOptions('queue',_ro_filters.queue,'Todos los queues')}</select>
+          <select class="roster-select" onchange="_roSetFilter('license',this.value)">${_roLicenseOptions(_ro_filters.license)}</select>
+        </div>
+        <div class="roster-filter-footer">
+          <div class="roster-filter-chips">${filterChips||'<span style="font-size:9px;color:#94A3B8">Sin filtros activos</span>'}</div>
+          <div class="roster-results-label"><strong>${rows.length}</strong> resultado${rows.length===1?'':'s'}${filterChips?' · <button class="roster-btn ghost small" onclick="_roClearAllFilters()">Limpiar filtros</button>':''}</div>
+        </div>
       </div>
 
       <div class="roster-table-wrap">
         <div class="roster-table-scroll"><table class="roster-table">
           <thead><tr>
-            <th>Número de empleado</th><th>Nombre</th><th>Fecha de Alta</th><th>Fecha de Baja</th><th>Supervisor</th><th>Hora entrada</th><th>Hora salida</th><th>Jornada</th><th>Campaña</th><th>LOB</th><th>Queue</th><th>Motivo de baja</th><th>Descanso</th><th>Licencia</th>${canManage?'<th>Gestión</th>':''}
+            <th class="roster-col-person">Colaborador</th><th>Estatus</th><th>Organización</th><th>Jornada</th><th>Fechas</th><th>Licencias</th><th>Motivo de baja</th><th></th>
           </tr></thead>
           <tbody>${rows.length?rows.map(r=>{
-            const lic=_roLicenseNames(r);
             const inactive=!_roIsActive(r);
             return `<tr>
-              <td><div class="roster-cx" style="font-size:11px;color:#0F172A;font-weight:800">${_roEsc(r.employee_id||'—')}</div><span class="roster-chip ${inactive?'inactive':'active'}">${inactive?'Baja':'Activo'}</span></td>
-              <td><div class="roster-person">${_roEsc(r.full_name||'—')}</div></td>
-              <td>${_roDate(r.hire_date)}</td><td>${_roDate(r.termination_date)}</td>
-              <td>${_roEsc(r.supervisor_name||'—')}</td><td>${_roTime(r.shift_start)}</td><td>${_roTime(r.shift_end)}</td>
-              <td>${_roNum(r.jornada_horas)===null?'—':_roEsc(r.jornada_horas)+' h'}</td>
-              <td>${_roEsc(r.campaign_id||'—')}</td><td>${_roEsc(r.lob||'—')}</td><td>${_roEsc(r.queue||'—')}</td>
-              <td style="max-width:260px;white-space:normal;line-height:1.35">${_roEsc(r.termination_reason||'—')}</td>
-              <td>${_roEsc(_roDaysOff(r))}</td>
-              <td style="max-width:250px;white-space:normal">${lic.length?lic.map(x=>`<span class="roster-chip ${inactive?'warn':'license'}">${_roEsc(x)}</span>`).join(''):'<span style="color:#94A3B8">—</span>'}</td>
-              ${canManage?`<td><button class="roster-btn" style="padding:6px 8px" onclick="_roOpenLicenseModal('${_roEsc(r.employee_id)}')">Licencias</button></td>`:''}
+              <td class="roster-col-person"><div class="roster-person-wrap"><div class="roster-avatar">${_roEsc(_roInitials(r.full_name))}</div><div style="min-width:0"><div class="roster-person" title="${_roEsc(r.full_name||'')}">${_roEsc(r.full_name||'—')}</div><div class="roster-cx">${_roEsc(r.employee_id||'—')}</div></div></div></td>
+              <td><span class="roster-chip ${inactive?'inactive':'active'}">${inactive?'Baja':'Activo'}</span>${inactive&&r.termination_date?`<div class="roster-secondary">${_roDate(r.termination_date)}</div>`:''}</td>
+              <td><div class="roster-main">${_roEsc(r.campaign_id||'—')} · ${_roEsc(r.lob||'—')}</div><div class="roster-secondary">${_roEsc(r.queue||'Sin queue')}</div><div class="roster-secondary">Sup. ${_roEsc(r.supervisor_name||'—')}</div></td>
+              <td><div class="roster-main">${_roTime(r.shift_start)} → ${_roTime(r.shift_end)}</div><div class="roster-secondary">${_roNum(r.jornada_horas)===null?'Jornada —':_roEsc(r.jornada_horas)+' h'} · Descanso ${_roEsc(_roDaysOff(r))}</div></td>
+              <td><div class="roster-meta"><strong>Alta</strong> ${_roDate(r.hire_date)}</div><div class="roster-meta"><strong>Baja</strong> ${_roDate(r.termination_date)}</div></td>
+              <td>${_roLicenseChips(r,inactive)}</td>
+              <td style="max-width:220px"><div class="roster-meta" style="white-space:normal">${_roEsc(r.termination_reason||'—')}</div></td>
+              <td><button class="roster-btn small ${canManage?'blue':'ghost'}" onclick="_roOpenLicenseDrawer('${_roEsc(r.employee_id)}')">${canManage?'Gestionar':'Ver'} licencias</button></td>
             </tr>`;
-          }).join(''):`<tr><td colspan="${canManage?15:14}"><div class="roster-empty">No hay colaboradores que coincidan con los filtros.</div></td></tr>`}</tbody>
+          }).join(''):`<tr><td colspan="8"><div class="roster-empty"><div style="font-size:22px;margin-bottom:6px">⌕</div>No encontramos colaboradores con esos filtros.</div></td></tr>`}</tbody>
         </table></div>
-        <div class="roster-countbar">Mostrando <b>${rows.length}</b> de ${_ro_rows.length} colaboradores · ${bajas} bajas históricas.</div>
+        <div class="roster-mobile-list">${rows.length?rows.map(r=>{
+          const inactive=!_roIsActive(r);
+          return `<div class="roster-card"><div class="roster-card-head"><div class="roster-person-wrap"><div class="roster-avatar">${_roEsc(_roInitials(r.full_name))}</div><div style="min-width:0"><div class="roster-person">${_roEsc(r.full_name||'—')}</div><div class="roster-cx">${_roEsc(r.employee_id||'—')}</div></div></div><span class="roster-chip ${inactive?'inactive':'active'}">${inactive?'Baja':'Activo'}</span></div><div class="roster-card-grid"><div class="roster-card-cell"><b>Organización</b>${_roEsc(r.campaign_id||'—')} · ${_roEsc(r.lob||'—')}<br>${_roEsc(r.queue||'—')}</div><div class="roster-card-cell"><b>Jornada</b>${_roTime(r.shift_start)} → ${_roTime(r.shift_end)}<br>Descanso ${_roEsc(_roDaysOff(r))}</div><div class="roster-card-cell"><b>Supervisor</b>${_roEsc(r.supervisor_name||'—')}</div><div class="roster-card-cell"><b>Licencias</b>${_roLicenseNames(r).join(', ')||'Sin licencias'}</div></div><button class="roster-btn ${canManage?'blue':'ghost'}" style="width:100%;margin-top:10px" onclick="_roOpenLicenseDrawer('${_roEsc(r.employee_id)}')">${canManage?'Gestionar':'Ver'} licencias</button></div>`;
+        }).join(''):'<div class="roster-empty">No hay resultados.</div>'}</div>
+        <div class="roster-countbar"><span>Mostrando <strong>${rows.length}</strong> de ${_ro_rows.length}</span><span>${bajas} bajas históricas · orden estable por nombre</span></div>
       </div>
     </div>`;
+    _roRestoreScroll();
   }
 
-  function _roSetFilter(key,value){ _ro_filters[key]=value; _roRender(); }
+  function _roSetFilter(key,value){ _roCaptureScroll(); _ro_filters[key]=value; _roRender(); }
+  function _roClearFilter(key){ _ro_filters[key]=key==='search'?'':'all'; _roRender(); }
+  function _roClearAllFilters(){ Object.assign(_ro_filters,{search:'',status:'all',campaign:'all',lob:'all',supervisor:'all',queue:'all',license:'all'}); _roRender(); }
 
   function _roExportRows(){
     return _roFiltered().map(r=>({
-      'Numero de empleado':r.employee_id||'',
-      'Nombre':r.full_name||'',
-      'Fecha de Alta':r.hire_date||'',
-      'Fecha de Baja':r.termination_date||'',
-      'Supervisor':r.supervisor_name||'',
-      'Hora de entrada':r.shift_start||'',
-      'Hora de Salida':r.shift_end||'',
-      'Jornada':_roNum(r.jornada_horas)===null?'':Number(r.jornada_horas),
-      'Campaña':r.campaign_id||'',
-      'LOB':r.lob||'',
-      'Queue':r.queue||'',
-      'Motivo de baja':r.termination_reason||'',
-      'Descanso':_roDaysOff(r)==='—'?'':_roDaysOff(r),
-      'Licencia':_roLicenseNames(r).join(', ')
+      'Numero de empleado':r.employee_id||'', 'Nombre':r.full_name||'', 'Fecha de Alta':r.hire_date||'', 'Fecha de Baja':r.termination_date||'',
+      'Supervisor':r.supervisor_name||'', 'Hora de entrada':r.shift_start||'', 'Hora de Salida':r.shift_end||'',
+      'Jornada':_roNum(r.jornada_horas)===null?'':Number(r.jornada_horas), 'Campaña':r.campaign_id||'', 'LOB':r.lob||'', 'Queue':r.queue||'',
+      'Motivo de baja':r.termination_reason||'', 'Descanso':_roDaysOff(r)==='—'?'':_roDaysOff(r), 'Licencia':_roLicenseNames(r).join(', ')
     }));
   }
-
   function _roExportExcel(){
     try{
       if(typeof XLSX==='undefined') throw new Error('No se cargó XLSX. Recarga Impulse.');
-      const rows=_roExportRows();
-      const ws=XLSX.utils.json_to_sheet(rows);
-      ws['!autofilter']={ref:ws['!ref']||'A1:N1'};
-      ws['!cols']=[14,28,14,14,24,13,13,10,16,16,18,42,22,30].map(w=>({wch:w}));
-      const wb=XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb,ws,'Roster Operativo');
-      XLSX.writeFile(wb,`Roster_Operativo_${ymd(new Date())}.xlsx`);
-    }catch(e){ alert(e?.message||e); }
+      const rows=_roExportRows(); if(!rows.length) throw new Error('No hay filas para exportar.');
+      const ws=XLSX.utils.json_to_sheet(rows); ws['!autofilter']={ref:ws['!ref']||'A1:N1'}; ws['!cols']=[14,28,14,14,24,13,13,10,16,16,18,42,22,30].map(w=>({wch:w}));
+      const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Roster Operativo'); XLSX.writeFile(wb,`Roster_Operativo_${ymd(new Date())}.xlsx`);
+    }catch(e){ _roToast(e?.message||String(e),'error'); }
   }
-
   function _roExportCSV(){
-    const rows=_roExportRows(); if(!rows.length){alert('No hay filas para exportar.');return;}
-    const headers=Object.keys(rows[0]);
-    const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';
+    const rows=_roExportRows(); if(!rows.length){_roToast('No hay filas para exportar.','error');return;}
+    const headers=Object.keys(rows[0]); const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';
     const csv='\uFEFF'+[headers.map(q).join(','),...rows.map(r=>headers.map(h=>q(r[h])).join(','))].join('\r\n');
-    const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a');
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}), url=URL.createObjectURL(blob), a=document.createElement('a');
     a.href=url;a.download=`Roster_Operativo_${ymd(new Date())}.csv`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),500);
   }
 
   function _roEmployee(id){ return _ro_rows.find(r=>String(r.employee_id)===String(id))||null; }
+  function _roCloseDrawer(){ document.getElementById('rosterDrawer')?.remove(); _ro_modalEmployeeId=null; }
+  function _roCloseCatalog(){ document.getElementById('rosterCatalogDrawer')?.remove(); }
 
-  function _roOpenLicenseModal(employeeId){
+  function _roOpenLicenseDrawer(employeeId){
     const r=_roEmployee(employeeId); if(!r)return;
     _ro_modalEmployeeId=employeeId;
-    document.getElementById('rosterLicenseModal')?.remove();
+    document.getElementById('rosterDrawer')?.remove();
+    const canManage=!!_ro_payload?.can_manage_licenses;
+    const canAssign=canManage&&_roIsActive(r);
     const activeMap=new Map((r.licenses||[]).map(x=>[String(x.license_id),x]));
-    const catalogs=_ro_catalog.filter(x=>x.active||activeMap.has(String(x.id)));
-    const canAssign=_roIsActive(r);
-    const history=(r.license_history||[]).slice(0,12);
-    const backdrop=document.createElement('div');backdrop.id='rosterLicenseModal';backdrop.className='roster-modal-backdrop';
-    backdrop.onclick=e=>{if(e.target===backdrop)_roCloseModal();};
-    backdrop.innerHTML=`<div class="roster-modal">
-      <div class="roster-modal-head"><div><div class="roster-modal-title">Licencias · ${_roEsc(r.full_name||r.employee_id)}</div><div class="roster-modal-sub">${_roEsc(r.employee_id)} · perfil operativo únicamente</div></div><button class="roster-btn" onclick="_roCloseModal()">✕</button></div>
-      <div class="roster-modal-body">
+    const activeLicenses=(r.licenses||[]);
+    const available=_ro_catalog.filter(x=>x.active&&!activeMap.has(String(x.id)));
+    const history=(r.license_history||[]).slice(0,14);
+    const backdrop=document.createElement('div'); backdrop.id='rosterDrawer'; backdrop.className='roster-drawer-backdrop';
+    backdrop.onclick=e=>{if(e.target===backdrop)_roCloseDrawer();};
+    backdrop.innerHTML=`<div class="roster-drawer">
+      <div class="roster-drawer-head"><div><div class="roster-drawer-title">Licencias del colaborador</div><div class="roster-drawer-sub">Gestión contextual · sin salir del empleado actual</div></div><button class="roster-btn ghost small" onclick="_roCloseDrawer()">✕</button></div>
+      <div class="roster-drawer-body">
+        <div class="roster-profile"><div class="roster-avatar">${_roEsc(_roInitials(r.full_name))}</div><div><div class="roster-profile-name">${_roEsc(r.full_name||r.employee_id)}</div><div class="roster-cx">${_roEsc(r.employee_id)}</div></div></div>
         <div class="roster-op-grid">
           <div class="roster-op-cell"><div class="roster-op-k">Supervisor</div><div class="roster-op-v">${_roEsc(r.supervisor_name||'—')}</div></div>
           <div class="roster-op-cell"><div class="roster-op-k">Campaña / LOB</div><div class="roster-op-v">${_roEsc(r.campaign_id||'—')} · ${_roEsc(r.lob||'—')}</div></div>
           <div class="roster-op-cell"><div class="roster-op-k">Queue</div><div class="roster-op-v">${_roEsc(r.queue||'—')}</div></div>
           <div class="roster-op-cell"><div class="roster-op-k">Horario / Descanso</div><div class="roster-op-v">${_roTime(r.shift_start)}–${_roTime(r.shift_end)} · ${_roEsc(_roDaysOff(r))}</div></div>
         </div>
-        ${!canAssign?'<div style="background:#FFF7ED;border:1px solid #FED7AA;color:#9A3412;border-radius:11px;padding:10px 12px;font-size:11px;margin-bottom:12px"><b>Colaborador dado de baja.</b> No se pueden asignar licencias nuevas; sí puedes retirar licencias activas para cerrar offboarding.</div>':''}
-        <div class="roster-section-title">Licencias</div>
-        <div>${catalogs.length?catalogs.map(cat=>{
-          const assignment=activeMap.get(String(cat.id));
-          return `<div class="roster-license-row"><div><div class="roster-license-name">${_roEsc(cat.name)}</div><div class="roster-license-desc">${_roEsc(cat.description||'Sin descripción')}</div></div>${assignment?`<button class="roster-btn danger" onclick="_roRevoke('${_roEsc(assignment.assignment_id)}')">Retirar</button>`:`<button class="roster-btn blue" ${canAssign?'':'disabled'} onclick="_roAssign('${_roEsc(r.employee_id)}','${_roEsc(cat.id)}')">Asignar</button>`}</div>`;
-        }).join(''):'<div class="roster-empty" style="padding:25px">Aún no hay licencias en el catálogo.</div>'}</div>
+        ${!_roIsActive(r)?'<div class="roster-warning"><b>Colaborador dado de baja.</b> No se pueden asignar licencias nuevas; sí puedes retirar licencias activas para cerrar offboarding.</div>':''}
 
-        <div class="roster-new-license">
-          <input id="ro-new-license-name" class="roster-input" placeholder="Nombre de licencia">
-          <input id="ro-new-license-desc" class="roster-input" placeholder="Descripción opcional">
-          <button class="roster-btn primary" onclick="_roCreateLicense()">Crear licencia</button>
-        </div>
+        ${canAssign?`<div class="roster-section-title">Asignar nueva licencia</div><div class="roster-assignment-box"><div class="roster-assignment-row"><select id="ro-license-to-assign" class="roster-select" ${available.length?'':'disabled'}>${available.length?available.map(x=>_roOption(x.id,x.name,'')).join(''):_roOption('','Todas las licencias activas ya están asignadas','')}</select><button class="roster-btn blue" ${available.length?'':'disabled'} onclick="_roAssignSelected('${_roEsc(r.employee_id)}')">＋ Asignar</button></div><div class="roster-secondary" style="margin-top:6px">La asignación se aplicará únicamente a <b>${_roEsc(r.full_name||r.employee_id)}</b>.</div></div>`:''}
+
+        <div class="roster-section-title">Licencias activas · ${activeLicenses.length}</div>
+        ${activeLicenses.length?activeLicenses.map(a=>`<div class="roster-license-row active"><div><div class="roster-license-name">${_roEsc(a.license_name||'Licencia')}</div><div class="roster-license-desc">Asignada ${_roDate(a.assigned_at)}${a.assigned_by_name?` · ${_roEsc(a.assigned_by_name)}`:''}</div></div>${canManage?`<button class="roster-btn danger small" onclick="_roRevoke('${_roEsc(a.assignment_id)}')">Retirar</button>`:'<span class="roster-chip active">Activa</span>'}</div>`).join(''):'<div class="roster-empty" style="padding:22px 8px">Este colaborador no tiene licencias activas.</div>'}
+
+        ${canManage?'<button class="roster-btn ghost" style="width:100%;margin-top:6px" onclick="_roOpenCatalogFromEmployee()">⚙ Administrar catálogo de licencias</button>':''}
 
         <div class="roster-section-title">Historial</div>
-        ${history.length?history.map(h=>`<div class="roster-history"><b>${_roEsc(h.license_name||'Licencia')}</b> · Asignada ${_roDate(h.assigned_at)} por ${_roEsc(h.assigned_by_name||h.assigned_by||'—')}${h.revoked_at?` · Retirada ${_roDate(h.revoked_at)} por ${_roEsc(h.revoked_by_name||h.revoked_by||'—')}`:' · Activa'}</div>`).join(''):'<div style="font-size:10px;color:#94A3B8">Sin movimientos registrados.</div>'}
+        ${history.length?history.map(h=>`<div class="roster-history"><b>${_roEsc(h.license_name||'Licencia')}</b> · Asignada ${_roDate(h.assigned_at)} por ${_roEsc(h.assigned_by_name||h.assigned_by||'—')}${h.revoked_at?` · Retirada ${_roDate(h.revoked_at)} por ${_roEsc(h.revoked_by_name||h.revoked_by||'—')}`:' · Activa'}</div>`).join(''):'<div class="roster-secondary">Sin movimientos registrados.</div>'}
       </div>
     </div>`;
     document.body.appendChild(backdrop);
   }
 
-  function _roCloseModal(){ document.getElementById('rosterLicenseModal')?.remove(); _ro_modalEmployeeId=null; }
-
-  async function _roReloadAndModal(employeeId){
-    const ok=await _roLoad(); if(!ok)return; _roRender(); if(employeeId)_roOpenLicenseModal(employeeId);
+  function _roOpenCatalogFromEmployee(){ const current=_ro_modalEmployeeId; _roCloseDrawer(); _roOpenCatalogModal(current); }
+  function _roOpenCatalogModal(returnEmployeeId=null){
+    if(!_ro_payload?.can_manage_licenses) return;
+    document.getElementById('rosterCatalogDrawer')?.remove();
+    const backdrop=document.createElement('div'); backdrop.id='rosterCatalogDrawer'; backdrop.className='roster-drawer-backdrop'; backdrop.dataset.returnEmployee=returnEmployeeId||'';
+    backdrop.onclick=e=>{if(e.target===backdrop)_roCloseCatalogAndReturn();};
+    backdrop.innerHTML=`<div class="roster-drawer"><div class="roster-drawer-head"><div><div class="roster-drawer-title">Catálogo de licencias</div><div class="roster-drawer-sub">Crea y administra tipos de licencia. Aquí no se asignan personas.</div></div><button class="roster-btn ghost small" onclick="_roCloseCatalogAndReturn()">✕</button></div><div class="roster-drawer-body">
+      <div class="roster-catalog-create"><div><div class="roster-section-title" style="margin:0 0 7px">Nueva licencia</div><input id="ro-new-license-name" class="roster-input" placeholder="Ej. Five9, Zendesk, Salesforce"></div><input id="ro-new-license-desc" class="roster-input" placeholder="Descripción opcional"><button class="roster-btn blue" onclick="_roCreateLicense()">＋ Crear en catálogo</button></div>
+      <div class="roster-section-title">Catálogo actual · ${_ro_catalog.length}</div>
+      <div>${_ro_catalog.length?_ro_catalog.map(cat=>`<div class="roster-catalog-item"><div><div class="roster-license-name">${_roEsc(cat.name)}</div><div class="roster-license-desc">${_roEsc(cat.description||'Sin descripción')} · ${cat.active?'Activa':'Inactiva'}</div></div><button class="roster-btn ${cat.active?'danger':'blue'} small" onclick="_roToggleCatalogLicense('${_roEsc(cat.id)}',${cat.active?'false':'true'})">${cat.active?'Desactivar':'Activar'}</button></div>`).join(''):'<div class="roster-empty">Aún no hay licencias creadas.</div>'}</div>
+    </div></div>`;
+    document.body.appendChild(backdrop);
+  }
+  function _roCloseCatalogAndReturn(){
+    const el=document.getElementById('rosterCatalogDrawer'); const emp=el?.dataset?.returnEmployee||''; _roCloseCatalog(); if(emp)_roOpenLicenseDrawer(emp);
   }
 
-  async function _roAssign(employeeId,licenseId){
-    const cat=_ro_catalog.find(x=>String(x.id)===String(licenseId));
-    if(!confirm(`¿Asignar ${cat?.name||'esta licencia'} a ${employeeId}?`))return;
-    const {error}=await _auth_sb.rpc('assign_workforce_license',{p_employee_id:employeeId,p_license_id:licenseId,p_notes:'Asignado desde Roster Operativo v1.0.81'});
-    if(error){alert(error.message||error);return;} await _roReloadAndModal(employeeId);
+  async function _roReload({reopenEmployee=null,reopenCatalog=false,returnEmployee=null}={}){
+    _roCaptureScroll();
+    const ok=await _roLoad({showLoading:false}); if(!ok)return false;
+    _roRender();
+    if(reopenEmployee)_roOpenLicenseDrawer(reopenEmployee);
+    else if(reopenCatalog)_roOpenCatalogModal(returnEmployee);
+    return true;
+  }
+
+  async function _roAssignSelected(employeeId){
+    const licenseId=document.getElementById('ro-license-to-assign')?.value;
+    if(!licenseId){_roToast('Selecciona una licencia.','error');return;}
+    const r=_roEmployee(employeeId), cat=_ro_catalog.find(x=>String(x.id)===String(licenseId));
+    if(!confirm(`¿Asignar ${cat?.name||'esta licencia'} a ${r?.full_name||employeeId}?`))return;
+    const btn=document.activeElement; if(btn?.classList?.contains('roster-btn'))btn.disabled=true;
+    const {error}=await _auth_sb.rpc('assign_workforce_license',{p_employee_id:employeeId,p_license_id:licenseId,p_notes:'Asignado desde Roster Operativo v1.0.82'});
+    if(error){if(btn)btn.disabled=false;_roToast(error.message||String(error),'error');return;}
+    await _roReload({reopenEmployee:employeeId}); _roToast(`${cat?.name||'Licencia'} asignada a ${r?.full_name||employeeId}.`);
   }
 
   async function _roRevoke(assignmentId){
-    const r=_roEmployee(_ro_modalEmployeeId); const item=(r?.licenses||[]).find(x=>String(x.assignment_id)===String(assignmentId));
-    const reason=prompt(`Motivo para retirar ${item?.license_name||'la licencia'} (opcional):`,'Offboarding / ajuste WFM');
-    if(reason===null)return;
+    const employeeId=_ro_modalEmployeeId, r=_roEmployee(employeeId), item=(r?.licenses||[]).find(x=>String(x.assignment_id)===String(assignmentId));
+    const reason=prompt(`Motivo para retirar ${item?.license_name||'la licencia'} (opcional):`,'Offboarding / ajuste WFM'); if(reason===null)return;
     const {error}=await _auth_sb.rpc('revoke_workforce_license',{p_assignment_id:assignmentId,p_reason:reason||null});
-    if(error){alert(error.message||error);return;} await _roReloadAndModal(_ro_modalEmployeeId);
+    if(error){_roToast(error.message||String(error),'error');return;}
+    await _roReload({reopenEmployee:employeeId}); _roToast(`${item?.license_name||'Licencia'} retirada correctamente.`);
   }
 
   async function _roCreateLicense(){
-    const name=document.getElementById('ro-new-license-name')?.value?.trim();
-    const desc=document.getElementById('ro-new-license-desc')?.value?.trim();
-    if(!name){alert('Escribe el nombre de la licencia.');return;}
+    const name=document.getElementById('ro-new-license-name')?.value?.trim(), desc=document.getElementById('ro-new-license-desc')?.value?.trim();
+    if(!name){_roToast('Escribe el nombre de la licencia.','error');return;}
+    const returnEmployee=document.getElementById('rosterCatalogDrawer')?.dataset?.returnEmployee||null;
     const {error}=await _auth_sb.rpc('save_workforce_license',{p_name:name,p_description:desc||null,p_license_id:null,p_active:true});
-    if(error){alert(error.message||error);return;} await _roReloadAndModal(_ro_modalEmployeeId);
+    if(error){_roToast(error.message||String(error),'error');return;}
+    await _roReload({reopenCatalog:true,returnEmployee}); _roToast(`${name} creada en el catálogo.`);
   }
 
-  function _roOpenCatalogQuick(){
-    const first=_ro_rows.find(_roIsActive)||_ro_rows[0];
-    if(first){_roOpenLicenseModal(first.employee_id);setTimeout(()=>document.getElementById('ro-new-license-name')?.focus(),100);}
-    else alert('No hay colaboradores cargados.');
+  async function _roToggleCatalogLicense(licenseId,active){
+    const cat=_ro_catalog.find(x=>String(x.id)===String(licenseId)); if(!cat)return;
+    const returnEmployee=document.getElementById('rosterCatalogDrawer')?.dataset?.returnEmployee||null;
+    if(!confirm(`¿${active?'Activar':'Desactivar'} ${cat.name}?`))return;
+    const {error}=await _auth_sb.rpc('save_workforce_license',{p_name:cat.name,p_description:cat.description||null,p_license_id:licenseId,p_active:!!active});
+    if(error){_roToast(error.message||String(error),'error');return;}
+    await _roReload({reopenCatalog:true,returnEmployee}); _roToast(`${cat.name} ${active?'activada':'desactivada'}.`);
   }
 
   async function _roInit(){ const ok=await _roLoad(); if(ok)_roRender(); }
@@ -46003,16 +46118,22 @@ window._init_organigrama = async function(){
   window._init_roster=_roInit;
   window._rerender_roster=_roRender;
   window._roSetFilter=_roSetFilter;
+  window._roClearFilter=_roClearFilter;
+  window._roClearAllFilters=_roClearAllFilters;
   window._roExportExcel=_roExportExcel;
   window._roExportCSV=_roExportCSV;
-  window._roOpenLicenseModal=_roOpenLicenseModal;
-  window._roCloseModal=_roCloseModal;
-  window._roAssign=_roAssign;
+  window._roOpenLicenseDrawer=_roOpenLicenseDrawer;
+  window._roCloseDrawer=_roCloseDrawer;
+  window._roOpenCatalogModal=_roOpenCatalogModal;
+  window._roCloseCatalogAndReturn=_roCloseCatalogAndReturn;
+  window._roOpenCatalogFromEmployee=_roOpenCatalogFromEmployee;
+  window._roAssignSelected=_roAssignSelected;
   window._roRevoke=_roRevoke;
   window._roCreateLicense=_roCreateLicense;
-  window._roOpenCatalogQuick=_roOpenCatalogQuick;
+  window._roToggleCatalogLicense=_roToggleCatalogLicense;
 })();
 </script>
+
 
 </body>
 </html>
