@@ -3404,8 +3404,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.77';
-const APP_BUILD = '1.0.77-employee-photos-org-chart-01';
+const APP_VERSION   = '1.0.78';
+const APP_BUILD = '1.0.78-avatar-crop-editor-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -4327,7 +4327,7 @@ function _buildAppShell() {
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
-    {id:'organigrama',  icon:'🏢', label:'Organigrama',   roles:['people','head_people']},
+    {id:'organigrama',  icon:'🏢', label:'Organigrama',   roles:['people','head_people','manager','ceo']},
     {id:'deepdive', icon:'📊', label:'Deep Dive', roles:['manager','ceo','people','head_people']},
   ];
 
@@ -4904,6 +4904,9 @@ function initials(name){return name.split(' ').slice(0,2).map(w=>w[0]).join('')}
 function antiguedad(ingreso){const d=diffDays(ingreso,ymd(NOW));const a=Math.floor(d/365),m=Math.floor((d%365)/30);if(a>0)return a+'a '+m+'m';return m+' meses';}
 function closeModal(e){
   if(e&&e.target!==document.getElementById('modalBackdrop'))return;
+  if (typeof _impulsePendingPhoto !== 'undefined' && _impulsePendingPhoto) {
+    try { _impulseReleasePendingPhoto(); } catch(_){}
+  }
   document.getElementById('modalBackdrop').style.display='none';
   document.getElementById('modalFooter').innerHTML='<button class="btn-ghost" onclick="closeModal()">Cerrar</button>';
 }
@@ -44640,7 +44643,195 @@ async function _impulseImageBitmap(file){
   });
 }
 
-async function _impulseNormalizeAvatarFile(file){
+function _impulseReleasePendingPhoto(){
+  const pending = _impulsePendingPhoto;
+  if (!pending) return;
+  if (pending.source && typeof pending.source.close === 'function') {
+    try { pending.source.close(); } catch(_){}
+  }
+  if (pending.objectUrl) {
+    try { URL.revokeObjectURL(pending.objectUrl); } catch(_){}
+  }
+  _impulsePendingPhoto = null;
+}
+
+function _impulseClampPhotoEditor(){
+  const p = _impulsePendingPhoto;
+  if (!p?.source) return;
+  const view = p.viewSize || 300;
+  const baseScale = Math.max(view / p.sourceW, view / p.sourceH);
+  const scale = baseScale * p.zoom;
+  const drawW = p.sourceW * scale;
+  const drawH = p.sourceH * scale;
+  const maxX = Math.max(0, (drawW - view) / 2);
+  const maxY = Math.max(0, (drawH - view) / 2);
+  p.offsetX = Math.max(-maxX, Math.min(maxX, p.offsetX || 0));
+  p.offsetY = Math.max(-maxY, Math.min(maxY, p.offsetY || 0));
+}
+
+function _impulseDrawPhotoEditor(){
+  const p = _impulsePendingPhoto;
+  const canvas = document.getElementById('impulsePhotoCropCanvas');
+  if (!p?.source || !canvas) return;
+
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const cssSize = p.viewSize || 300;
+  const targetW = Math.round(cssSize * dpr);
+  if (canvas.width !== targetW || canvas.height !== targetW) {
+    canvas.width = targetW;
+    canvas.height = targetW;
+  }
+
+  _impulseClampPhotoEditor();
+
+  const ctx = canvas.getContext('2d', { alpha:false });
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssSize, cssSize);
+  ctx.fillStyle = '#E5E7EB';
+  ctx.fillRect(0, 0, cssSize, cssSize);
+
+  const baseScale = Math.max(cssSize / p.sourceW, cssSize / p.sourceH);
+  const scale = baseScale * p.zoom;
+  const drawW = p.sourceW * scale;
+  const drawH = p.sourceH * scale;
+  const dx = (cssSize - drawW) / 2 + (p.offsetX || 0);
+  const dy = (cssSize - drawH) / 2 + (p.offsetY || 0);
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(p.source, dx, dy, drawW, drawH);
+
+  // Guía circular: muestra exactamente cómo se verá el avatar.
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,.96)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(cssSize / 2, cssSize / 2, cssSize / 2 - 4, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  const zoomLabel = document.getElementById('impulsePhotoZoomLabel');
+  if (zoomLabel) zoomLabel.textContent = `${Math.round(p.zoom * 100)}%`;
+  const slider = document.getElementById('impulsePhotoZoom');
+  if (slider && Number(slider.value) !== Number(p.zoom)) slider.value = String(p.zoom);
+}
+
+function _impulsePhotoSetZoom(value, anchorX=null, anchorY=null){
+  const p = _impulsePendingPhoto;
+  if (!p?.source) return;
+  const oldZoom = p.zoom || 1;
+  const nextZoom = Math.max(1, Math.min(4, Number(value) || 1));
+  if (Math.abs(nextZoom - oldZoom) < 0.0001) return;
+
+  // Mantiene aproximadamente el punto bajo el dedo/cursor al hacer zoom.
+  if (anchorX != null && anchorY != null) {
+    const view = p.viewSize || 300;
+    const ratio = nextZoom / oldZoom;
+    p.offsetX = anchorX - view/2 - ((anchorX - view/2 - (p.offsetX || 0)) * ratio);
+    p.offsetY = anchorY - view/2 - ((anchorY - view/2 - (p.offsetY || 0)) * ratio);
+  }
+  p.zoom = nextZoom;
+  _impulseDrawPhotoEditor();
+}
+
+window._impulsePhotoZoomChanged = function(value){
+  _impulsePhotoSetZoom(value);
+};
+
+window._impulsePhotoZoomStep = function(delta){
+  const p = _impulsePendingPhoto;
+  if (!p) return;
+  _impulsePhotoSetZoom((p.zoom || 1) + Number(delta || 0));
+};
+
+window._impulsePhotoResetEditor = function(){
+  const p = _impulsePendingPhoto;
+  if (!p) return;
+  p.zoom = 1;
+  p.offsetX = 0;
+  p.offsetY = 0;
+  _impulseDrawPhotoEditor();
+};
+
+function _impulseBindPhotoEditor(){
+  const canvas = document.getElementById('impulsePhotoCropCanvas');
+  const p = _impulsePendingPhoto;
+  if (!canvas || !p) return;
+
+  const pointers = new Map();
+  let lastX = 0;
+  let lastY = 0;
+  let pinchDistance = null;
+  let pinchZoomStart = p.zoom;
+
+  const canvasPoint = ev => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (ev.clientX - rect.left) * ((p.viewSize || 300) / rect.width),
+      y: (ev.clientY - rect.top) * ((p.viewSize || 300) / rect.height)
+    };
+  };
+
+  canvas.addEventListener('pointerdown', ev => {
+    ev.preventDefault();
+    try { canvas.setPointerCapture(ev.pointerId); } catch(_){}
+    const pt = canvasPoint(ev);
+    pointers.set(ev.pointerId, pt);
+    lastX = pt.x;
+    lastY = pt.y;
+    if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      pinchDistance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      pinchZoomStart = p.zoom;
+    }
+  });
+
+  canvas.addEventListener('pointermove', ev => {
+    if (!pointers.has(ev.pointerId)) return;
+    ev.preventDefault();
+    const pt = canvasPoint(ev);
+    pointers.set(ev.pointerId, pt);
+
+    if (pointers.size >= 2) {
+      const pts = [...pointers.values()].slice(0,2);
+      const distance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      if (pinchDistance && pinchDistance > 0) {
+        _impulsePhotoSetZoom(pinchZoomStart * (distance / pinchDistance));
+      }
+      return;
+    }
+
+    p.offsetX = (p.offsetX || 0) + (pt.x - lastX);
+    p.offsetY = (p.offsetY || 0) + (pt.y - lastY);
+    lastX = pt.x;
+    lastY = pt.y;
+    _impulseDrawPhotoEditor();
+  });
+
+  const endPointer = ev => {
+    pointers.delete(ev.pointerId);
+    if (pointers.size < 2) pinchDistance = null;
+    if (pointers.size === 1) {
+      const only = [...pointers.values()][0];
+      lastX = only.x;
+      lastY = only.y;
+    }
+  };
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  // Desktop: scroll sobre la foto para acercar/alejar.
+  canvas.addEventListener('wheel', ev => {
+    ev.preventDefault();
+    const pt = canvasPoint(ev);
+    const factor = ev.deltaY < 0 ? 1.10 : 0.90;
+    _impulsePhotoSetZoom((p.zoom || 1) * factor, pt.x, pt.y);
+  }, { passive:false });
+
+  _impulseDrawPhotoEditor();
+}
+
+async function _impulsePrepareAvatarEditor(file, employeeId){
   if (!file || !String(file.type || '').startsWith('image/')){
     throw new Error('Selecciona un archivo de imagen.');
   }
@@ -44648,35 +44839,62 @@ async function _impulseNormalizeAvatarFile(file){
     throw new Error('La foto original supera 15 MB.');
   }
 
+  _impulseReleasePendingPhoto();
   const source = await _impulseImageBitmap(file);
   const sw = source.width || source.naturalWidth || 0;
   const sh = source.height || source.naturalHeight || 0;
-  if (!sw || !sh) throw new Error('No se pudo determinar el tamaño de la imagen.');
+  if (!sw || !sh) {
+    if (typeof source.close === 'function') { try { source.close(); } catch(_){} }
+    throw new Error('No se pudo determinar el tamaño de la imagen.');
+  }
 
-  const crop = Math.min(sw, sh);
-  const sx = Math.max(0, (sw - crop) / 2);
-  const sy = Math.max(0, (sh - crop) / 2);
+  _impulsePendingPhoto = {
+    employeeId,
+    source,
+    sourceW: sw,
+    sourceH: sh,
+    zoom: 1,
+    offsetX: 0,
+    offsetY: 0,
+    viewSize: 300
+  };
+}
+
+async function _impulseRenderAvatarBlob(){
+  const p = _impulsePendingPhoto;
+  if (!p?.source) throw new Error('No hay una fotografía preparada.');
+
+  _impulseClampPhotoEditor();
+  const view = p.viewSize || 300;
+  const baseScale = Math.max(view / p.sourceW, view / p.sourceH);
+  const editorScale = baseScale * p.zoom;
+  const outputRatio = 512 / view;
+  const finalScale = editorScale * outputRatio;
 
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 512;
-
   const ctx = canvas.getContext('2d', { alpha:false });
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(0,0,512,512);
-  ctx.drawImage(source, sx, sy, crop, crop, 0, 0, 512, 512);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
-  if (typeof source.close === 'function') {
-    try { source.close(); } catch(_){}
-  }
+  const drawW = p.sourceW * finalScale;
+  const drawH = p.sourceH * finalScale;
+  const dx = (512 - drawW) / 2 + (p.offsetX || 0) * outputRatio;
+  const dy = (512 - drawH) / 2 + (p.offsetY || 0) * outputRatio;
+  ctx.drawImage(p.source, dx, dy, drawW, drawH);
 
-  const blob = await new Promise(resolve =>
-    canvas.toBlob(resolve, 'image/webp', 0.86)
-  );
-
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.88));
   if (!blob) throw new Error('No se pudo procesar la fotografía.');
   return blob;
 }
+
+window._impulseCancelEmployeePhotoEditor = function(){
+  _impulseReleasePendingPhoto();
+  closeModal();
+};
 
 window._impulseChooseEmployeePhoto = function(employeeId){
   if (!['people','head_people'].includes(String(currentRole || '').toLowerCase())){
@@ -44688,44 +44906,65 @@ window._impulseChooseEmployeePhoto = function(employeeId){
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.setAttribute('capture','environment');
 
   input.onchange = async () => {
     const file = input.files?.[0];
     if (!file) return;
 
     try{
-      const blob = await _impulseNormalizeAvatarFile(file);
-      if (_impulsePendingPhoto?.previewUrl) {
-        try { URL.revokeObjectURL(_impulsePendingPhoto.previewUrl); } catch(_){}
-      }
-      const previewUrl = URL.createObjectURL(blob);
-      _impulsePendingPhoto = { employeeId, blob, previewUrl };
+      await _impulsePrepareAvatarEditor(file, employeeId);
 
       const backdrop = document.getElementById('modalBackdrop');
       const title = document.getElementById('modalTitle');
       const sub = document.getElementById('modalSub');
       const body = document.getElementById('modalBody');
       const footer = document.getElementById('modalFooter');
-
       if (!backdrop || !body || !footer) throw new Error('No se pudo abrir el editor de foto.');
 
-      title.textContent = '📷 Foto de empleado';
+      title.textContent = '📷 Ajustar fotografía';
       sub.textContent = employee?.full_name || employeeId;
       body.innerHTML = `
-        <div style="text-align:center;padding:8px 0 2px">
-          <img src="${_impulseEsc(previewUrl)}" alt="Vista previa" style="width:210px;height:210px;border-radius:50%;object-fit:cover;box-shadow:0 10px 28px rgba(15,23,42,.16);border:6px solid #fff">
-          <div style="font-size:12px;color:#64748B;line-height:1.55;margin:18px auto 0;max-width:420px">
-            Impulse recortó la foto al centro, la redimensionó a <b>512 × 512</b> y la comprimirá como WebP.
-            Puedes cancelar si prefieres elegir otra imagen.
+        <div style="max-width:520px;margin:0 auto;text-align:center;padding:2px 0 4px">
+          <div style="font-size:13px;color:#64748B;line-height:1.45;margin:0 auto 14px;max-width:440px">
+            Arrastra la foto para elegir el encuadre. Usa el zoom o pellizca con dos dedos en el teléfono.
+          </div>
+
+          <div style="display:flex;justify-content:center">
+            <canvas id="impulsePhotoCropCanvas" width="600" height="600"
+              style="width:min(300px,78vw);height:min(300px,78vw);max-width:300px;max-height:300px;border-radius:50%;display:block;touch-action:none;cursor:grab;box-shadow:0 14px 38px rgba(15,23,42,.18);background:#E5E7EB;user-select:none"></canvas>
+          </div>
+
+          <div style="max-width:360px;margin:20px auto 0">
+            <div style="display:flex;align-items:center;gap:10px">
+              <button type="button" class="btn-ghost" onclick="_impulsePhotoZoomStep(-0.15)" aria-label="Alejar"
+                style="width:42px;height:42px;min-width:42px;padding:0;border-radius:50%;font-size:20px">−</button>
+              <input id="impulsePhotoZoom" type="range" min="1" max="4" step="0.01" value="1"
+                oninput="_impulsePhotoZoomChanged(this.value)"
+                style="flex:1;accent-color:#2563EB;min-width:0">
+              <button type="button" class="btn-ghost" onclick="_impulsePhotoZoomStep(0.15)" aria-label="Acercar"
+                style="width:42px;height:42px;min-width:42px;padding:0;border-radius:50%;font-size:20px">+</button>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;font-size:11px;color:#64748B">
+              <span>Zoom</span>
+              <b id="impulsePhotoZoomLabel" style="color:#334155">100%</b>
+            </div>
+            <button type="button" class="btn-ghost" onclick="_impulsePhotoResetEditor()"
+              style="margin-top:12px;width:100%;min-height:42px">↺ Centrar y restablecer</button>
+          </div>
+
+          <div style="font-size:11px;color:#94A3B8;line-height:1.5;margin:16px auto 0;max-width:420px">
+            Al guardar, Impulse generará una versión optimizada de <b>512 × 512</b> en WebP. La fotografía original no se modifica.
           </div>
         </div>`;
       footer.innerHTML = `
-        <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
+        <button class="btn-ghost" onclick="_impulseCancelEmployeePhotoEditor()">Cancelar</button>
         <button class="btn-primary" onclick="_impulseSaveEmployeePhoto()">Guardar fotografía</button>`;
       backdrop.style.display = 'flex';
+
+      requestAnimationFrame(() => _impulseBindPhotoEditor());
     }catch(error){
       console.error('[Impulse Avatars] Preparar foto:', error);
+      _impulseReleasePendingPhoto();
       alert(error?.message || 'No se pudo procesar la foto.');
     }
   };
@@ -44735,7 +44974,7 @@ window._impulseChooseEmployeePhoto = function(employeeId){
 
 window._impulseSaveEmployeePhoto = async function(){
   const pending = _impulsePendingPhoto;
-  if (!pending?.blob || !pending?.employeeId) return;
+  if (!pending?.source || !pending?.employeeId) return;
 
   const button = document.querySelector('#modalFooter .btn-primary');
   if (button){
@@ -44747,9 +44986,11 @@ window._impulseSaveEmployeePhoto = async function(){
   const path = `${employeeId}/avatar.webp`;
 
   try{
+    const blob = await _impulseRenderAvatarBlob();
+
     const { error: uploadError } = await _auth_sb.storage
       .from(_IMPULSE_AVATAR_BUCKET)
-      .upload(path, pending.blob, {
+      .upload(path, blob, {
         upsert:true,
         contentType:'image/webp',
         cacheControl:'60'
@@ -44767,9 +45008,7 @@ window._impulseSaveEmployeePhoto = async function(){
 
     _impulseAvatarPathCache.set(employeeId, path);
     _impulseAvatarUrlCache.delete(path);
-
-    try { URL.revokeObjectURL(pending.previewUrl); } catch(_){}
-    _impulsePendingPhoto = null;
+    _impulseReleasePendingPhoto();
 
     closeModal();
     await _impulseHydrateAvatars(document);
