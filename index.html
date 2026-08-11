@@ -3404,8 +3404,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.78';
-const APP_BUILD = '1.0.78-avatar-crop-editor-01';
+const APP_VERSION   = '1.0.79';
+const APP_BUILD = '1.0.79-hotfix-ticket-hierarchy-supervisors-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -4327,7 +4327,7 @@ function _buildAppShell() {
     {id:'vacaciones',   icon:'🏖️', label:'Vacaciones',    roles:['agent','supervisor','manager','people','head_people','ceo','workforce','admin','qa','quality','quality_analyst','qa_analyst']},
     {id:'disciplinario',icon:'🧭', label:'Acciones People', roles:['agent','supervisor','manager','people','head_people','ceo']},
     {id:'equipo',       icon:'👥', label:'Equipo',        roles:['agent','supervisor','manager','people','head_people','ceo']},
-    {id:'organigrama',  icon:'🏢', label:'Organigrama',   roles:['people','head_people','manager','ceo']},
+    {id:'organigrama',  icon:'🏢', label:'Organigrama',   roles:['people','head_people']},
     {id:'deepdive', icon:'📊', label:'Deep Dive', roles:['manager','ceo','people','head_people']},
   ];
 
@@ -29467,6 +29467,10 @@ let _t_TICKETS = [];
 let _t_EMPLEADOS = [];
 let _t_TEAM_TICKETS = [];
 let _t_EMPLEADOS_FULL = [];
+// Lista mínima de candidatos a supervisor para cambios de jerarquía.
+// Se carga por RPC SECURITY DEFINER porque RLS puede limitar employees para supervisores.
+let _t_SUPERVISORES_JERARQUIA = [];
+let _t_SUPERVISORES_JERARQUIA_CARGADOS = false;
 let _t_cargando = false;
 let _t_vistaTickets = 'mis';
 let _t_detalleId = null;
@@ -30131,6 +30135,10 @@ async function _t_cargarTickets(options = {}) {
     _t_EMPLEADOS = emps || [];
     _t_EMPLEADOS_FULL = emps || [];
 
+    // Pre-carga segura de supervisores disponibles para tickets de cambio de jerarquía.
+    // No amplía la lista de empleados visibles del supervisor; solo trae candidatos mínimos.
+    await _t_cargarSupervisoresJerarquia(true);
+
     /*
      * 5. Mantener intacta la clasificación interna de nómina.
      */
@@ -30450,13 +30458,43 @@ function _t_renderDetalleBaja(t) {
 }
 
 function _t_supervisoresActivos() {
-  return (_t_EMPLEADOS_FULL || [])
+  const source = _t_SUPERVISORES_JERARQUIA_CARGADOS
+    ? (_t_SUPERVISORES_JERARQUIA || [])
+    : (_t_EMPLEADOS_FULL || []);
+
+  return source
     .filter(e => {
       const role = String(e.system_role || '').toLowerCase();
       const puesto = String(e.position_title || '').toLowerCase();
-      return e.status === 'active' && (role === 'supervisor' || puesto.includes('supervisor'));
+      return String(e.status || '').toLowerCase() === 'active' &&
+        (role === 'supervisor' || puesto.includes('supervisor'));
     })
     .sort((a,b) => String(a.full_name || '').localeCompare(String(b.full_name || ''), 'es'));
+}
+
+async function _t_cargarSupervisoresJerarquia(force = false) {
+  if (_t_SUPERVISORES_JERARQUIA_CARGADOS && !force) {
+    return _t_SUPERVISORES_JERARQUIA;
+  }
+
+  const allowedRoles = ['supervisor','manager','senior_manager','people','head_people','ceo'];
+  if (!allowedRoles.includes(String(currentRole || '').toLowerCase())) {
+    return _t_supervisoresActivos();
+  }
+
+  try {
+    const { data, error } = await _t_sb.rpc('get_hierarchy_change_supervisor_options');
+    if (error) throw error;
+
+    _t_SUPERVISORES_JERARQUIA = Array.isArray(data) ? data : [];
+    _t_SUPERVISORES_JERARQUIA_CARGADOS = true;
+    return _t_SUPERVISORES_JERARQUIA;
+  } catch (error) {
+    console.warn('[Tickets HR] No se pudo cargar la lista global de supervisores para cambio de jerarquía:', error);
+    // Fallback: mantiene el comportamiento previo si la migración aún no está instalada.
+    _t_SUPERVISORES_JERARQUIA_CARGADOS = false;
+    return _t_supervisoresActivos();
+  }
 }
 
 function _t_parseHierarchyData(t) {
@@ -30542,7 +30580,7 @@ function _t_toggleOtroMotivoJerarquia() {
   if (otro) otro.style.display = document.getElementById('nt-h-reason')?.value === 'Otro' ? 'block' : 'none';
 }
 
-function _t_actualizarPreviewJerarquia() {
+async function _t_actualizarPreviewJerarquia() {
   const empId = document.getElementById('nt-h-employee')?.value;
   const emp = _t_emp(empId);
   const currentSupId = emp?.supervisor_id || '';
@@ -30571,9 +30609,15 @@ function _t_actualizarPreviewJerarquia() {
   }
 
   if (sel) {
+    // Para supervisores, employees suele estar limitado por RLS a su propio equipo.
+    // Cargamos una lista mínima de candidatos desde un RPC seguro para que el dropdown
+    // no quede vacío al excluir al supervisor actual.
+    await _t_cargarSupervisoresJerarquia();
     const sups = _t_supervisoresActivos().filter(s => s.id !== currentSupId && s.id !== empId);
-    sel.innerHTML = '<option value="">Selecciona el nuevo supervisor...</option>' +
-      sups.map(s => `<option value="${s.id}">${s.full_name}${s.campaign_id ? ' · ' + s.campaign_id : ''}</option>`).join('');
+    sel.innerHTML = sups.length
+      ? '<option value="">Selecciona el nuevo supervisor...</option>' +
+        sups.map(s => `<option value="${s.id}">${s.full_name}${s.campaign_id ? ' · ' + s.campaign_id : ''}</option>`).join('')
+      : '<option value="">No se encontraron supervisores disponibles</option>';
 
     // Restaura la selección solo si sigue siendo una opción válida.
     if (selectedSupervisorId && sups.some(s => s.id === selectedSupervisorId)) {
