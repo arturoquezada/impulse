@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.83';
-const APP_BUILD = '1.0.83-roster-modern-ui-license-drawer-01';
+const APP_VERSION   = '1.0.84';
+const APP_BUILD = '1.0.84-roster-free-text-license-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -45794,10 +45794,10 @@ window._init_organigrama = async function(){
 </script>
 
 <!-- IMPULSE PEOPLE ACTIONS POLICY v1.0.80: MATRIX_AUTO_ISSUE -->
-<!-- IMPULSE ROSTER OPERATIVO v1.0.83 · MODERN UI + LICENSE DRAWER FIX -->
+<!-- IMPULSE ROSTER OPERATIVO v1.0.84 · MODERN UI + FREE TEXT LICENSE -->
 <script>
 (() => {
-  const _ROSTER_VERSION = '1.0.83';
+  const _ROSTER_VERSION = '1.0.84';
   let _ro_payload = null;
   let _ro_rows = [];
   let _ro_catalog = [];
@@ -45950,7 +45950,6 @@ window._init_organigrama = async function(){
           <div class="roster-export-scope"><span>Exportación actual</span><span>${scopeLabel} · ${rows.length} registros</span></div>
           <button type="button" class="roster-btn" data-ro-action="export-csv">↓ CSV</button>
           <button type="button" class="roster-btn primary" data-ro-action="export-excel">↓ Exportar Excel</button>
-          ${canManage?'<button type="button" class="roster-btn cyan" data-ro-action="catalog">⚙ Catálogo</button>':''}
         </div>
       </div>
 
@@ -46036,7 +46035,6 @@ window._init_organigrama = async function(){
     });
     root.querySelector('[data-ro-action="export-csv"]')?.addEventListener('click',_roExportCSV);
     root.querySelector('[data-ro-action="export-excel"]')?.addEventListener('click',_roExportExcel);
-    root.querySelector('[data-ro-action="catalog"]')?.addEventListener('click',()=>_roOpenCatalogModal());
     root.querySelector('[data-ro-action="clear-filters"]')?.addEventListener('click',_roClearAllFilters);
   }
 
@@ -46078,10 +46076,7 @@ window._init_organigrama = async function(){
     document.getElementById('rosterDrawer')?.remove();
     const canManage=!!_ro_payload?.can_manage_licenses;
     const canAssign=canManage&&_roIsActive(r);
-    const activeMap=new Map((r.licenses||[]).map(x=>[String(x.license_id),x]));
     const activeLicenses=(r.licenses||[]);
-    const activeCatalog=_ro_catalog.filter(x=>x.active);
-    const available=activeCatalog.filter(x=>!activeMap.has(String(x.id)));
     const history=(r.license_history||[]).slice(0,14);
     const backdrop=document.createElement('div'); backdrop.id='rosterDrawer'; backdrop.className='roster-drawer-backdrop';
     backdrop.onclick=e=>{if(e.target===backdrop)_roCloseDrawer();};
@@ -46097,12 +46092,11 @@ window._init_organigrama = async function(){
         </div>
         ${!_roIsActive(r)?'<div class="roster-warning"><b>Colaborador dado de baja.</b> No se pueden asignar licencias nuevas; sí puedes retirar licencias activas para cerrar offboarding.</div>':''}
 
-        ${canAssign?`<div class="roster-section-title">Asignar nueva licencia</div><div class="roster-assignment-box"><div class="roster-assignment-row"><select id="ro-license-to-assign" class="roster-select" ${available.length?'':'disabled'}>${available.length?available.map(x=>_roOption(x.id,x.name,'')).join(''):_roOption('',activeCatalog.length?'Todas las licencias activas ya están asignadas':'No hay licencias activas en el catálogo','')}</select><button class="roster-btn blue" ${available.length?'':'disabled'} onclick="_roAssignSelected('${_roEsc(r.employee_id)}')">＋ Asignar</button></div><div class="roster-secondary" style="margin-top:6px">La asignación se aplicará únicamente a <b>${_roEsc(r.full_name||r.employee_id)}</b>.</div></div>`:''}
+        ${canAssign?`<div class="roster-section-title">Asignar nueva licencia</div><div class="roster-assignment-box"><div class="roster-assignment-row"><div style="flex:1;min-width:0"><input id="ro-license-text" class="roster-input" type="text" maxlength="80" autocomplete="off" placeholder="Escribe la licencia, ej. Five9, Zendesk, Salesforce…" onkeydown="if(event.key==='Enter'){event.preventDefault();_roAssignTextLicense('${_roEsc(r.employee_id)}')}"></div><button class="roster-btn blue" onclick="_roAssignTextLicense('${_roEsc(r.employee_id)}')">＋ Asignar</button></div><div class="roster-secondary" style="margin-top:7px">Escribe el nombre libremente. Impulse reutiliza el mismo nombre si ya existe y lo asigna únicamente a <b>${_roEsc(r.full_name||r.employee_id)}</b>.</div></div>`:''}
 
         <div class="roster-section-title">Licencias activas · ${activeLicenses.length}</div>
         ${activeLicenses.length?activeLicenses.map(a=>`<div class="roster-license-row active"><div><div class="roster-license-name">${_roEsc(a.license_name||'Licencia')}</div><div class="roster-license-desc">Asignada ${_roDate(a.assigned_at)}${a.assigned_by_name?` · ${_roEsc(a.assigned_by_name)}`:''}</div></div>${canManage?`<button class="roster-btn danger small" onclick="_roRevoke('${_roEsc(a.assignment_id)}')">Retirar</button>`:'<span class="roster-chip active">Activa</span>'}</div>`).join(''):'<div class="roster-empty" style="padding:22px 8px">Este colaborador no tiene licencias activas.</div>'}
 
-        ${canManage?'<button class="roster-btn ghost" style="width:100%;margin-top:6px" onclick="_roOpenCatalogFromEmployee()">⚙ Administrar catálogo de licencias</button>':''}
 
         <div class="roster-section-title">Historial</div>
         ${history.length?history.map(h=>`<div class="roster-history"><b>${_roEsc(h.license_name||'Licencia')}</b> · Asignada ${_roDate(h.assigned_at)} por ${_roEsc(h.assigned_by_name||h.assigned_by||'—')}${h.revoked_at?` · Retirada ${_roDate(h.revoked_at)} por ${_roEsc(h.revoked_by_name||h.revoked_by||'—')}`:' · Activa'}</div>`).join(''):'<div class="roster-secondary">Sin movimientos registrados.</div>'}
@@ -46111,41 +46105,76 @@ window._init_organigrama = async function(){
     document.body.appendChild(backdrop);
   }
 
-  function _roOpenCatalogFromEmployee(){ const current=_ro_modalEmployeeId; _roCloseDrawer(); _roOpenCatalogModal(current); }
-  function _roOpenCatalogModal(returnEmployeeId=null){
-    if(!_ro_payload?.can_manage_licenses) return;
-    document.getElementById('rosterCatalogDrawer')?.remove();
-    const backdrop=document.createElement('div'); backdrop.id='rosterCatalogDrawer'; backdrop.className='roster-drawer-backdrop'; backdrop.dataset.returnEmployee=returnEmployeeId||'';
-    backdrop.onclick=e=>{if(e.target===backdrop)_roCloseCatalogAndReturn();};
-    backdrop.innerHTML=`<div class="roster-drawer"><div class="roster-drawer-head"><div><div class="roster-drawer-title">Catálogo de licencias</div><div class="roster-drawer-sub">Crea y administra tipos de licencia. Aquí no se asignan personas.</div></div><button class="roster-btn ghost small" onclick="_roCloseCatalogAndReturn()">✕</button></div><div class="roster-drawer-body">
-      <div class="roster-catalog-create"><div><div class="roster-section-title" style="margin:0 0 7px">Nueva licencia</div><input id="ro-new-license-name" class="roster-input" placeholder="Ej. Five9, Zendesk, Salesforce"></div><input id="ro-new-license-desc" class="roster-input" placeholder="Descripción opcional"><button class="roster-btn blue" onclick="_roCreateLicense()">＋ Crear en catálogo</button></div>
-      <div class="roster-section-title">Catálogo actual · ${_ro_catalog.length}</div>
-      <div>${_ro_catalog.length?_ro_catalog.map(cat=>`<div class="roster-catalog-item"><div><div class="roster-license-name">${_roEsc(cat.name)}</div><div class="roster-license-desc">${_roEsc(cat.description||'Sin descripción')} · ${cat.active?'Activa':'Inactiva'}</div></div><button class="roster-btn ${cat.active?'danger':'blue'} small" onclick="_roToggleCatalogLicense('${_roEsc(cat.id)}',${cat.active?'false':'true'})">${cat.active?'Desactivar':'Activar'}</button></div>`).join(''):'<div class="roster-empty">Aún no hay licencias creadas.</div>'}</div>
-    </div></div>`;
-    document.body.appendChild(backdrop);
-  }
-  function _roCloseCatalogAndReturn(){
-    const el=document.getElementById('rosterCatalogDrawer'); const emp=el?.dataset?.returnEmployee||''; _roCloseCatalog(); if(emp)_roOpenLicenseDrawer(emp);
-  }
 
-  async function _roReload({reopenEmployee=null,reopenCatalog=false,returnEmployee=null}={}){
+  async function _roReload({reopenEmployee=null}={}){
     _roCaptureScroll();
     const ok=await _roLoad({showLoading:false}); if(!ok)return false;
     _roRender();
     if(reopenEmployee)_roOpenLicenseDrawer(reopenEmployee);
-    else if(reopenCatalog)_roOpenCatalogModal(returnEmployee);
     return true;
   }
 
-  async function _roAssignSelected(employeeId){
-    const licenseId=document.getElementById('ro-license-to-assign')?.value;
-    if(!licenseId){_roToast('Selecciona una licencia.','error');return;}
-    const r=_roEmployee(employeeId), cat=_ro_catalog.find(x=>String(x.id)===String(licenseId));
-    if(!confirm(`¿Asignar ${cat?.name||'esta licencia'} a ${r?.full_name||employeeId}?`))return;
-    const btn=document.activeElement; if(btn?.classList?.contains('roster-btn'))btn.disabled=true;
-    const {error}=await _auth_sb.rpc('assign_workforce_license',{p_employee_id:employeeId,p_license_id:licenseId,p_notes:'Asignado desde Roster Operativo v1.0.83'});
-    if(error){if(btn)btn.disabled=false;_roToast(error.message||String(error),'error');return;}
-    await _roReload({reopenEmployee:employeeId}); _roToast(`${cat?.name||'Licencia'} asignada a ${r?.full_name||employeeId}.`);
+  async function _roAssignTextLicense(employeeId){
+    const input=document.getElementById('ro-license-text');
+    const rawName=input?.value?.trim()||'';
+    if(!rawName){_roToast('Escribe el nombre de la licencia.','error');input?.focus();return;}
+
+    const r=_roEmployee(employeeId);
+    if(!r){_roToast('No se encontró al colaborador.','error');return;}
+    if(!_roIsActive(r)){_roToast('No se pueden asignar licencias nuevas a una baja.','error');return;}
+
+    const norm=_roNorm(rawName);
+    const already=(r.licenses||[]).find(x=>_roNorm(x.license_name)===norm);
+    if(already){_roToast(`${r.full_name||employeeId} ya tiene ${already.license_name||rawName}.`,'error');return;}
+
+    if(!confirm(`¿Asignar “${rawName}” a ${r.full_name||employeeId}?`))return;
+
+    const btn=document.activeElement;
+    if(btn?.classList?.contains('roster-btn'))btn.disabled=true;
+    if(input)input.disabled=true;
+
+    try{
+      let cat=(_ro_catalog||[]).find(x=>_roNorm(x.name)===norm);
+      let licenseId=cat?.id||null;
+
+      if(cat && !cat.active){
+        const {data,error}=await _auth_sb.rpc('save_workforce_license',{
+          p_name:cat.name,
+          p_description:cat.description||null,
+          p_license_id:cat.id,
+          p_active:true
+        });
+        if(error)throw error;
+        licenseId=data?.license_id||cat.id;
+      }
+
+      if(!licenseId){
+        const {data,error}=await _auth_sb.rpc('save_workforce_license',{
+          p_name:rawName,
+          p_description:null,
+          p_license_id:null,
+          p_active:true
+        });
+        if(error)throw error;
+        licenseId=data?.license_id||null;
+      }
+
+      if(!licenseId)throw new Error('No fue posible crear o identificar la licencia.');
+
+      const {error:assignError}=await _auth_sb.rpc('assign_workforce_license',{
+        p_employee_id:employeeId,
+        p_license_id:licenseId,
+        p_notes:'Asignado desde Roster Operativo v1.0.84 · captura libre'
+      });
+      if(assignError)throw assignError;
+
+      await _roReload({reopenEmployee:employeeId});
+      _roToast(`${rawName} asignada a ${r.full_name||employeeId}.`);
+    }catch(error){
+      _roToast(error?.message||String(error),'error');
+      if(btn)btn.disabled=false;
+      if(input){input.disabled=false;input.focus();}
+    }
   }
 
   async function _roRevoke(assignmentId){
@@ -46156,28 +46185,10 @@ window._init_organigrama = async function(){
     await _roReload({reopenEmployee:employeeId}); _roToast(`${item?.license_name||'Licencia'} retirada correctamente.`);
   }
 
-  async function _roCreateLicense(){
-    const name=document.getElementById('ro-new-license-name')?.value?.trim(), desc=document.getElementById('ro-new-license-desc')?.value?.trim();
-    if(!name){_roToast('Escribe el nombre de la licencia.','error');return;}
-    const returnEmployee=document.getElementById('rosterCatalogDrawer')?.dataset?.returnEmployee||null;
-    const {error}=await _auth_sb.rpc('save_workforce_license',{p_name:name,p_description:desc||null,p_license_id:null,p_active:true});
-    if(error){_roToast(error.message||String(error),'error');return;}
-    await _roReload({reopenCatalog:true,returnEmployee}); _roToast(`${name} creada en el catálogo.`);
-  }
-
-  async function _roToggleCatalogLicense(licenseId,active){
-    const cat=_ro_catalog.find(x=>String(x.id)===String(licenseId)); if(!cat)return;
-    const returnEmployee=document.getElementById('rosterCatalogDrawer')?.dataset?.returnEmployee||null;
-    if(!confirm(`¿${active?'Activar':'Desactivar'} ${cat.name}?`))return;
-    const {error}=await _auth_sb.rpc('save_workforce_license',{p_name:cat.name,p_description:cat.description||null,p_license_id:licenseId,p_active:!!active});
-    if(error){_roToast(error.message||String(error),'error');return;}
-    await _roReload({reopenCatalog:true,returnEmployee}); _roToast(`${cat.name} ${active?'activada':'desactivada'}.`);
-  }
-
   async function _roInit(){
     if(!window.__impulseRosterEscBound){
       window.__impulseRosterEscBound=true;
-      document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ _roCloseDrawer(); _roCloseCatalog(); } });
+      document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ _roCloseDrawer(); } });
     }
     const ok=await _roLoad(); if(ok)_roRender();
   }
@@ -46191,13 +46202,8 @@ window._init_organigrama = async function(){
   window._roExportCSV=_roExportCSV;
   window._roOpenLicenseDrawer=_roOpenLicenseDrawer;
   window._roCloseDrawer=_roCloseDrawer;
-  window._roOpenCatalogModal=_roOpenCatalogModal;
-  window._roCloseCatalogAndReturn=_roCloseCatalogAndReturn;
-  window._roOpenCatalogFromEmployee=_roOpenCatalogFromEmployee;
-  window._roAssignSelected=_roAssignSelected;
+  window._roAssignTextLicense=_roAssignTextLicense;
   window._roRevoke=_roRevoke;
-  window._roCreateLicense=_roCreateLicense;
-  window._roToggleCatalogLicense=_roToggleCatalogLicense;
 })();
 </script>
 
