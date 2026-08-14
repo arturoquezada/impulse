@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.85';
-const APP_BUILD = '1.0.85-attendance-readonly-init-01';
+const APP_VERSION   = '1.0.86';
+const APP_BUILD = '1.0.86-termination-effective-date-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -30985,7 +30985,7 @@ async function _t_resolverTicket(id) {
     </div>`;
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-primary" onclick="_t_confirmarResolver('${id}')">${esCorreccionIncidencia ? '✅ Aplicar clasificación y completar' : esCorreccion ? '✅ Aplicar y completar' : esJerarquia ? '✅ Aprobar y actualizar supervisor' : esBaja ? '✅ Aprobar y continuar con la baja' : 'Marcar como completado'}</button>`;
+    <button class="btn-primary" onclick="_t_confirmarResolver('${id}')">${esCorreccionIncidencia ? '✅ Aplicar clasificación y completar' : esCorreccion ? '✅ Aplicar y completar' : esJerarquia ? '✅ Aprobar y actualizar supervisor' : esBaja ? '✅ Revisar y procesar baja' : 'Marcar como completado'}</button>`;
   document.getElementById('modalBackdrop').style.display = 'flex';
 
   if (esCorreccionIncidencia) {
@@ -32611,7 +32611,7 @@ ${t.resolution_notes ? `
             ` : ''}
 
             <button onclick="_t_resolverTicket('${t.id}')" class="btn-green">
-              ${_t_esCorreccionIncidencia(t) ? '✅ Resolver incidencia' : t.type === 'correccion_asistencia' ? '✅ Aplicar y completar' : _t_esSolicitudBajaValor(_t_categoriaLabel(t.type), t.subtype) ? '✅ Aprobar y continuar con la baja' : '✅ Marcar como completado'}
+              ${_t_esCorreccionIncidencia(t) ? '✅ Resolver incidencia' : t.type === 'correccion_asistencia' ? '✅ Aplicar y completar' : _t_esSolicitudBajaValor(_t_categoriaLabel(t.type), t.subtype) ? '✅ Revisar y procesar baja' : '✅ Marcar como completado'}
             </button>
 
             <button onclick="_t_cancelarTicket('${t.id}')" class="btn-ghost">Cancelar ticket</button>
@@ -43404,11 +43404,27 @@ async function _e_confirmarAlta() {
 }
 
 
+function _e_hoyMexicoYmd() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Mexico_City',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const map = Object.fromEntries(parts.filter(p => p.type !== 'literal').map(p => [p.type, p.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
 function _e_abrirBaja(empId, isEdit) {
   const emp = _e_EMPLEADOS.find(e => e.id === empId);
   if (!emp) return;
   const ticketCtx = (!isEdit && window._t_PENDING_TERMINATION_CONTEXT?.employeeId === empId) ? window._t_PENDING_TERMINATION_CONTEXT : null;
   const ticketData = ticketCtx?.data || {};
+  const hoyBaja = _e_hoyMexicoYmd();
+  const fechaPropuesta = ticketData.termination_date || '';
+  const fechaEfectivaInicial = isEdit
+    ? (emp.termination_date || hoyBaja)
+    : (fechaPropuesta && fechaPropuesta >= hoyBaja ? fechaPropuesta : hoyBaja);
 
   // Si es edición, parsear el termination_reason guardado (formato: Categoria › Razon › Detalle — notas)
   let preCat = '', preRazon = '', preDetalle = '', preNotas = ticketData.reason ? `Solicitud aprobada en ticket ${ticketCtx.ticketId}: ${ticketData.reason}${ticketData.notified ? ' · Notificado: ' + ticketData.notified : ''}` : '';
@@ -43465,9 +43481,20 @@ function _e_abrirBaja(empId, isEdit) {
       <label class="modal-label">NOTAS ADICIONALES (opcional)</label>
       <textarea id="baja-motivo" rows="2" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)" placeholder="Detalles adicionales sobre la baja...">${preNotas}</textarea>
     </div>
+    ${ticketCtx ? `
+    <div class="modal-section" style="background:#F8FAFC;border-color:#CBD5E1">
+      <label class="modal-label">FECHA PROPUESTA POR SUPERVISOR</label>
+      <div style="padding:9px 11px;background:#fff;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-weight:700;color:#475569;font-family:var(--fm)">
+        ${fechaPropuesta || 'No especificada'}
+      </div>
+      <div style="font-size:11px;color:#64748B;margin-top:7px;line-height:1.45">
+        Esta fecha se conserva como referencia de la solicitud original y no se modifica.
+      </div>
+    </div>` : ''}
     <div class="modal-section">
-      <label class="modal-label">FECHA DE BAJA</label>
-      <input type="date" id="baja-fecha" value="${ticketData.termination_date || emp.termination_date || ''}" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+      <label class="modal-label">FECHA EFECTIVA DE BAJA</label>
+      <input type="date" id="baja-fecha" value="${fechaEfectivaInicial}" ${!isEdit ? `min="${hoyBaja}"` : ''} style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+      ${!isEdit ? `<div style="font-size:11px;color:#64748B;margin-top:7px;line-height:1.45">People puede ajustar la fecha efectiva, pero nunca seleccionar una fecha anterior a hoy (${hoyBaja}).</div>` : ''}
     </div>
     <div class="modal-section">
       <label class="modal-label">ELEGIBLE PARA RECONTRATACIÓN</label>
@@ -43484,8 +43511,12 @@ function _e_abrirBaja(empId, isEdit) {
 
   // Precargar razón y detalle si es edición (después de que el DOM exista)
   setTimeout(function(){
-    if (!emp.termination_date) {
-      const el = document.getElementById('baja-fecha'); if (el) el.value = ymd(NOW);
+    if (!isEdit) {
+      const el = document.getElementById('baja-fecha');
+      if (el) {
+        el.min = hoyBaja;
+        if (!el.value || el.value < hoyBaja) el.value = fechaEfectivaInicial;
+      }
     }
     if (preCat) {
       _e_bajaUpdateRazon();
@@ -43544,8 +43575,14 @@ async function _e_confirmarBaja(empId, isEdit) {
   const razon      = document.getElementById('baja-razon')?.value || '';
   const detalle    = document.getElementById('baja-detalle')?.value || '';
   const notas      = document.getElementById('baja-motivo')?.value?.trim() || '';
-  const fecha      = document.getElementById('baja-fecha')?.value || ymd(NOW);
+  const fecha      = document.getElementById('baja-fecha')?.value || _e_hoyMexicoYmd();
   const rehire     = document.getElementById('baja-rehire')?.value || 'No';
+  const hoyBaja    = _e_hoyMexicoYmd();
+
+  if (!isEdit && fecha < hoyBaja) {
+    alert(`La fecha efectiva de baja no puede ser anterior a hoy (${hoyBaja}).`);
+    return;
+  }
 
   if (!categoria) { alert('Selecciona la categoría de baja'); return; }
   if (!razon)     { alert('Selecciona la razón de baja'); return; }
@@ -43589,7 +43626,16 @@ async function _e_confirmarBaja(empId, isEdit) {
   if (!isEdit && window._t_PENDING_TERMINATION_CONTEXT?.employeeId === empId) {
     const ctx = window._t_PENDING_TERMINATION_CONTEXT;
     const nowTicket = new Date().toISOString();
-    const { error: ticketError } = await _t_sb.from('hr_tickets').update({ status: 'resolved', resolution_notes: `Baja procesada desde el perfil del colaborador el ${fecha}.`, resolved_at: nowTicket, updated_at: nowTicket }).eq('id', ctx.ticketId);
+    const fechaPropuesta = ctx?.data?.termination_date || null;
+    const detalleFechas = fechaPropuesta
+      ? `Fecha propuesta por supervisor: ${fechaPropuesta}. Fecha efectiva definida por People: ${fecha}.`
+      : `Fecha efectiva definida por People: ${fecha}.`;
+    const { error: ticketError } = await _t_sb.from('hr_tickets').update({
+      status: 'resolved',
+      resolution_notes: `Baja procesada desde el perfil del colaborador. ${detalleFechas}`,
+      resolved_at: nowTicket,
+      updated_at: nowTicket
+    }).eq('id', ctx.ticketId);
     if (ticketError) { console.warn('La baja se procesó, pero no se pudo cerrar el ticket:', ticketError); alert('La baja se procesó correctamente, pero el ticket no pudo cerrarse automáticamente.'); }
     window._t_PENDING_TERMINATION_CONTEXT = null;
   }
