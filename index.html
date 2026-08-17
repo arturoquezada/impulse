@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.87';
-const APP_BUILD = '1.0.87-missing-checkout-classification-01';
+const APP_VERSION   = '1.0.88';
+const APP_BUILD = '1.0.88-temp-password-000000-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -3871,7 +3871,7 @@ async function _doChangePw() {
     err.textContent = 'La contraseña debe tener al menos 8 caracteres.';
     err.style.display = 'block'; return;
   }
-  if(newPw === '0000') {
+  if(newPw === '000000') {
     err.textContent = 'No puedes usar la contraseña temporal como tu nueva contraseña.';
     err.style.display = 'block'; return;
   }
@@ -42851,7 +42851,7 @@ function _e_abrirBulkUpload() {
   document.getElementById('modalSub').textContent = 'Sube un CSV; Impulse creará el correo y el acceso';
   document.getElementById('modalBody').innerHTML = `
     <div style="background:#EFF6FF;border-radius:8px;padding:12px;font-size:13px;color:#1D4ED8;margin-bottom:14px">
-      📋 El archivo ya no solicita correo empresarial. Impulse generará uno único con dominio <strong>@evolvecx.io</strong>, creará Auth con contraseña temporal <strong>0000</strong> y lo vinculará al empleado.
+      📋 El archivo ya no solicita correo empresarial. Impulse generará uno único con dominio <strong>@evolvecx.io</strong>, creará Auth con contraseña temporal <strong>000000</strong> y lo vinculará al empleado.
     </div>
     <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400E;margin-bottom:14px">
       No agregues ni recorras columnas. Usa la plantilla nueva para conservar horarios, supervisor, campaña y datos necesarios para asistencia.
@@ -42980,7 +42980,7 @@ function _e_descargarResultadoBulk() {
   const headers = ['ID','Nombre','Correo empresarial','Contraseña temporal','Resultado','Detalle'];
   const rows = _e_bulkLastResults.map(function(r) {
     const original = _e_bulkRows.find(x => x.id === r.id);
-    return [r.id || '', original?.full_name || '', r.email || '', r.ok ? '0000' : '', r.ok ? 'Correcto' : 'Error', r.message || r.error || ''];
+    return [r.id || '', original?.full_name || '', r.email || '', r.ok ? '000000' : '', r.ok ? 'Correcto' : 'Error', r.message || r.error || ''];
   });
   const csv = '\ufeff' + [headers, ...rows].map(row => row.map(_e_csvCell).join(',')).join('\n');
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
@@ -43064,7 +43064,7 @@ async function _e_confirmarBulkAlta() {
         <div style="background:#EFF6FF;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#2563EB">${createdAuth}</div><div style="font-size:10px;color:#1E40AF">Accesos nuevos</div></div>
         <div style="background:#F8FAFC;border-radius:8px;padding:10px;text-align:center"><div style="font-size:20px;font-weight:800;color:#475569">${linkedAuth + existingAuth}</div><div style="font-size:10px;color:#475569">Accesos vinculados/existentes</div></div>
       </div>
-      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400E;margin-bottom:12px">Contraseña temporal: <strong>0000</strong>. Descarga el resultado para entregar cada correo generado.</div>
+      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400E;margin-bottom:12px">Contraseña temporal: <strong>000000</strong>. Descarga el resultado para entregar cada correo generado.</div>
       <div style="max-height:300px;overflow-y:auto">${resumenHTML}</div>`;
     document.getElementById('modalFooter').innerHTML = '<button class="btn-ghost" onclick="_e_descargarResultadoBulk()">⬇️ Descargar resultado CSV</button><button class="btn-primary" onclick="closeModal();_e_cargando=true;_e_render();_e_cargarEmpleados().then(function(){_e_cargando=false;_e_render();})">Cerrar</button>';
   } catch(e) {
@@ -43143,7 +43143,7 @@ async function _e_guardarPassword() {
   err.style.display = 'none';
   if (!actual) return showErr('Ingresa tu contraseña actual');
   if (!nueva || nueva.length < 8) return showErr('La nueva contraseña debe tener al menos 8 caracteres');
-  if (nueva === '0000') return showErr('No puedes usar la contraseña temporal');
+  if (nueva === '000000') return showErr('No puedes usar la contraseña temporal');
   if (nueva !== confirma) return showErr('Las contraseñas no coinciden');
 
   // Verificar contraseña actual re-autenticando
@@ -43175,11 +43175,11 @@ async function _e_guardarPassword() {
 
 // ── RESETEAR CONTRASEÑA (People sobre otro usuario) ──────────
 async function _e_resetearPassword(empId, nombre) {
-  if (!confirm(`¿Resetear la contraseña de ${nombre}?\n\nSe le asignará la contraseña temporal 0000 y se le pedirá cambiarla en su próximo login.`)) return;
+  if (!confirm(`¿Resetear la contraseña de ${nombre}?\n\nSe le asignará la contraseña temporal 000000 y se le pedirá cambiarla en su próximo login.`)) return;
 
   const { data, error } = await _e_sb.rpc('reset_employee_password', {
     p_employee_id: empId,
-    p_temp_password: '0000'
+    p_temp_password: '000000'
   });
 
   if (error) {
@@ -43193,7 +43193,7 @@ async function _e_resetearPassword(empId, nombre) {
     return;
   }
 
-  alert(`✅ Contraseña de ${nombre} reseteada a 0000.\nSe le pedirá cambiarla en su próximo login.`);
+  alert(`✅ Contraseña de ${nombre} reseteada a 000000.\nSe le pedirá cambiarla en su próximo login.`);
 }
 
 
@@ -43637,7 +43637,7 @@ function _e_abrirAlta(reingresoId) {
     <div class="modal-section">
       <label class="modal-label">CORREO EMPRESARIAL</label>
       <div id="alta-email-preview" style="padding:9px 11px;border:1px dashed #93C5FD;border-radius:8px;background:#EFF6FF;color:#1D4ED8;font-size:13px;font-weight:700">${reingreso && reingreso.email ? escapeHtml(reingreso.email) : 'Se generará automáticamente con @evolvecx.io'}</div>
-      <div style="font-size:11px;color:#64748B;margin-top:5px">Contraseña temporal: <strong>0000</strong>. El usuario deberá cambiarla.</div>
+      <div style="font-size:11px;color:#64748B;margin-top:5px">Contraseña temporal: <strong>000000</strong>. El usuario deberá cambiarla.</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="modal-section"><label class="modal-label">CORREO PERSONAL</label><input type="email" id="alta-email-personal" placeholder="correo@gmail.com" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div>
@@ -43714,7 +43714,7 @@ function _e_checkReingreso() {
   const existing = _e_EMPLEADOS.find(e => e.id === id);
   let banner = document.getElementById('alta-reingreso-banner');
   if (existing && existing.status === 'inactive') {
-    const msg = '🔄 Reingreso de <strong>' + escapeHtml(existing.full_name) + '</strong>. Se conservará el ID, el historial y el correo empresarial; el acceso se reactivará con contraseña temporal 0000.';
+    const msg = '🔄 Reingreso de <strong>' + escapeHtml(existing.full_name) + '</strong>. Se conservará el ID, el historial y el correo empresarial; el acceso se reactivará con contraseña temporal 000000.';
     if (!banner) {
       banner = document.createElement('div');
       banner.id = 'alta-reingreso-banner';
@@ -43829,7 +43829,7 @@ async function _e_confirmarAlta() {
       <div class="modal-section">
         <div class="kv"><span class="k">ID de empleado</span><span class="v" style="font-family:var(--fm)">${escapeHtml(result.id)}</span></div>
         <div class="kv"><span class="k">Correo empresarial</span><span class="v">${escapeHtml(result.email || '—')}</span></div>
-        <div class="kv"><span class="k">Contraseña temporal</span><span class="v" style="font-family:var(--fm)">${escapeHtml(data.temporary_password || '0000')}</span></div>
+        <div class="kv"><span class="k">Contraseña temporal</span><span class="v" style="font-family:var(--fm)">${escapeHtml(data.temporary_password || '000000')}</span></div>
         <div class="kv"><span class="k">Acceso Auth</span><span class="v">${result.auth_action === 'created' ? 'Creado' : result.auth_action === 'linked' ? 'Vinculado' : 'Validado'}</span></div>
       </div>
       <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 12px;font-size:12px;color:#92400E;margin-top:10px">Entrega el correo y la contraseña temporal al empleado. En su primer acceso deberá cambiarla.</div>`;
