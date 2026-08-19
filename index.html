@@ -24824,7 +24824,8 @@ async function _dd_loadOperationalData(
     previous:{rawRows:_dd_filterAttendanceRows(prev.raw),rows:prevRows,duplicates:prev.dedupe.duplicateGroups,conflicts:prev.dedupe.conflicts,attendance:_dd_attendanceSummary(prevRows),expectedActions:{},tickets:{},ticketRows:[],actions:[],actionRowsAll:[],exceptions:prev.exceptions,absenceSources:_dd4_absenceSourceSummary(prev.exceptions,employeeById),rotation:{}},
     history90:{rawRows:hist.raw,rows:historyRows,duplicates:hist.dedupe.duplicateGroups,conflicts:hist.dedupe.conflicts},
     operationalIncidents:incidents};
-  data.operationalAccountability=_dd4_buildOperationalAccountability(incidents);
+    data.operationalAccountability=
+  _dd4_buildOperationalAccountability(incidents,directoryRows);
   data.supervisors=data.operationalAccountability;
   data.quality={totalIssues:0,issues:[],auditFaltas:[],finalEx:[],pending:[],cancelled:[],unknown:[],auditWithoutException:[],exceptionWithoutAudit:[],activeWithoutRows:[],unknownEmployees:[],missingSupervisor:[],missingCampaign:[],rawCount:cur.raw.length,cleanCount:curRows.length};
   data.agents=_dd4_buildAgents(data);
@@ -26335,7 +26336,7 @@ function _dd4_renderOperationalIncidents(d){
 }
 
 function _dd4_renderOperationalAccountability(d){
-  const rows=d.operationalAccountability||[];
+  const rows = d.operationalAccountability || [];
 
   return `
     <div class="dd4-alert blue">
@@ -26350,6 +26351,7 @@ function _dd4_renderOperationalAccountability(d){
     <div class="dd4-table-wrap">
       <div class="dd4-table-scroll">
         <table class="dd4-table" style="min-width:1320px">
+
           <thead>
             <tr>
               <th>Supervisor</th>
@@ -26370,91 +26372,214 @@ function _dd4_renderOperationalAccountability(d){
           <tbody>
             ${
               rows.length
-                ? rows.map(s=>`
-                  <tr>
-                    <td>
-                      <div class="dd-primary">${_dd_escape(s.supervisor_name)}</div>
-                      <div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div>
-                    </td>
+                ? rows.map(s => {
 
-                    <td class="dd4-center dd4-mono">${s.hc}</td>
+                    const noIncidents =
+                      Number(s.incidents || 0) === 0;
 
-                    <td class="dd4-center dd4-mono" style="color:#DC2626">
-                      ${s.faltas}
-                    </td>
+                    const completionHtml =
+                      noIncidents || s.completion === null
+                        ? `
+                          <div
+                            class="dd4-strong dd4-center"
+                            style="color:#94A3B8"
+                          >
+                            —
+                          </div>
 
-                    <td class="dd4-center dd4-mono" style="color:#D97706">
-                      ${s.retardos}
-                    </td>
+                          <div
+                            class="dd-secondary"
+                            style="
+                              text-align:center;
+                              margin-top:4px;
+                              white-space:nowrap;
+                            "
+                          >
+                            Sin incidencias
+                          </div>
+                        `
+                        : `
+                          <div class="dd4-strong dd4-center">
+                            ${s.completion}%
+                          </div>
 
-                    <td class="dd4-center dd4-mono">
-                      ${s.sinEntrada || 0}
-                    </td>
+                          <div
+                            class="dd4-bar ${
+                              s.completion < 80
+                                ? 'danger'
+                                : s.completion < 95
+                                  ? 'warn'
+                                  : ''
+                            }"
+                          >
+                            <span
+                              style="
+                                width:${Math.min(
+                                  100,
+                                  Number(s.completion || 0)
+                                )}%
+                              "
+                            ></span>
+                          </div>
+                        `;
 
-                    <td class="dd4-center dd4-mono">
-                      ${s.sinSalida || 0}
-                    </td>
 
-                    <td class="dd4-center dd4-mono" style="color:#15803D">
-                      ${s.onTime}
-                    </td>
+                    const onTimeHtml =
+                      noIncidents || s.onTimeCompletion === null
+                        ? `
+                          <div
+                            class="dd4-strong dd4-center"
+                            style="color:#94A3B8"
+                          >
+                            —
+                          </div>
 
-                    <td class="dd4-center dd4-mono" style="color:#D97706">
-                      ${s.late}
-                    </td>
+                          <div
+                            class="dd-secondary"
+                            style="
+                              text-align:center;
+                              margin-top:4px;
+                              white-space:nowrap;
+                            "
+                          >
+                            Sin incidencias
+                          </div>
+                        `
+                        : `
+                          <div class="dd4-strong dd4-center">
+                            ${s.onTimeCompletion}%
+                          </div>
 
-                    <td class="dd4-center dd4-mono" style="color:#B91C1C">
-                      ${s.overdue}
-                    </td>
+                          <div
+                            class="dd4-bar ${
+                              s.onTimeCompletion < 80
+                                ? 'danger'
+                                : s.onTimeCompletion < 95
+                                  ? 'warn'
+                                  : ''
+                            }"
+                          >
+                            <span
+                              style="
+                                width:${Math.min(
+                                  100,
+                                  Number(s.onTimeCompletion || 0)
+                                )}%
+                              "
+                            ></span>
+                          </div>
+                        `;
 
-                    <td class="dd4-center dd4-mono" style="color:#BE123C">
-                      ${s.missing}
-                    </td>
 
-                    <td>
-                      <div class="dd4-strong dd4-center">
-                        ${s.completion}%
-                      </div>
+                    return `
+                      <tr>
 
-                      <div class="dd4-bar ${
-                        s.completion<80
-                          ? 'danger'
-                          : s.completion<95
-                            ? 'warn'
-                            : ''
-                      }">
-                        <span style="width:${Math.min(100,s.completion)}%"></span>
-                      </div>
-                    </td>
+                        <td>
+                          <div class="dd-primary">
+                            ${_dd_escape(
+                              s.supervisor_name ||
+                              s.supervisor_id ||
+                              'Sin supervisor'
+                            )}
+                          </div>
 
-                    <td>
-                      <div class="dd4-strong dd4-center">
-                        ${s.onTimeCompletion}%
-                      </div>
+                          <div class="dd-secondary">
+                            ${_dd_escape(
+                              s.supervisor_id ||
+                              '—'
+                            )}
+                          </div>
+                        </td>
 
-                      <div class="dd4-bar ${
-                        s.onTimeCompletion<80
-                          ? 'danger'
-                          : s.onTimeCompletion<95
-                            ? 'warn'
-                            : ''
-                      }">
-                        <span style="width:${Math.min(100,s.onTimeCompletion)}%"></span>
-                      </div>
-                    </td>
-                  </tr>
-                `).join('')
+
+                        <td class="dd4-center dd4-mono">
+                          ${Number(s.hc || 0)}
+                        </td>
+
+
+                        <td
+                          class="dd4-center dd4-mono"
+                          style="color:#DC2626"
+                        >
+                          ${Number(s.faltas || 0)}
+                        </td>
+
+
+                        <td
+                          class="dd4-center dd4-mono"
+                          style="color:#D97706"
+                        >
+                          ${Number(s.retardos || 0)}
+                        </td>
+
+
+                        <td class="dd4-center dd4-mono">
+                          ${Number(s.sinEntrada || 0)}
+                        </td>
+
+
+                        <td class="dd4-center dd4-mono">
+                          ${Number(s.sinSalida || 0)}
+                        </td>
+
+
+                        <td
+                          class="dd4-center dd4-mono"
+                          style="color:#15803D"
+                        >
+                          ${Number(s.onTime || 0)}
+                        </td>
+
+
+                        <td
+                          class="dd4-center dd4-mono"
+                          style="color:#D97706"
+                        >
+                          ${Number(s.late || 0)}
+                        </td>
+
+
+                        <td
+                          class="dd4-center dd4-mono"
+                          style="color:#B91C1C"
+                        >
+                          ${Number(s.overdue || 0)}
+                        </td>
+
+
+                        <td
+                          class="dd4-center dd4-mono"
+                          style="color:#BE123C"
+                        >
+                          ${Number(s.missing || 0)}
+                        </td>
+
+
+                        <td>
+                          ${completionHtml}
+                        </td>
+
+
+                        <td>
+                          ${onTimeHtml}
+                        </td>
+
+                      </tr>
+                    `;
+                  }).join('')
+
                 : `
                   <tr>
                     <td colspan="12">
                       <div class="dd4-empty">
-                        No hay incidencias en el periodo.
+                        No hay supervisores disponibles.
                       </div>
                     </td>
                   </tr>
                 `
             }
           </tbody>
+
         </table>
       </div>
     </div>
@@ -47343,4 +47468,3 @@ window._init_organigrama = async function(){
 
 </body>
 </html>
-
