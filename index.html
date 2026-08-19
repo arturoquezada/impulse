@@ -37469,6 +37469,13 @@ const _d_sb = _auth_sb;
 let _d_CASES = [];
 let _d_MATRIX = [];
 let _d_EMPLEADOS = [];
+
+/*
+ * Directorio auxiliar para nombres de solicitantes,
+ * revisores y aprobadores aunque RLS no los incluya
+ * en _d_EMPLEADOS.
+ */
+let _d_USER_NAMES = {};
 let _d_cargando = false;
 let _d_reviewSubmitting = false;
 let _d_vista = 'historial';
@@ -37668,8 +37675,18 @@ async function _d_cargarDatos({
     }
 
     _d_MATRIX = matrixResult.data || [];
-    _d_CASES = casesResult.data || [];
-    _d_EMPLEADOS = employeesResult.data || [];
+_d_CASES = casesResult.data || [];
+_d_EMPLEADOS = employeesResult.data || [];
+
+/*
+ * Resolver nombres de solicitantes/revisores que
+ * no estén visibles por RLS en employees.
+ */
+await _d_cargarNombresUsuarios();
+
+_d_FOLLOWUPS = (followups || []).filter(
+  _d_followupIsEvaluable
+);
     _d_FOLLOWUPS = (followups || []).filter(
       _d_followupIsEvaluable
     );
@@ -37797,8 +37814,88 @@ function _d_emp(id) {
 }
 
 function _d_nombre(id) {
-  const e = _d_emp(id);
-  return e?.full_name || id || '—';
+  const cleanId = String(id || '').trim();
+
+  if (!cleanId) return '—';
+
+  /*
+   * 1. Directorio normal visible por RLS.
+   */
+  const e = _d_emp(cleanId);
+
+  if (e?.full_name) {
+    return e.full_name;
+  }
+
+  /*
+   * 2. Directorio auxiliar resuelto por RPC.
+   */
+  if (_d_USER_NAMES[cleanId]) {
+    return _d_USER_NAMES[cleanId];
+  }
+
+  /*
+   * 3. Fallback.
+   */
+  return cleanId;
+}
+
+async function _d_cargarNombresUsuarios() {
+
+const ids = [
+  ...new Set(
+    (_d_CASES || [])
+      .flatMap(c => [
+        c.requested_by,
+        c.reviewed_by
+      ])
+      .map(x =>
+        String(x || '').trim()
+      )
+      .filter(Boolean)
+  )
+];
+
+if (!ids.length) {
+  _d_USER_NAMES = {};
+  return;
+}
+
+try {
+
+  const {
+    data,
+    error
+  } = await _d_sb.rpc(
+    'resolve_people_action_user_names',
+    {
+      p_ids: ids
+    }
+  );
+
+  if (error) {
+    console.warn(
+      '[People Actions] No se pudieron resolver nombres:',
+      error
+    );
+    return;
+  }
+
+  _d_USER_NAMES = Object.fromEntries(
+    (data || []).map(row => [
+      String(row.id || '').trim(),
+      row.full_name || row.id
+    ])
+  );
+
+} catch (error) {
+
+  console.warn(
+    '[People Actions] Error resolviendo nombres:',
+    error
+  );
+
+}
 }
 
 function _d_matrix(id) {
