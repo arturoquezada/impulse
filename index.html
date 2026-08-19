@@ -23879,19 +23879,98 @@ function _dd4_buildOperationalIncidents(
   );
 }
 
-function _dd4_buildOperationalAccountability(incidents=[]){
+function _dd4_buildOperationalAccountability(incidents){
   const map={};
-  (incidents||[]).filter(r=>['falta_injustificada','retardo'].includes(_dd_norm(r.audit_status))).forEach(r=>{
-    const id=r.supervisor_id||'sin_supervisor';
-    if(!map[id])map[id]={supervisor_id:id,supervisor_name:r.supervisor_name||'Sin supervisor',hcSet:new Set(),incidents:0,faltas:0,retardos:0,onTime:0,late:0,overdue:0,missing:0,rows:[]};
-    const x=map[id];x.rows.push(r);x.incidents++;if(r.employee_id)x.hcSet.add(r.employee_id);
-    if(r.audit_status==='falta_injustificada')x.faltas++;else x.retardos++;
-    if(r.op_accountability==='on_time')x.onTime++;
-    else if(r.op_accountability==='late')x.late++;
-    else if(r.op_accountability==='overdue'||r.op_accountability==='invalid')x.overdue++;
-    else x.missing++;
-  });
-  return Object.values(map).map(x=>({...x,hc:x.hcSet.size,coverage:_dd_pct(x.onTime+x.late,x.incidents)})).sort((a,b)=>b.missing-a.missing||b.overdue-a.overdue||a.supervisor_name.localeCompare(b.supervisor_name));
+
+  (incidents||[])
+    .filter(r =>
+      [
+        'falta_injustificada',
+        'retardo',
+        'sin_entrada',
+        'sin_salida'
+      ].includes(_dd_norm(r.audit_status))
+    )
+    .forEach(r=>{
+      const id=r.supervisor_id||'sin_supervisor';
+
+      if(!map[id]){
+        map[id]={
+          supervisor_id:id,
+          supervisor_name:r.supervisor_name||'Sin supervisor',
+          hcSet:new Set(),
+          incidents:0,
+          faltas:0,
+          retardos:0,
+          sinEntrada:0,
+          sinSalida:0,
+          onTime:0,
+          late:0,
+          overdue:0,
+          missing:0,
+          rows:[]
+        };
+      }
+
+      const x=map[id];
+
+      x.rows.push(r);
+      x.incidents++;
+
+      if(r.employee_id){
+        x.hcSet.add(r.employee_id);
+      }
+
+      const status=_dd_norm(r.audit_status);
+
+      if(status==='falta_injustificada') x.faltas++;
+      else if(status==='retardo') x.retardos++;
+      else if(status==='sin_entrada') x.sinEntrada++;
+      else if(status==='sin_salida') x.sinSalida++;
+
+      if(r.op_accountability==='on_time'){
+        x.onTime++;
+      }
+      else if(r.op_accountability==='late'){
+        x.late++;
+      }
+      else if(
+        r.op_accountability==='overdue' ||
+        r.op_accountability==='invalid'
+      ){
+        x.overdue++;
+      }
+      else{
+        x.missing++;
+      }
+    });
+
+  return Object.values(map)
+    .map(x=>{
+      const completed=x.onTime+x.late+x.overdue;
+
+      return {
+        ...x,
+        hc:x.hcSet.size,
+
+        // Se gestionó eventualmente, aunque haya sido tarde.
+        completion:_dd_pct(
+          completed,
+          x.incidents
+        ),
+
+        // Cumplimiento estricto de la regla: mismo día.
+        onTimeCompletion:_dd_pct(
+          x.onTime,
+          x.incidents
+        )
+      };
+    })
+    .sort((a,b)=>
+      b.missing-a.missing ||
+      b.overdue-a.overdue ||
+      a.supervisor_name.localeCompare(b.supervisor_name)
+    );
 }
 
 function _dd4_operationalAccountabilityPill(status){
@@ -26090,7 +26169,129 @@ function _dd4_renderOperationalIncidents(d){
 
 function _dd4_renderOperationalAccountability(d){
   const rows=d.operationalAccountability||[];
-  return `<div class="dd4-alert blue"><b>Regla acordada:</b> registro el mismo día = a tiempo; un día después = tardío; después de un día = fuera de plazo; sin carga manual = sin registro de liderazgo. Una carga del Bot no sustituye la gestión del supervisor.</div><div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1150px"><thead><tr><th>Supervisor</th><th class="dd4-center">HC afectado</th><th class="dd4-center">Faltas</th><th class="dd4-center">Retardos</th><th class="dd4-center">Mismo día</th><th class="dd4-center">1 día después</th><th class="dd4-center">Fuera de plazo</th><th class="dd4-center">Sin registro</th><th>Cobertura</th></tr></thead><tbody>${rows.length?rows.map(s=>`<tr><td><div class="dd-primary">${_dd_escape(s.supervisor_name)}</div><div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div></td><td class="dd4-center dd4-mono">${s.hc}</td><td class="dd4-center dd4-mono" style="color:#DC2626">${s.faltas}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.retardos}</td><td class="dd4-center dd4-mono" style="color:#15803D">${s.onTime}</td><td class="dd4-center dd4-mono" style="color:#D97706">${s.late}</td><td class="dd4-center dd4-mono" style="color:#B91C1C">${s.overdue}</td><td class="dd4-center dd4-mono" style="color:#BE123C">${s.missing}</td><td><div class="dd4-strong dd4-center">${s.coverage}%</div><div class="dd4-bar ${s.coverage<50?'danger':s.coverage<80?'warn':''}"><span style="width:${Math.min(100,s.coverage)}%"></span></div></td></tr>`).join(''):`<tr><td colspan="9"><div class="dd4-empty">No hay faltas o retardos en el periodo.</div></td></tr>`}</tbody></table></div></div>`;
+
+  return `
+    <div class="dd4-alert blue">
+      <b>Regla acordada:</b>
+      registro el mismo día = a tiempo;
+      un día después = tardío;
+      después de un día = fuera de plazo;
+      sin carga manual = sin registro de liderazgo.
+      Una carga del Bot no sustituye la gestión del supervisor.
+    </div>
+
+    <div class="dd4-table-wrap">
+      <div class="dd4-table-scroll">
+        <table class="dd4-table" style="min-width:1320px">
+          <thead>
+            <tr>
+              <th>Supervisor</th>
+              <th class="dd4-center">HC afectado</th>
+              <th class="dd4-center">Faltas</th>
+              <th class="dd4-center">Retardos</th>
+              <th class="dd4-center">Sin entrada</th>
+              <th class="dd4-center">Sin salida</th>
+              <th class="dd4-center">Mismo día</th>
+              <th class="dd4-center">1 día después</th>
+              <th class="dd4-center">Fuera de plazo</th>
+              <th class="dd4-center">Sin registro</th>
+              <th>Completion</th>
+              <th>On-Time</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${
+              rows.length
+                ? rows.map(s=>`
+                  <tr>
+                    <td>
+                      <div class="dd-primary">${_dd_escape(s.supervisor_name)}</div>
+                      <div class="dd-secondary">${_dd_escape(s.supervisor_id)}</div>
+                    </td>
+
+                    <td class="dd4-center dd4-mono">${s.hc}</td>
+
+                    <td class="dd4-center dd4-mono" style="color:#DC2626">
+                      ${s.faltas}
+                    </td>
+
+                    <td class="dd4-center dd4-mono" style="color:#D97706">
+                      ${s.retardos}
+                    </td>
+
+                    <td class="dd4-center dd4-mono">
+                      ${s.sinEntrada || 0}
+                    </td>
+
+                    <td class="dd4-center dd4-mono">
+                      ${s.sinSalida || 0}
+                    </td>
+
+                    <td class="dd4-center dd4-mono" style="color:#15803D">
+                      ${s.onTime}
+                    </td>
+
+                    <td class="dd4-center dd4-mono" style="color:#D97706">
+                      ${s.late}
+                    </td>
+
+                    <td class="dd4-center dd4-mono" style="color:#B91C1C">
+                      ${s.overdue}
+                    </td>
+
+                    <td class="dd4-center dd4-mono" style="color:#BE123C">
+                      ${s.missing}
+                    </td>
+
+                    <td>
+                      <div class="dd4-strong dd4-center">
+                        ${s.completion}%
+                      </div>
+
+                      <div class="dd4-bar ${
+                        s.completion<80
+                          ? 'danger'
+                          : s.completion<95
+                            ? 'warn'
+                            : ''
+                      }">
+                        <span style="width:${Math.min(100,s.completion)}%"></span>
+                      </div>
+                    </td>
+
+                    <td>
+                      <div class="dd4-strong dd4-center">
+                        ${s.onTimeCompletion}%
+                      </div>
+
+                      <div class="dd4-bar ${
+                        s.onTimeCompletion<80
+                          ? 'danger'
+                          : s.onTimeCompletion<95
+                            ? 'warn'
+                            : ''
+                      }">
+                        <span style="width:${Math.min(100,s.onTimeCompletion)}%"></span>
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')
+                : `
+                  <tr>
+                    <td colspan="12">
+                      <div class="dd4-empty">
+                        No hay incidencias en el periodo.
+                      </div>
+                    </td>
+                  </tr>
+                `
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function _dd4_renderOperationalCampaigns(d){
