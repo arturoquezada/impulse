@@ -23879,97 +23879,264 @@ function _dd4_buildOperationalIncidents(
   );
 }
 
-function _dd4_buildOperationalAccountability(incidents){
-  const map={};
+function _dd4_buildOperationalAccountability(
+  incidents = [],
+  directory = []
+){
+  const map = {};
 
-  (incidents||[])
+  const ensureSupervisor = (
+    id,
+    name = ''
+  ) => {
+    id = String(id || '').trim();
+
+    if (!id) return null;
+
+    if (!map[id]) {
+      map[id] = {
+        supervisor_id: id,
+        supervisor_name:
+          name ||
+          id,
+
+        hcSet: new Set(),
+
+        incidents: 0,
+
+        faltas: 0,
+        retardos: 0,
+        sinEntrada: 0,
+        sinSalida: 0,
+
+        onTime: 0,
+        late: 0,
+        overdue: 0,
+        missing: 0,
+
+        rows: []
+      };
+    } else if (
+      name &&
+      (
+        !map[id].supervisor_name ||
+        map[id].supervisor_name === id
+      )
+    ) {
+      map[id].supervisor_name = name;
+    }
+
+    return map[id];
+  };
+
+
+  /*
+   * 1. Crear primero el universo de líderes.
+   *
+   * No dependemos de que tengan incidencias.
+   * Si un empleado activo reporta a alguien,
+   * ese líder debe existir en Accountability.
+   */
+  const employeeById = new Map(
+    (directory || []).map(e => [
+      String(e.id || '').trim(),
+      e
+    ])
+  );
+
+  (directory || [])
+    .filter(e =>
+      String(e.status || '')
+        .trim()
+        .toLowerCase() === 'active'
+    )
+    .forEach(e => {
+      const supervisorId =
+        String(e.supervisor_id || '')
+          .trim();
+
+      if (!supervisorId) return;
+
+      const supervisor =
+        employeeById.get(supervisorId);
+
+      const supervisorName =
+        e.supervisor_name ||
+        supervisor?.full_name ||
+        supervisorId;
+
+      ensureSupervisor(
+        supervisorId,
+        supervisorName
+      );
+    });
+
+
+  /*
+   * 2. Agregar también cualquier supervisor
+   * histórico presente en las incidencias.
+   *
+   * Esto evita perder a un líder que tuvo
+   * incidencias en el periodo pero ya no tiene
+   * agentes actuales bajo él.
+   */
+  (incidents || []).forEach(r => {
+    if (!r.supervisor_id) return;
+
+    ensureSupervisor(
+      r.supervisor_id,
+      r.supervisor_name
+    );
+  });
+
+
+  /*
+   * 3. Contabilizar las incidencias operativas.
+   */
+  (incidents || [])
     .filter(r =>
       [
         'falta_injustificada',
         'retardo',
         'sin_entrada',
         'sin_salida'
-      ].includes(_dd_norm(r.audit_status))
+      ].includes(
+        _dd_norm(r.audit_status)
+      )
     )
-    .forEach(r=>{
-      const id=r.supervisor_id||'sin_supervisor';
+    .forEach(r => {
+      const id =
+        String(
+          r.supervisor_id ||
+          'sin_supervisor'
+        ).trim();
 
-      if(!map[id]){
-        map[id]={
-          supervisor_id:id,
-          supervisor_name:r.supervisor_name||'Sin supervisor',
-          hcSet:new Set(),
-          incidents:0,
-          faltas:0,
-          retardos:0,
-          sinEntrada:0,
-          sinSalida:0,
-          onTime:0,
-          late:0,
-          overdue:0,
-          missing:0,
-          rows:[]
-        };
-      }
+      const x =
+        ensureSupervisor(
+          id,
+          r.supervisor_name ||
+          'Sin supervisor'
+        );
 
-      const x=map[id];
+      if (!x) return;
 
       x.rows.push(r);
       x.incidents++;
 
-      if(r.employee_id){
-        x.hcSet.add(r.employee_id);
+      if (r.employee_id) {
+        x.hcSet.add(
+          String(r.employee_id)
+        );
       }
 
-      const status=_dd_norm(r.audit_status);
+      const status =
+        _dd_norm(r.audit_status);
 
-      if(status==='falta_injustificada') x.faltas++;
-      else if(status==='retardo') x.retardos++;
-      else if(status==='sin_entrada') x.sinEntrada++;
-      else if(status==='sin_salida') x.sinSalida++;
+      if (
+        status ===
+        'falta_injustificada'
+      ) {
+        x.faltas++;
+      }
+      else if (
+        status === 'retardo'
+      ) {
+        x.retardos++;
+      }
+      else if (
+        status === 'sin_entrada'
+      ) {
+        x.sinEntrada++;
+      }
+      else if (
+        status === 'sin_salida'
+      ) {
+        x.sinSalida++;
+      }
 
-      if(r.op_accountability==='on_time'){
+
+      if (
+        r.op_accountability ===
+        'on_time'
+      ) {
         x.onTime++;
       }
-      else if(r.op_accountability==='late'){
+      else if (
+        r.op_accountability ===
+        'late'
+      ) {
         x.late++;
       }
-      else if(
-        r.op_accountability==='overdue' ||
-        r.op_accountability==='invalid'
-      ){
+      else if (
+        r.op_accountability ===
+          'overdue' ||
+        r.op_accountability ===
+          'invalid'
+      ) {
         x.overdue++;
       }
-      else{
+      else {
         x.missing++;
       }
     });
 
-  return Object.values(map)
-    .map(x=>{
-      const completed=x.onTime+x.late+x.overdue;
+
+  /*
+   * 4. Calcular métricas.
+   *
+   * Cuando no hay incidencias:
+   * Completion = null
+   * On-Time = null
+   *
+   * En UI aparecerá "—", no 0%.
+   */
+  return Object
+    .values(map)
+    .map(x => {
+      const completed =
+        x.onTime +
+        x.late +
+        x.overdue;
 
       return {
         ...x,
-        hc:x.hcSet.size,
 
-        // Se gestionó eventualmente, aunque haya sido tarde.
-        completion:_dd_pct(
-          completed,
-          x.incidents
-        ),
+        hc:
+          x.hcSet.size,
 
-        // Cumplimiento estricto de la regla: mismo día.
-        onTimeCompletion:_dd_pct(
-          x.onTime,
-          x.incidents
-        )
+        completion:
+          x.incidents > 0
+            ? _dd_pct(
+                completed,
+                x.incidents
+              )
+            : null,
+
+        onTimeCompletion:
+          x.incidents > 0
+            ? _dd_pct(
+                x.onTime,
+                x.incidents
+              )
+            : null
       };
     })
-    .sort((a,b)=>
-      b.missing-a.missing ||
-      b.overdue-a.overdue ||
-      a.supervisor_name.localeCompare(b.supervisor_name)
+
+    /*
+     * Prioridad:
+     * 1. Sin registro
+     * 2. Fuera de plazo
+     * 3. Con incidencias
+     * 4. Sin incidencias
+     * 5. Nombre
+     */
+    .sort((a, b) =>
+      b.missing - a.missing ||
+      b.overdue - a.overdue ||
+      b.incidents - a.incidents ||
+      a.supervisor_name.localeCompare(
+        b.supervisor_name
+      )
     );
 }
 
