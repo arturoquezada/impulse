@@ -33477,15 +33477,12 @@ if (eDayOff) {
   _p_DAYOFF_REQS = dayOffReqs || [];
 }
 
-    const { data: emps, error: e2 } = await _p_sb
-      .from('employees')
-      .select('id,full_name,campaign_id,shift_start,shift_end,system_role,status,supervisor_id,days_off')
-      .eq('status','active')
-      .order('full_name');
+const { data: emps, error: e2 } = await _p_sb
+  .rpc('get_swap_employees');
 
-    if (e2) throw e2;
+if (e2) throw e2;
 
-    _p_EMPLEADOS = emps || [];
+_p_EMPLEADOS = emps || [];
 
     return true;
   } catch(e) {
