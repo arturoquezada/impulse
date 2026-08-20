@@ -38556,10 +38556,10 @@ function _d_empleadosSolicitables() {
         .trim()
         .toLowerCase();
 
-      return (
-        scope.has(String(e.id)) &&
-        ['agent','supervisor'].includes(role)
-      );
+        return (
+  scope.has(String(e.id)) &&
+  ['agent','supervisor','manager'].includes(role)
+);
     });
   }
 
