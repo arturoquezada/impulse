@@ -33741,6 +33741,7 @@ const _p_sb = _auth_sb;
 let _p_SWAPS = [];
 let _p_PARTIAL_SWAPS = [];
 let _p_EMPLEADOS = [];
+let _p_USER_NAMES = {};
 let _p_cargando = false;
 let _p_vista = 'mis';
 
@@ -33767,12 +33768,83 @@ function _p_emp(id) {
 }
 
 function _p_nombre(id) {
-  return _p_emp(id)?.full_name || id || '—';
+  const cleanId = String(id || '').trim();
+
+  if (!cleanId) return '—';
+
+  const emp = _p_emp(cleanId);
+  if (emp?.full_name) {
+    return emp.full_name;
+  }
+
+  if (_p_USER_NAMES[cleanId]) {
+    return _p_USER_NAMES[cleanId];
+  }
+
+  return cleanId;
 }
 
 function _p_nombreCorto(id) {
   const n = _p_nombre(id);
-  return n === id ? id : n.split(' ').slice(0, 2).join(' ');
+
+  if (!n || n === '—') return '—';
+
+  // Si no pudimos resolver nombre y sigue siendo CX, dejamos el CX.
+  if (String(n).trim() === String(id || '').trim()) {
+    return n;
+  }
+
+  // Mostrar nombre corto visualmente.
+  return n.split(' ').slice(0, 2).join(' ');
+}
+
+async function _p_resolverNombresSwaps() {
+  const ids = [
+    ...new Set(
+      (_p_SWAPS || [])
+        .flatMap(s => [
+          s.requester_id,
+          s.swap_with_id,
+          s.reviewed_by,
+          s.requested_by
+        ])
+        .map(x => String(x || '').trim())
+        .filter(Boolean)
+    )
+  ];
+
+  if (!ids.length) {
+    _p_USER_NAMES = {};
+    return;
+  }
+
+  try {
+    const { data, error } = await _p_sb.rpc(
+      'resolve_swap_employee_names',
+      { p_ids: ids }
+    );
+
+    if (error) {
+      console.warn(
+        '[Permutas] No se pudieron resolver nombres:',
+        error
+      );
+      return;
+    }
+
+    _p_USER_NAMES = Object.fromEntries(
+      (data || []).map(row => [
+        String(row.id || '').trim(),
+        row.full_name || row.id
+      ])
+    );
+
+  } catch (error) {
+    console.warn(
+      '[Permutas] Error resolviendo nombres:',
+      error
+    );
+  }
 }
 
 function _p_campaign(id) {
@@ -34112,6 +34184,7 @@ const { data: emps, error: e2 } = await _p_sb
 if (e2) throw e2;
 
 _p_EMPLEADOS = emps || [];
+await _p_resolverNombresSwaps();
 
     return true;
   } catch(e) {
