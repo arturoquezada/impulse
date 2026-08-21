@@ -42978,31 +42978,287 @@ async function _d_revisarCaso(id, approve) {
 
 
 function _d_abrirAcuse(id) {
-  const c = _d_CASES.find(x => x.id === id);
+  const c = (_d_CASES || []).find(
+    x => String(x.id) === String(id)
+  );
+
   if (!c) return;
 
-  document.getElementById('modalTitle').textContent = 'Acuse de Acción People';
-  document.getElementById('modalSub').textContent = _d_nombre(c.employee_id);
-  document.getElementById('modalBody').innerHTML = `
+  const emp = _d_emp(c.employee_id);
+  const m = _d_matrix(c.matrix_id);
+
+  const employeeName =
+    emp?.full_name ||
+    _d_nombre(c.employee_id) ||
+    c.employee_id ||
+    '—';
+
+  const requestedBy =
+    c.requested_by
+      ? _d_nombre(c.requested_by)
+      : '—';
+
+  const reviewedBy =
+    c.reviewed_by
+      ? _d_nombre(c.reviewed_by)
+      : 'Matriz automática';
+
+  document.getElementById(
+    'modalTitle'
+  ).textContent =
+    'Acuse de Acción People';
+
+  document.getElementById(
+    'modalSub'
+  ).textContent =
+    employeeName;
+
+  document.getElementById(
+    'modalBody'
+  ).innerHTML = `
+
     <div class="alert alert-amber">
-      Al firmar confirmas que fuiste notificado. Si no estás de acuerdo, puedes registrar negativa de firma con comentario.
+      <div>
+        <b>Lee la Acción People antes de firmar.</b>
+        <div style="margin-top:4px">
+          Al firmar confirmas que fuiste notificado.
+          Si no estás de acuerdo, puedes registrar una
+          negativa de firma y dejar un comentario.
+        </div>
+      </div>
     </div>
+
+
     <div class="modal-section">
-      <div class="ms-title">Caso</div>
-      <div class="kv"><span class="k">Nivel</span><span class="v">${_d_levelBadge(c.issued_level || c.recommended_level)}</span></div>
-      <div class="kv"><span class="k">Fecha incidente</span><span class="v">${fmtDate(c.incident_date)}</span></div>
+
+      <div class="ms-title">
+        Acción People
+      </div>
+
+      <div class="kv">
+        <span class="k">
+          Colaborador
+        </span>
+
+        <span class="v">
+          ${_d_esc(employeeName)}
+        </span>
+      </div>
+
+
+      <div class="kv">
+        <span class="k">
+          Infracción
+        </span>
+
+        <span class="v">
+          ${_d_esc(
+            m?.infraction_type ||
+            m?.rule_title ||
+            '—'
+          )}
+        </span>
+      </div>
+
+
+      <div class="kv">
+        <span class="k">
+          Nivel
+        </span>
+
+        <span class="v">
+          ${_d_levelBadge(
+            c.issued_level ||
+            c.recommended_level
+          )}
+        </span>
+      </div>
+
+
+      <div class="kv">
+        <span class="k">
+          Fecha incidente
+        </span>
+
+        <span class="v">
+          ${
+            c.incident_date
+              ? fmtDate(c.incident_date)
+              : '—'
+          }
+          ${
+            c.incident_time
+              ? ' · ' +
+                String(c.incident_time)
+                  .slice(0, 5)
+              : ''
+          }
+        </span>
+      </div>
+
+
+      <div class="kv">
+        <span class="k">
+          Solicitó
+        </span>
+
+        <span class="v">
+          ${_d_esc(requestedBy)}
+        </span>
+      </div>
+
+
+      <div class="kv">
+        <span class="k">
+          Emitió / revisó
+        </span>
+
+        <span class="v">
+          ${_d_esc(reviewedBy)}
+        </span>
+      </div>
+
     </div>
+
+
+    <div
+      class="modal-section"
+      style="
+        border-color:#BFDBFE;
+        background:#F8FBFF;
+      "
+    >
+
+      <div
+        class="ms-title"
+        style="color:#1D4ED8"
+      >
+        Feedback / hechos documentados
+      </div>
+
+      <div
+        style="
+          font-size:13px;
+          color:#0F172A;
+          line-height:1.65;
+          white-space:pre-wrap;
+        "
+      >
+        ${
+          _d_esc(
+            c.facts ||
+            'No se registró descripción de los hechos.'
+          )
+        }
+      </div>
+
+
+      ${
+        c.evidence_url
+          ? `
+            <div style="margin-top:12px">
+              <a
+                href="${_d_esc(c.evidence_url)}"
+                target="_blank"
+                rel="noopener noreferrer"
+                style="
+                  color:#0E7490;
+                  font-weight:800;
+                  text-decoration:none;
+                "
+              >
+                🔗 Abrir evidencia
+              </a>
+            </div>
+          `
+          : ''
+      }
+
+    </div>
+
+
+    ${
+      c.review_notes
+        ? `
+          <div class="modal-section">
+
+            <div class="ms-title">
+              Notas adicionales
+            </div>
+
+            <div
+              style="
+                font-size:12px;
+                color:#475569;
+                line-height:1.6;
+                white-space:pre-wrap;
+              "
+            >
+              ${_d_esc(c.review_notes)}
+            </div>
+
+          </div>
+        `
+        : ''
+    }
+
+
     <div class="form-row">
-      <label>Comentario opcional</label>
-      <textarea id="d-ack-notes" rows="4" placeholder="Comentario del colaborador."></textarea>
+
+      <label>
+        Tu comentario
+        <span
+          style="
+            font-weight:500;
+            color:#94A3B8;
+            text-transform:none;
+          "
+        >
+          · opcional
+        </span>
+      </label>
+
+      <textarea
+        id="d-ack-notes"
+        rows="4"
+        placeholder="Puedes agregar un comentario antes de firmar o al registrar una negativa."
+      ></textarea>
+
     </div>
+
   `;
-  document.getElementById('modalFooter').innerHTML = `
-    <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
-    <button class="btn-red" onclick="_d_acusarCaso('${id}', false)">Me niego a firmar</button>
-    <button class="btn-green" onclick="_d_acusarCaso('${id}', true)">Firmar / aceptar</button>
+
+
+  document.getElementById(
+    'modalFooter'
+  ).innerHTML = `
+
+    <button
+      class="btn-ghost"
+      onclick="closeModal()"
+    >
+      Cancelar
+    </button>
+
+    <button
+      class="btn-red"
+      onclick="_d_acusarCaso('${id}', false)"
+    >
+      Me niego a firmar
+    </button>
+
+    <button
+      class="btn-green"
+      onclick="_d_acusarCaso('${id}', true)"
+    >
+      Firmar / aceptar
+    </button>
+
   `;
-  document.getElementById('modalBackdrop').style.display = 'flex';
+
+  document.getElementById(
+    'modalBackdrop'
+  ).style.display = 'flex';
 }
 
 async function _d_acusarCaso(id, accept) {
