@@ -37485,42 +37485,108 @@ async function _v_rechazar(id) {
 }
 
 async function _v_confirmarRevision(id, accion) {
-  const nota = document.getElementById('v-nota-rev')?.value?.trim();
-  if (!nota) { alert('La nota es obligatoria'); return; }
-  const ro = ROLES[currentRole];
-  const { error } = await _v_sb.from('vacation_requests').update({
-    status: accion, rejection_reason: nota,
-    approved_by: ro.id, approved_at: new Date().toISOString(),
-  }).eq('id', id);
-  if (error) { alert('Error: ' + error.message); return; }
+  const nota =
+    document
+      .getElementById('v-nota-rev')
+      ?.value
+      ?.trim();
 
-  // Si se aprueba, actualizar el balance
-  if (accion === 'approved') {
-    const s = _v_SOLICITUDES.find(x=>x.id===id);
-    if (s) {
-      const bal = _v_BALANCES[s.employee_id];
-      if (bal) {
-        await _v_sb.from('vacation_balances').update({
-          days_used: (bal.days_used||0) + (s.days_requested||0),
-          days_pending: Math.max(0, (bal.days_pending||0) - (s.days_requested||0)),
-        }).eq('employee_id', s.employee_id);
-      }
-      // Insertar en attendance_exceptions para que aparezca en Asistencia
-      let cur = new Date(s.start_date + 'T12:00:00');
-      const fin = new Date(s.end_date + 'T12:00:00');
-      const excps = [];
-      while (cur <= fin) {
-        excps.push({ employee_id: s.employee_id, exception_date: ymd(cur), type: 'vacaciones', status: 'approved' });
-        cur.setDate(cur.getDate() + 1);
-      }
-      if (excps.length) await _v_sb.from('attendance_exceptions').upsert(excps, { onConflict: 'employee_id,exception_date' });
-    }
+  if (!nota) {
+    alert('La nota es obligatoria');
+    return;
   }
 
-  closeModal();
-  _v_cargando = true; _v_render();
-  await _v_cargarDatos();
-  _v_cargando = false; _v_render();
+  const btn =
+    document.querySelector(
+      '#modalFooter .btn-primary'
+    );
+
+  const textoOriginal =
+    btn?.textContent || '';
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent =
+      accion === 'approved'
+        ? 'Aprobando...'
+        : 'Rechazando...';
+  }
+
+  try {
+
+    const {
+      data,
+      error
+    } = await _v_sb.rpc(
+      'review_vacation_request',
+      {
+        p_request_id: id,
+        p_action: accion,
+        p_note: nota
+      }
+    );
+
+    if (error) {
+      console.error(
+        '[Impulse Vacaciones] Error revisión:',
+        error
+      );
+
+      alert(
+        'No se pudo procesar la solicitud: ' +
+        (error.message || 'Error desconocido')
+      );
+
+      return;
+    }
+
+    if (!data?.ok) {
+      console.error(
+        '[Impulse Vacaciones] Respuesta inválida:',
+        data
+      );
+
+      alert(
+        'La solicitud no pudo confirmarse.'
+      );
+
+      return;
+    }
+
+    console.log(
+      '[Impulse Vacaciones] Revisión confirmada:',
+      data
+    );
+
+    closeModal();
+
+    _v_cargando = true;
+    _v_render();
+
+    await _v_cargarDatos();
+
+    _v_cargando = false;
+    _v_render();
+
+  } catch (err) {
+
+    console.error(
+      '[Impulse Vacaciones] Excepción:',
+      err
+    );
+
+    alert(
+      'Ocurrió un error al procesar la solicitud.'
+    );
+
+  } finally {
+
+    if (btn && document.body.contains(btn)) {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
+
+  }
 }
 
 async function _v_cancelar(id) {
