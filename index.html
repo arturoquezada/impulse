@@ -13426,26 +13426,616 @@ function _a_closeAuditoria() {
 }
 
 async function _a_loadAuditoria() {
-  const { data, error } = await _a_sb.rpc('attendance_audit_range', {
-    p_from: _a_AUDIT_FILTERS.from,
-    p_to: _a_AUDIT_FILTERS.to
-  });
+  try {
+    const [
+      auditResult,
+      followupResult,
+      casesResult
+    ] = await Promise.all([
+      _a_sb.rpc('attendance_audit_range', {
+        p_from: _a_AUDIT_FILTERS.from,
+        p_to: _a_AUDIT_FILTERS.to
+      }),
 
-  if (error) {
-    console.error('Error cargando auditoría:', error);
+      _a_sb.rpc('list_people_action_followups'),
+
+      _a_sb
+        .from('people_action_cases')
+        .select('id,status,employee_id,attendance_incident_date,attendance_incident_type,created_at')
+    ]);
+
+    if (auditResult.error) {
+      throw auditResult.error;
+    }
+
+    if (followupResult.error) {
+      console.warn(
+        '[Impulse Asistencia] No se pudieron cargar follow-ups:',
+        followupResult.error
+      );
+    }
+
+    if (casesResult.error) {
+      console.warn(
+        '[Impulse Asistencia] No se pudieron cargar People Action Cases:',
+        casesResult.error
+      );
+    }
+
+    const auditRows = auditResult.data || [];
+    const followups = followupResult.data || [];
+    const cases = casesResult.data || [];
+
+    /*
+     * Índice de People Action Cases.
+     * La vinculación primaria es por people_action_case_id
+     * proveniente del follow-up.
+     */
+    const caseById = new Map(
+      cases
+        .filter(c => c?.id)
+        .map(c => [String(c.id), c])
+    );
+
+    /*
+     * Puede existir más de un follow-up histórico para la misma
+     * combinación empleado/fecha/tipo. Conservamos el más relevante.
+     */
+    const followupByIncident = new Map();
+
+    followups.forEach(followup => {
+      const employeeId =
+        String(followup?.employee_id || '').trim();
+
+      const incidentDate =
+        String(followup?.incident_date || '').slice(0, 10);
+
+      const incidentType =
+        String(followup?.incident_type || '')
+          .trim()
+          .toLowerCase();
+
+      if (
+        !employeeId ||
+        !incidentDate ||
+        !incidentType
+      ) {
+        return;
+      }
+
+      const key =
+        `${employeeId}|${incidentDate}|${incidentType}`;
+
+      const existing =
+        followupByIncident.get(key);
+
+      /*
+       * Si hubiera duplicados:
+       * - preferimos uno que tenga People Action Case;
+       * - después uno no cancelado;
+       * - de lo contrario conservamos el primero.
+       */
+      if (!existing) {
+        followupByIncident.set(key, followup);
+        return;
+      }
+
+      const existingHasCase =
+        Boolean(existing.people_action_case_id);
+
+      const incomingHasCase =
+        Boolean(followup.people_action_case_id);
+
+      if (
+        incomingHasCase &&
+        !existingHasCase
+      ) {
+        followupByIncident.set(key, followup);
+        return;
+      }
+
+      const existingCancelled =
+        ['cancelled', 'canceled'].includes(
+          String(existing.status || '').toLowerCase()
+        );
+
+      const incomingCancelled =
+        ['cancelled', 'canceled'].includes(
+          String(followup.status || '').toLowerCase()
+        );
+
+      if (
+        existingCancelled &&
+        !incomingCancelled
+      ) {
+        followupByIncident.set(key, followup);
+      }
+    });
+
+    _a_AUDIT_ROWS = auditRows.map(row => {
+      const classification =
+        _a_auditIncidentClassification(row);
+
+      const countsForDiscipline =
+        _a_auditCountsForDiscipline(row);
+
+      const incidentType =
+        _a_auditFollowupIncidentType(row);
+
+      const employeeId =
+        String(row?.employee_id || '').trim();
+
+      const workDate =
+        String(row?.work_date || '').slice(0, 10);
+
+      const followupKey =
+        incidentType
+          ? `${employeeId}|${workDate}|${incidentType}`
+          : null;
+
+      const followup =
+        followupKey
+          ? followupByIncident.get(followupKey) || null
+          : null;
+
+      const peopleActionCase =
+        followup?.people_action_case_id
+          ? caseById.get(
+              String(followup.people_action_case_id)
+            ) || null
+          : null;
+
+      /*
+       * Gap principal:
+       * incidencia disciplinable pero el proceso de follow-up
+       * nunca se generó.
+       */
+      const executionGap =
+        countsForDiscipline &&
+        !followup;
+
+      return {
+        ...row,
+
+        incident_classification:
+          classification,
+
+        counts_for_discipline:
+          countsForDiscipline,
+
+        followup_id:
+          followup?.id || null,
+
+        followup_status:
+          followup?.status || null,
+
+        followup_owner_role:
+          followup?.current_owner_role || null,
+
+        followup_case_id:
+          followup?.people_action_case_id || null,
+
+        people_action_case_id:
+          followup?.people_action_case_id || null,
+
+        people_action_case_status:
+          peopleActionCase?.status || null,
+
+        execution_gap:
+          executionGap
+      };
+    });
+
+    return true;
+
+  } catch (error) {
+    console.error(
+      '[Impulse Asistencia] Error cargando auditoría:',
+      error
+    );
+
     alert(
       'No se pudo cargar la auditoría:\n\n' +
-      (error.message || 'Error desconocido') +
-      (error.details ? '\n\nDetalle: ' + error.details : '') +
-      (error.hint ? '\n\nHint: ' + error.hint : '') +
-      (error.code ? '\n\nCódigo: ' + error.code : '')
+      (error?.message || 'Error desconocido') +
+      (error?.details
+        ? '\n\nDetalle: ' + error.details
+        : '') +
+      (error?.hint
+        ? '\n\nHint: ' + error.hint
+        : '') +
+      (error?.code
+        ? '\n\nCódigo: ' + error.code
+        : '')
     );
+
     _a_AUDIT_ROWS = [];
+
+    return false;
+  }
+}
+
+function _a_auditBool(value) {
+  if (value === true || value === false) {
+    return value;
+  }
+
+  if (
+    value === 1 ||
+    value === '1'
+  ) {
+    return true;
+  }
+
+  if (
+    value === 0 ||
+    value === '0'
+  ) {
     return false;
   }
 
-  _a_AUDIT_ROWS = data || [];
-  return true;
+  const normalized =
+    String(value ?? '')
+      .trim()
+      .toLowerCase();
+
+  if (
+    ['true', 'yes', 'si', 'sí'].includes(normalized)
+  ) {
+    return true;
+  }
+
+  if (
+    ['false', 'no'].includes(normalized)
+  ) {
+    return false;
+  }
+
+  return null;
+}
+
+
+function _a_auditIncidentClassification(row) {
+  const status =
+    String(row?.audit_status || '')
+      .trim()
+      .toLowerCase();
+
+  /*
+   * Una salida faltante no es automáticamente disciplinaria.
+   * Si Supervisor ya la clasificó como abandono,
+   * entonces sí cambia su naturaleza.
+   */
+  if (
+    row?.checkout_classification === 'abandonment'
+  ) {
+    return 'Abandono de jornada';
+  }
+
+  const map = {
+    retardo:
+      'Retardo',
+
+    tolerancia:
+      'Retardo dentro de tolerancia',
+
+    falta_injustificada:
+      'Falta injustificada',
+
+    sin_entrada:
+      'Marca de entrada faltante',
+
+    sin_salida:
+      'Marca de salida faltante',
+
+    permiso:
+      'Permiso',
+
+    incapacidad:
+      'Incapacidad',
+
+    vacaciones:
+      'Vacaciones',
+
+    descanso:
+      'Descanso',
+
+    sin_horario:
+      'Sin horario evaluable',
+
+    completo:
+      'Asistencia completa'
+  };
+
+  return map[status] || status || 'Sin clasificación';
+}
+
+
+function _a_auditCountsForDiscipline(row) {
+  /*
+   * Prioridad 1:
+   * si backend ya trae la decisión canónica,
+   * siempre respetarla.
+   */
+  const explicit =
+    _a_auditBool(
+      row?.counts_for_discipline ??
+      row?.disciplinary_actionable ??
+      row?.actionable_for_discipline
+    );
+
+  if (explicit !== null) {
+    return explicit;
+  }
+
+  /*
+   * Abandono de jornada sí es disciplinable.
+   * Tu propio detalle diario ya aplica esta regla.
+   */
+  if (
+    row?.checkout_classification === 'abandonment'
+  ) {
+    return true;
+  }
+
+  const status =
+    String(row?.audit_status || '')
+      .trim()
+      .toLowerCase();
+
+  /*
+   * Falta injustificada.
+   */
+  if (status === 'falta_injustificada') {
+    return true;
+  }
+
+  /*
+   * Para retardo usamos la misma lógica que ya existe
+   * en Deep Dive: debe superar tolerancia.
+   */
+  if (status === 'retardo') {
+    const minutesLate =
+      Number(row?.minutes_late || 0);
+
+    const toleranceMinutes =
+      Number(
+        row?.tolerance_minutes ??
+        row?.tolerancia_minutos ??
+        row?.late_tolerance_minutes ??
+        10
+      );
+
+    const justificationStatus =
+      String(
+        row?.late_justification_status || ''
+      )
+        .trim()
+        .toLowerCase();
+
+    const hasOpenOrApprovedJustification =
+      ['pending', 'approved']
+        .includes(justificationStatus);
+
+    return (
+      minutesLate > toleranceMinutes &&
+      !hasOpenOrApprovedJustification
+    );
+  }
+
+  /*
+   * Sin entrada/salida no se consideran
+   * disciplinarias automáticamente.
+   */
+  return false;
+}
+
+
+function _a_auditFollowupIncidentType(row) {
+  if (!_a_auditCountsForDiscipline(row)) {
+    return null;
+  }
+
+  if (
+    row?.checkout_classification === 'abandonment'
+  ) {
+    return 'absence';
+  }
+
+  const status =
+    String(row?.audit_status || '')
+      .trim()
+      .toLowerCase();
+
+  if (status === 'retardo') {
+    return 'late';
+  }
+
+  if (status === 'falta_injustificada') {
+    return 'absence';
+  }
+
+  return null;
+}
+
+
+function _a_auditDisciplineBadge(row) {
+  if (row?.counts_for_discipline) {
+    return `
+      <span class="pill pill-red">
+        <span class="dot"></span>
+        Sí
+      </span>
+    `;
+  }
+
+  return `
+    <span class="pill pill-gray">
+      No
+    </span>
+  `;
+}
+
+
+function _a_auditFollowupBadge(row) {
+  if (!row?.counts_for_discipline) {
+    return `
+      <span class="pill pill-gray">
+        No requerido
+      </span>
+    `;
+  }
+
+  if (!row?.followup_id) {
+    return `
+      <span
+        class="pill pill-red"
+        title="Incidencia disciplinable sin follow-up"
+      >
+        <span class="dot"></span>
+        Sin follow-up
+      </span>
+    `;
+  }
+
+  const status =
+    String(row.followup_status || '')
+      .trim()
+      .toLowerCase();
+
+  const map = {
+    open:
+      ['pill-amber', 'Abierto'],
+
+    pending:
+      ['pill-amber', 'Pendiente'],
+
+    escalated:
+      ['pill-red', 'Escalado'],
+
+    resolved:
+      ['pill-green', 'Resuelto'],
+
+    completed:
+      ['pill-green', 'Completado'],
+
+    not_applicable:
+      ['pill-gray', 'Sin acción'],
+
+    cancelled:
+      ['pill-gray', 'Cancelado'],
+
+    canceled:
+      ['pill-gray', 'Cancelado']
+  };
+
+  const [cls, label] =
+    map[status] ||
+    ['pill-blue', row.followup_status || 'En proceso'];
+
+  return `
+    <span class="pill ${cls}">
+      <span class="dot"></span>
+      ${label}
+    </span>
+  `;
+}
+
+
+function _a_auditPeopleActionBadge(row) {
+  if (!row?.counts_for_discipline) {
+    return `
+      <span class="pill pill-gray">
+        No requerido
+      </span>
+    `;
+  }
+
+  if (!row?.people_action_case_id) {
+    return `
+      <span class="pill pill-gray">
+        Sin caso
+      </span>
+    `;
+  }
+
+  const status =
+    String(
+      row?.people_action_case_status || ''
+    )
+      .trim()
+      .toLowerCase();
+
+  const map = {
+    draft:
+      ['pill-gray', 'Borrador'],
+
+    pending:
+      ['pill-amber', 'Pendiente'],
+
+    pending_review:
+      ['pill-amber', 'En revisión'],
+
+    approved:
+      ['pill-green', 'Aprobado'],
+
+    rejected:
+      ['pill-red', 'Rechazado'],
+
+    cancelled:
+      ['pill-gray', 'Cancelado'],
+
+    canceled:
+      ['pill-gray', 'Cancelado'],
+
+    completed:
+      ['pill-green', 'Completado'],
+
+    closed:
+      ['pill-green', 'Cerrado']
+  };
+
+  const [cls, label] =
+    map[status] ||
+    [
+      'pill-blue',
+      row.people_action_case_status || 'Creado'
+    ];
+
+  return `
+    <span class="pill ${cls}">
+      <span class="dot"></span>
+      ${label}
+    </span>
+  `;
+}
+
+
+function _a_auditExecutionBadge(row) {
+  if (row?.execution_gap) {
+    return `
+      <span
+        class="pill pill-red"
+        style="font-weight:900"
+        title="La incidencia cuenta para disciplina pero no existe follow-up"
+      >
+        ⚠ Gap de ejecución
+      </span>
+    `;
+  }
+
+  if (row?.counts_for_discipline) {
+    return `
+      <span class="pill pill-green">
+        ✓ Gestionado
+      </span>
+    `;
+  }
+
+  return `
+    <span class="pill pill-gray">
+      —
+    </span>
+  `;
 }
 
 async function _a_applyAuditFilters() {
@@ -13531,16 +14121,21 @@ function _a_auditFilteredRows() {
 
 function _a_auditSummary(rows = _a_auditFilteredRows()) {
   const c = {
-    total: rows.length,
-    completo: 0,
-    tolerancia: 0,
-    retardo: 0,
-    sin_entrada: 0,
-    sin_salida: 0,
-    falta_injustificada: 0,
-    justificadas: 0,
-    sin_horario: 0
-  };
+  total: rows.length,
+  completo: 0,
+  tolerancia: 0,
+  retardo: 0,
+  sin_entrada: 0,
+  sin_salida: 0,
+  falta_injustificada: 0,
+  justificadas: 0,
+  sin_horario: 0,
+
+  disciplinables: 0,
+  con_followup: 0,
+  sin_followup: 0,
+  con_people_action: 0
+};
 
   rows.forEach(r => {
     if (c[r.audit_status] !== undefined) c[r.audit_status]++;
@@ -13548,6 +14143,20 @@ function _a_auditSummary(rows = _a_auditFilteredRows()) {
     if (['descanso', 'vacaciones', 'permiso', 'incapacidad'].includes(r.audit_status)) {
       c.justificadas++;
     }
+
+    if (r.counts_for_discipline) {
+  c.disciplinables++;
+
+  if (r.followup_id) {
+    c.con_followup++;
+  } else {
+    c.sin_followup++;
+  }
+
+  if (r.people_action_case_id) {
+    c.con_people_action++;
+  }
+}
   });
 
   c.pendientes = c.sin_entrada + c.sin_salida + c.sin_horario;
@@ -13797,47 +14406,217 @@ function _a_auditKpisHTML(s) {
       <div class="kpi-box"><div class="kpi-val" style="color:#DC2626">${s.falta_injustificada}</div><div class="kpi-lbl">Faltas</div></div>
       <div class="kpi-box"><div class="kpi-val" style="color:#0E7490">${s.justificadas}</div><div class="kpi-lbl">Justificados</div></div>
     </div>
+
+    <div class="kpi4">
+  <div class="kpi-box">
+    <div
+      class="kpi-val"
+      style="color:#7C3AED"
+    >
+      ${s.disciplinables}
+    </div>
+    <div class="kpi-lbl">
+      Disciplinables
+    </div>
+  </div>
+
+  <div class="kpi-box">
+    <div
+      class="kpi-val"
+      style="color:#16A34A"
+    >
+      ${s.con_followup}
+    </div>
+    <div class="kpi-lbl">
+      Con follow-up
+    </div>
+  </div>
+
+  <div
+    class="kpi-box"
+    style="
+      border-color:${s.sin_followup ? '#FCA5A5' : '#E2E8F0'};
+      background:${s.sin_followup ? '#FFF1F2' : '#fff'}
+    "
+  >
+    <div
+      class="kpi-val"
+      style="color:${s.sin_followup ? '#DC2626' : '#64748B'}"
+    >
+      ${s.sin_followup}
+    </div>
+    <div class="kpi-lbl">
+      Gaps de ejecución
+    </div>
+  </div>
+
+  <div class="kpi-box">
+    <div
+      class="kpi-val"
+      style="color:#0E7490"
+    >
+      ${s.con_people_action}
+    </div>
+    <div class="kpi-lbl">
+      Con People Action
+    </div>
+  </div>
+</div>
   `;
 }
 
 function _a_auditTableRowsHTML(rows) {
   return rows.map(r => {
-    const isAlert = ['sin_entrada', 'sin_salida', 'falta_injustificada'].includes(r.audit_status);
-    const detail = r.detail_label || r.exception_detail || '—';
-    const notes = r.detail_notes || '';
+    const isGap =
+      Boolean(r.execution_gap);
+
+    const isAlert =
+      isGap ||
+      [
+        'sin_entrada',
+        'sin_salida',
+        'falta_injustificada'
+      ].includes(r.audit_status);
+
+    const detail =
+      r.detail_label ||
+      r.exception_detail ||
+      '—';
+
+    const notes =
+      r.detail_notes || '';
+
+    const rowBackground =
+      isGap
+        ? 'background:#FEF2F2;box-shadow:inset 4px 0 0 #DC2626'
+        : isAlert
+          ? 'background:#FFF7ED'
+          : '';
 
     return `
-      <tr onclick="_a_auditDrillToAgent('${r.employee_id}')" style="${isAlert ? 'background:#FFF1F2' : ''};cursor:pointer">
-        <td style="font-family:'DM Mono',monospace;white-space:nowrap">${fmtDateShort(r.work_date)}</td>
-
-        <td>
-          <div class="agent-row-name">${r.employee_name || '—'}</div>
-          <div class="agent-row-id">${r.employee_id}</div>
+      <tr
+        onclick="_a_auditDrillToAgent('${r.employee_id}')"
+        style="${rowBackground};cursor:pointer"
+      >
+        <td
+          style="
+            font-family:'DM Mono',monospace;
+            white-space:nowrap
+          "
+        >
+          ${fmtDateShort(r.work_date)}
         </td>
 
-        <td>${r.campaign_id || '—'}</td>
-        <td>${r.supervisor_name || '—'}</td>
+        <td>
+          <div class="agent-row-name">
+            ${r.employee_name || '—'}
+          </div>
 
-        <td style="font-family:'DM Mono',monospace;white-space:nowrap">
+          <div class="agent-row-id">
+            ${r.employee_id}
+          </div>
+        </td>
+
+        <td>
+          ${r.campaign_id || '—'}
+        </td>
+
+        <td>
+          ${r.supervisor_name || '—'}
+        </td>
+
+        <td
+          style="
+            font-family:'DM Mono',monospace;
+            white-space:nowrap
+          "
+        >
           ${_a_fmtAuditTime(r.shift_start)}–${_a_fmtAuditTime(r.shift_end)}
         </td>
 
-        <td style="font-family:'DM Mono',monospace">${_a_fmtAuditTime(r.time_in, r, 'entry')}</td>
-        <td style="font-family:'DM Mono',monospace">${_a_fmtAuditTime(r.time_out, r, 'exit')}</td>
+        <td style="font-family:'DM Mono',monospace">
+          ${_a_fmtAuditTime(r.time_in, r, 'entry')}
+        </td>
 
-        <td style="font-family:'DM Mono',monospace;text-align:center;color:${Number(r.minutes_late || 0) > 0 ? '#D97706' : '#64748B'}">
+        <td style="font-family:'DM Mono',monospace">
+          ${_a_fmtAuditTime(r.time_out, r, 'exit')}
+        </td>
+
+        <td
+          style="
+            font-family:'DM Mono',monospace;
+            text-align:center;
+            color:${
+              Number(r.minutes_late || 0) > 0
+                ? '#D97706'
+                : '#64748B'
+            }
+          "
+        >
           ${r.minutes_late || 0}
         </td>
 
-        <td>${_a_auditStatusBadge(r.audit_status)}</td>
+        <td>
+          ${_a_auditStatusBadge(r.audit_status)}
+        </td>
 
-        <td style="font-size:11px;color:${r.pending_issue ? '#DC2626' : '#94A3B8'}">
+        <td style="min-width:170px">
+          <div style="font-weight:800;color:#0F172A">
+            ${r.incident_classification || '—'}
+          </div>
+        </td>
+
+        <td style="text-align:center">
+          ${_a_auditDisciplineBadge(r)}
+        </td>
+
+        <td>
+          ${_a_auditFollowupBadge(r)}
+        </td>
+
+        <td>
+          ${_a_auditPeopleActionBadge(r)}
+        </td>
+
+        <td>
+          ${_a_auditExecutionBadge(r)}
+        </td>
+
+        <td
+          style="
+            font-size:11px;
+            color:${r.pending_issue ? '#DC2626' : '#94A3B8'}
+          "
+        >
           ${r.pending_issue || '—'}
         </td>
 
-        <td style="font-size:11px;min-width:220px;max-width:320px">
-          <div style="font-weight:800;color:#0F172A">${detail}</div>
-          ${notes ? `<div style="color:#64748B;margin-top:3px;line-height:1.35">${notes}</div>` : ''}
+        <td
+          style="
+            font-size:11px;
+            min-width:220px;
+            max-width:320px
+          "
+        >
+          <div style="font-weight:800;color:#0F172A">
+            ${detail}
+          </div>
+
+          ${
+            notes
+              ? `
+                <div
+                  style="
+                    color:#64748B;
+                    margin-top:3px;
+                    line-height:1.35
+                  "
+                >
+                  ${notes}
+                </div>
+              `
+              : ''
+          }
         </td>
       </tr>
     `;
@@ -13857,7 +14636,7 @@ function _a_refreshAuditUI() {
   if (tableBody) {
     tableBody.innerHTML = _a_auditTableRowsHTML(rows) || `
       <tr>
-        <td colspan="11" style="text-align:center;color:#94A3B8;padding:28px">
+        <td colspan="16" style="text-align:center;color:#94A3B8;padding:28px">
           Sin resultados con los filtros actuales.
         </td>
       </tr>
@@ -13963,25 +14742,33 @@ function _a_renderAuditoria() {
             <div style="overflow-x:auto">
               <table style="min-width:1280px">
                 <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Empleado</th>
-                    <th>Campaña</th>
-                    <th>Supervisor</th>
-                    <th>Horario</th>
-                    <th>Entrada</th>
-                    <th>Salida</th>
-                    <th style="text-align:center">Tarde</th>
-                    <th>Estado</th>
-                    <th>Pendiente</th>
-                    <th>Detalle</th>
-                  </tr>
-                </thead>
+                 <thead>
+  <tr>
+    <th>Fecha</th>
+    <th>Empleado</th>
+    <th>Campaña</th>
+    <th>Supervisor</th>
+    <th>Horario</th>
+    <th>Entrada</th>
+    <th>Salida</th>
+    <th style="text-align:center">Tarde</th>
+
+    <th>Estado asistencia</th>
+    <th>Clasificación</th>
+    <th style="text-align:center">Disciplina</th>
+    <th>Follow-up</th>
+    <th>People Action</th>
+    <th>Ejecución</th>
+
+    <th>Pendiente</th>
+    <th>Detalle</th>
+  </tr>
+</thead>
 
                 <tbody id="auditTableBody">
                   ${_a_auditTableRowsHTML(rows) || `
                     <tr>
-                      <td colspan="11" style="text-align:center;color:#94A3B8;padding:28px">
+                      <td colspan="16" style="text-align:center;color:#94A3B8;padding:28px">
                         Sin resultados con los filtros actuales.
                       </td>
                     </tr>
@@ -26332,7 +27119,7 @@ function _dd4_renderOperationalIncidents(d){
   const rows=_dd4_filteredOperationalIncidents(d);const statuses=[...new Set((d.operationalIncidents||[]).map(r=>r.audit_status).filter(Boolean))].sort();
   return `<div class="dd4-filters"><input id="dd4-search" class="dd4-search" placeholder="Buscar agente, ID, supervisor, campaña o fecha..." value="${_dd_escape(_dd4_UI.search)}" oninput="_dd4_setUI('search',this.value)"><select class="dd4-select" onchange="_dd4_setUI('attendanceStatus',this.value)"><option value="all">Todas las incidencias</option>${statuses.map(x=>`<option value="${_dd_escape(x)}" ${_dd4_UI.attendanceStatus===x?'selected':''}>${_dd_escape(_dd4_operationalIncidentType({audit_status:x}))}</option>`).join('')}</select><span class="dd4-chip blue">${rows.length} incidencias</span></div>
   <div class="dd4-alert blue">La vista muestra la clasificación operativa y el resultado final, pero oculta notas, documentos y evidencia sensible.</div>
-  <div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Incidencia</th><th>Entrada</th><th>Salida</th><th>Resultado final</th><th>Origen</th><th>Registró liderazgo</th><th>Tiempo de registro</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td>${_dd_escape(r.op_result_label||'—')}</td><td>${r.op_management_source==='people_action'?'<span class="dd4-status ok">People Action</span>':r.op_bot_exception?'<span class="dd4-status neutral">Bot</span>':r.op_manual_exception?'<span class="dd4-status ok">Liderazgo</span>':'<span class="dd4-status neutral">Sin registro</span>'}</td><td>${_dd_escape(r.op_creator_name||'—')}</td><td>${_dd4_operationalAccountabilityPill(r.op_accountability)}</td></tr>`).join(''):`<tr><td colspan="11"><div class="dd4-empty">No hay incidencias con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
+  <div class="dd4-table-wrap"><div class="dd4-table-scroll"><table class="dd4-table" style="min-width:1380px"><thead><tr><th>Fecha</th><th>Agente</th><th>Campaña</th><th>Supervisor</th><th>Incidencia</th><th>Entrada</th><th>Salida</th><th>Resultado final</th><th>Origen</th><th>Registró liderazgo</th><th>Tiempo de registro</th></tr></thead><tbody>${rows.length?rows.map(r=>`<tr class="clickable" onclick="_dd4_openAgent('${String(r.employee_id||'').replaceAll("'","\\'")}')"><td class="dd4-mono">${fmtDateShort(r.work_date)}</td><td><div class="dd4-strong">${_dd_escape(r.employee_name||r.employee_id||'—')}</div><div class="dd-secondary">${_dd_escape(r.employee_id||'—')}</div></td><td>${_dd_escape(r.campaign_id||'Sin campaña')}</td><td>${_dd_escape(r.supervisor_name||'Sin supervisor')}</td><td>${_dd4_statusPill(r.audit_status)}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_in','check_in','punch_in','entry_time','actual_start','first_punch'])||'—'}</td><td class="dd4-mono">${_dd_timeValue(r,['clock_out','check_out','punch_out','exit_time','actual_end','last_punch'])||'—'}</td><td>${_dd_escape(r.op_result_label||'—')}</td><td>${r.op_management_source==='people_action'?'<span class="dd4-status ok">People Action</span>':r.op_bot_exception?'<span class="dd4-status neutral">Bot</span>':r.op_manual_exception?'<span class="dd4-status ok">Liderazgo</span>':'<span class="dd4-status neutral">Sin registro</span>'}</td><td>${_dd_escape(r.op_creator_name||'—')}</td><td>${_dd4_operationalAccountabilityPill(r.op_accountability)}</td></tr>`).join(''):`<tr><td colspan="16"><div class="dd4-empty">No hay incidencias con estos filtros.</div></td></tr>`}</tbody></table></div></div>`;
 }
 
 function _dd4_renderOperationalAccountability(d){
