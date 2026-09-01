@@ -48846,39 +48846,619 @@ window._init_organigrama = async function(){
   function _roCloseCatalog(){ document.getElementById('rosterCatalogDrawer')?.remove(); }
 
   function _roOpenLicenseDrawer(employeeId){
-    const r=_roEmployee(employeeId); if(!r)return;
-    _ro_modalEmployeeId=employeeId;
-    document.getElementById('rosterDrawer')?.remove();
-    const canManage=!!_ro_payload?.can_manage_licenses;
-    const canAssign=canManage&&_roIsActive(r);
-    const activeLicenses=(r.licenses||[]);
-    const history=(r.license_history||[]).slice(0,14);
-    const backdrop=document.createElement('div'); backdrop.id='rosterDrawer'; backdrop.className='roster-drawer-backdrop';
-    backdrop.onclick=e=>{if(e.target===backdrop)_roCloseDrawer();};
-    backdrop.innerHTML=`<div class="roster-drawer">
-      <div class="roster-drawer-head"><div><div class="roster-drawer-title">Licencias del colaborador</div><div class="roster-drawer-sub">Gestión contextual · sin salir del empleado actual</div></div><button class="roster-btn ghost small" onclick="_roCloseDrawer()">✕</button></div>
-      <div class="roster-drawer-body">
-        <div class="roster-profile"><div class="roster-avatar">${_roEsc(_roInitials(r.full_name))}</div><div><div class="roster-profile-name">${_roEsc(r.full_name||r.employee_id)}</div><div class="roster-cx">${_roEsc(r.employee_id)}</div></div></div>
-        <div class="roster-op-grid">
-          <div class="roster-op-cell"><div class="roster-op-k">Supervisor</div><div class="roster-op-v">${_roEsc(r.supervisor_name||'—')}</div></div>
-          <div class="roster-op-cell"><div class="roster-op-k">Campaña / LOB</div><div class="roster-op-v">${_roEsc(r.campaign_id||'—')} · ${_roEsc(r.lob||'—')}</div></div>
-          <div class="roster-op-cell"><div class="roster-op-k">Queue</div><div class="roster-op-v">${_roEsc(r.queue||'—')}</div></div>
-          <div class="roster-op-cell"><div class="roster-op-k">Horario / Descanso</div><div class="roster-op-v">${_roTime(r.shift_start)}–${_roTime(r.shift_end)} · ${_roEsc(_roDaysOff(r))}</div></div>
-        </div>
-        ${!_roIsActive(r)?'<div class="roster-warning"><b>Colaborador dado de baja.</b> No se pueden asignar licencias nuevas; sí puedes retirar licencias activas para cerrar offboarding.</div>':''}
 
-        ${canAssign?`<div class="roster-section-title">Asignar nueva licencia</div><div class="roster-assignment-box"><div class="roster-assignment-row"><div style="flex:1;min-width:0"><input id="ro-license-text" class="roster-input" type="text" maxlength="80" autocomplete="off" placeholder="Escribe la licencia, ej. Five9, Zendesk, Salesforce…" onkeydown="if(event.key==='Enter'){event.preventDefault();_roAssignTextLicense('${_roEsc(r.employee_id)}')}"></div><button class="roster-btn blue" onclick="_roAssignTextLicense('${_roEsc(r.employee_id)}')">＋ Asignar</button></div><div class="roster-secondary" style="margin-top:7px">Escribe el nombre libremente. Impulse reutiliza el mismo nombre si ya existe y lo asigna únicamente a <b>${_roEsc(r.full_name||r.employee_id)}</b>.</div></div>`:''}
+const r = _roEmployee(employeeId);
+if(!r) return;
 
-        <div class="roster-section-title">Licencias activas · ${activeLicenses.length}</div>
-        ${activeLicenses.length?activeLicenses.map(a=>`<div class="roster-license-row active"><div><div class="roster-license-name">${_roEsc(a.license_name||'Licencia')}</div><div class="roster-license-desc">Asignada ${_roDate(a.assigned_at)}${a.assigned_by_name?` · ${_roEsc(a.assigned_by_name)}`:''}</div></div>${canManage?`<button class="roster-btn danger small" onclick="_roRevoke('${_roEsc(a.assignment_id)}')">Retirar</button>`:'<span class="roster-chip active">Activa</span>'}</div>`).join(''):'<div class="roster-empty" style="padding:22px 8px">Este colaborador no tiene licencias activas.</div>'}
+_ro_modalEmployeeId = employeeId;
+
+document
+  .getElementById('rosterDrawer')
+  ?.remove();
 
 
-        <div class="roster-section-title">Historial</div>
-        ${history.length?history.map(h=>`<div class="roster-history"><b>${_roEsc(h.license_name||'Licencia')}</b> · Asignada ${_roDate(h.assigned_at)} por ${_roEsc(h.assigned_by_name||h.assigned_by||'—')}${h.revoked_at?` · Retirada ${_roDate(h.revoked_at)} por ${_roEsc(h.revoked_by_name||h.revoked_by||'—')}`:' · Activa'}</div>`).join(''):'<div class="roster-secondary">Sin movimientos registrados.</div>'}
-      </div>
-    </div>`;
-    document.body.appendChild(backdrop);
+const canManage =
+  !!_ro_payload?.can_manage_licenses;
+
+const canAssign =
+  canManage && _roIsActive(r);
+
+const isAplazo =
+  String(r.campaign_id || '')
+    .trim()
+    .toLowerCase() === 'aplazo';
+
+const activeLicenses =
+  r.licenses || [];
+
+const history =
+  (r.license_history || [])
+    .slice(0, 14);
+
+
+const backdrop =
+  document.createElement('div');
+
+backdrop.id =
+  'rosterDrawer';
+
+backdrop.className =
+  'roster-drawer-backdrop';
+
+
+backdrop.onclick = e => {
+
+  if(e.target === backdrop){
+    _roCloseDrawer();
   }
+
+};
+
+
+backdrop.innerHTML = `
+
+  <div class="roster-drawer">
+
+    <!-- =====================================================
+         HEADER
+         ===================================================== -->
+
+    <div class="roster-drawer-head">
+
+      <div>
+
+        <div class="roster-drawer-title">
+          Accesos del colaborador
+        </div>
+
+        <div class="roster-drawer-sub">
+          Usuario operativo y licencias · sin salir del empleado actual
+        </div>
+
+      </div>
+
+      <button
+        class="roster-btn ghost small"
+        onclick="_roCloseDrawer()">
+        ✕
+      </button>
+
+    </div>
+
+
+    <div class="roster-drawer-body">
+
+
+      <!-- ===================================================
+           PERFIL
+           =================================================== -->
+
+      <div class="roster-profile">
+
+        <div class="roster-avatar">
+          ${_roEsc(_roInitials(r.full_name))}
+        </div>
+
+        <div>
+
+          <div class="roster-profile-name">
+            ${_roEsc(r.full_name || r.employee_id)}
+          </div>
+
+          <div class="roster-cx">
+            ${_roEsc(r.employee_id)}
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <!-- ===================================================
+           INFORMACIÓN OPERATIVA
+           =================================================== -->
+
+      <div class="roster-op-grid">
+
+        <div class="roster-op-cell">
+
+          <div class="roster-op-k">
+            Supervisor
+          </div>
+
+          <div class="roster-op-v">
+            ${_roEsc(r.supervisor_name || '—')}
+          </div>
+
+        </div>
+
+
+        <div class="roster-op-cell">
+
+          <div class="roster-op-k">
+            Campaña / LOB
+          </div>
+
+          <div class="roster-op-v">
+            ${_roEsc(r.campaign_id || '—')}
+            ·
+            ${_roEsc(r.lob || '—')}
+          </div>
+
+        </div>
+
+
+        <div class="roster-op-cell">
+
+          <div class="roster-op-k">
+            Queue
+          </div>
+
+          <div class="roster-op-v">
+            ${_roEsc(r.queue || '—')}
+          </div>
+
+        </div>
+
+
+        <div class="roster-op-cell">
+
+          <div class="roster-op-k">
+            Horario / Descanso
+          </div>
+
+          <div class="roster-op-v">
+
+            ${_roTime(r.shift_start)}
+            –
+            ${_roTime(r.shift_end)}
+
+            ·
+
+            ${_roEsc(_roDaysOff(r))}
+
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <!-- ===================================================
+           AVISO DE BAJA
+           =================================================== -->
+
+      ${
+        !_roIsActive(r)
+
+          ? `
+            <div class="roster-warning">
+
+              <b>Colaborador dado de baja.</b>
+
+              No se pueden asignar nuevos accesos;
+              sí puedes retirar licencias activas
+              para cerrar el offboarding.
+
+            </div>
+          `
+
+          : ''
+      }
+
+
+      <!-- ===================================================
+           USER APLAZO
+           SOLO PARA CAMPAÑA APLAZO
+           =================================================== -->
+
+      ${
+        isAplazo
+
+          ? `
+
+            <div class="roster-section-title">
+              Usuario Aplazo
+            </div>
+
+
+            <div class="roster-assignment-box">
+
+
+              <div class="roster-assignment-row">
+
+
+                <div
+                  style="
+                    flex:1;
+                    min-width:0;
+                  "
+                >
+
+                  <input
+
+                    id="ro-workforce-user"
+
+                    class="roster-input"
+
+                    type="text"
+
+                    maxlength="100"
+
+                    autocomplete="off"
+
+                    placeholder="Ej. Agente NL 44"
+
+                    value="${_roEsc(
+                      r.workforce_user || ''
+                    )}"
+
+                    ${!canAssign ? 'disabled' : ''}
+
+                    onkeydown="
+                      if(event.key==='Enter'){
+                        event.preventDefault();
+                        _roSaveWorkforceUser(
+                          '${_roEsc(r.employee_id)}'
+                        );
+                      }
+                    "
+
+                  >
+
+                </div>
+
+
+                ${
+                  canAssign
+
+                    ? `
+
+                      <button
+
+                        type="button"
+
+                        class="roster-btn blue"
+
+                        onclick="
+                          _roSaveWorkforceUser(
+                            '${_roEsc(r.employee_id)}'
+                          )
+                        "
+                      >
+
+                        Guardar
+
+                      </button>
+
+                    `
+
+                    : ''
+                }
+
+
+              </div>
+
+
+              <div
+                class="roster-secondary"
+                style="margin-top:7px"
+              >
+
+                Usuario operativo del colaborador
+                dentro de Aplazo.
+
+              </div>
+
+
+            </div>
+
+          `
+
+          : ''
+      }
+
+
+      <!-- ===================================================
+           ASIGNAR LICENCIA
+           =================================================== -->
+
+      ${
+        canAssign
+
+          ? `
+
+            <div class="roster-section-title">
+              Asignar nueva licencia
+            </div>
+
+
+            <div class="roster-assignment-box">
+
+
+              <div class="roster-assignment-row">
+
+
+                <div
+                  style="
+                    flex:1;
+                    min-width:0;
+                  "
+                >
+
+                  <input
+
+                    id="ro-license-text"
+
+                    class="roster-input"
+
+                    type="text"
+
+                    maxlength="80"
+
+                    autocomplete="off"
+
+                    placeholder="Escribe la licencia, ej. agente_nl_44@aplazo.support"
+
+                    onkeydown="
+                      if(event.key==='Enter'){
+                        event.preventDefault();
+                        _roAssignTextLicense(
+                          '${_roEsc(r.employee_id)}'
+                        );
+                      }
+                    "
+
+                  >
+
+                </div>
+
+
+                <button
+
+                  type="button"
+
+                  class="roster-btn blue"
+
+                  onclick="
+                    _roAssignTextLicense(
+                      '${_roEsc(r.employee_id)}'
+                    )
+                  "
+                >
+
+                  ＋ Asignar
+
+                </button>
+
+
+              </div>
+
+
+              <div
+                class="roster-secondary"
+                style="margin-top:7px"
+              >
+
+                Escribe el nombre de la licencia.
+                Impulse reutiliza el mismo registro
+                si ya existe y lo asigna únicamente a
+
+                <b>
+                  ${_roEsc(
+                    r.full_name || r.employee_id
+                  )}
+                </b>.
+
+              </div>
+
+
+            </div>
+
+          `
+
+          : ''
+      }
+
+
+      <!-- ===================================================
+           LICENCIAS ACTIVAS
+           =================================================== -->
+
+      <div class="roster-section-title">
+
+        Licencias activas ·
+        ${activeLicenses.length}
+
+      </div>
+
+
+      ${
+        activeLicenses.length
+
+          ? activeLicenses
+              .map(a => `
+
+                <div class="roster-license-row active">
+
+
+                  <div>
+
+
+                    <div class="roster-license-name">
+
+                      ${_roEsc(
+                        a.license_name ||
+                        'Licencia'
+                      )}
+
+                    </div>
+
+
+                    <div class="roster-license-desc">
+
+                      Asignada
+                      ${_roDate(a.assigned_at)}
+
+                      ${
+                        a.assigned_by_name
+
+                          ? `
+                            ·
+                            ${_roEsc(
+                              a.assigned_by_name
+                            )}
+                          `
+
+                          : ''
+                      }
+
+                    </div>
+
+
+                  </div>
+
+
+                  ${
+                    canManage
+
+                      ? `
+
+                        <button
+
+                          type="button"
+
+                          class="roster-btn danger small"
+
+                          onclick="
+                            _roRevoke(
+                              '${_roEsc(
+                                a.assignment_id
+                              )}'
+                            )
+                          "
+                        >
+
+                          Retirar
+
+                        </button>
+
+                      `
+
+                      : `
+
+                        <span class="roster-chip active">
+                          Activa
+                        </span>
+
+                      `
+                  }
+
+
+                </div>
+
+              `)
+              .join('')
+
+          : `
+
+            <div
+              class="roster-empty"
+              style="
+                padding:22px 8px;
+              "
+            >
+
+              Este colaborador
+              no tiene licencias activas.
+
+            </div>
+
+          `
+      }
+
+
+      <!-- ===================================================
+           HISTORIAL
+           =================================================== -->
+
+      <div class="roster-section-title">
+        Historial
+      </div>
+
+
+      ${
+        history.length
+
+          ? history
+              .map(h => `
+
+                <div class="roster-history">
+
+                  <b>
+                    ${_roEsc(
+                      h.license_name ||
+                      'Licencia'
+                    )}
+                  </b>
+
+                  · Asignada
+                  ${_roDate(h.assigned_at)}
+
+                  por
+                  ${_roEsc(
+                    h.assigned_by_name ||
+                    h.assigned_by ||
+                    '—'
+                  )}
+
+                  ${
+                    h.revoked_at
+
+                      ? `
+
+                        · Retirada
+                        ${_roDate(
+                          h.revoked_at
+                        )}
+
+                        por
+                        ${_roEsc(
+                          h.revoked_by_name ||
+                          h.revoked_by ||
+                          '—'
+                        )}
+
+                      `
+
+                      : ' · Activa'
+                  }
+
+                </div>
+
+              `)
+              .join('')
+
+          : `
+
+            <div class="roster-secondary">
+              Sin movimientos registrados.
+            </div>
+
+          `
+      }
+
+
+    </div>
+
+  </div>
+
+`;
+
+
+document.body.appendChild(backdrop);
+
+}
 
 
   async function _roReload({reopenEmployee=null}={}){
@@ -48888,6 +49468,110 @@ window._init_organigrama = async function(){
     if(reopenEmployee)_roOpenLicenseDrawer(reopenEmployee);
     return true;
   }
+
+  async function _roSaveWorkforceUser(employeeId){
+
+const input =
+  document.getElementById('ro-workforce-user');
+
+const value =
+  input?.value?.trim() || '';
+
+
+const r =
+  _roEmployee(employeeId);
+
+
+if(!r){
+
+  _roToast(
+    'No se encontró al colaborador.',
+    'error'
+  );
+
+  return;
+}
+
+
+if(!_roIsActive(r)){
+
+  _roToast(
+    'No se puede modificar el usuario de una baja.',
+    'error'
+  );
+
+  return;
+}
+
+
+if(
+  String(r.campaign_id || '')
+    .trim()
+    .toLowerCase()
+    !== 'aplazo'
+){
+
+  _roToast(
+    'El usuario operativo solo aplica para Aplazo.',
+    'error'
+  );
+
+  return;
+}
+
+
+if(input){
+  input.disabled = true;
+}
+
+
+try{
+
+  const {
+    data,
+    error
+  } = await _auth_sb.rpc(
+    'save_workforce_user',
+    {
+      p_employee_id: employeeId,
+      p_workforce_user: value || null
+    }
+  );
+
+
+  if(error){
+    throw error;
+  }
+
+
+  await _roReload({
+    reopenEmployee: employeeId
+  });
+
+
+  _roToast(
+    value
+      ? `Usuario ${value} guardado para ${r.full_name||employeeId}.`
+      : `Usuario eliminado de ${r.full_name||employeeId}.`
+  );
+
+
+}catch(error){
+
+  _roToast(
+    error?.message || String(error),
+    'error'
+  );
+
+
+  if(input){
+
+    input.disabled = false;
+
+    input.focus();
+  }
+}
+}
 
   async function _roAssignTextLicense(employeeId){
     const input=document.getElementById('ro-license-text');
@@ -48979,6 +49663,7 @@ window._init_organigrama = async function(){
   window._roCloseDrawer=_roCloseDrawer;
   window._roAssignTextLicense=_roAssignTextLicense;
   window._roRevoke=_roRevoke;
+  window._roSaveWorkforceUser=_roSaveWorkforceUser;
 })();
 </script>
 
