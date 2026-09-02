@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION = '1.0.89';
-const APP_BUILD = '1.0.89-roster-race-skill-01';
+const APP_VERSION = '1.0.90';
+const APP_BUILD = '1.0.90-workforce-queue-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -31552,10 +31552,12 @@ let _t_EMPLEADOS_FULL = [];
 // Se carga por RPC SECURITY DEFINER porque RLS puede limitar employees para supervisores.
 let _t_SUPERVISORES_JERARQUIA = [];
 let _t_SUPERVISORES_JERARQUIA_CARGADOS = false;
+let _t_QUEUE_OPTIONS = [];
+let _t_QUEUE_OPTIONS_CARGADAS = false;
 let _t_cargando = false;
 let _t_vistaTickets = 'mis';
+let _t_serviceQueueView = 'all';
 let _t_detalleId = null;
-
 
 // ── NOTIFICACIONES TICKETS HR · MVP FRONT ───────────────────
 // Fase 1: campanita global + badges visuales.
@@ -32204,8 +32206,8 @@ async function _t_cargarTickets(options = {}) {
     const { data: emps, error: empError } = await _t_sb
       .from('employees')
       .select(
-        'id,full_name,supervisor_id,status,campaign_id,system_role,position_title,hire_date'
-      )
+  'id,full_name,supervisor_id,supervisor_name,status,campaign_id,lob,queue,race_skill,system_role,position_title,hire_date'
+)
       .eq('status', 'active')
       .order('full_name');
 
@@ -32219,6 +32221,7 @@ async function _t_cargarTickets(options = {}) {
     // Pre-carga segura de supervisores disponibles para tickets de cambio de jerarquía.
     // No amplía la lista de empleados visibles del supervisor; solo trae candidatos mínimos.
     await _t_cargarSupervisoresJerarquia(true);
+    await _t_cargarQueueOptions(true);
 
     /*
      * 5. Mantener intacta la clasificación interna de nómina.
@@ -32387,7 +32390,7 @@ function _t_renderDetalle(id) {
 const _T_CATEGORIAS = {
   'Verificación de Empleo': ['Carta de Recomendación','Carta Patronal','Carta de referencia','Carta de antigüedad'],
   'Nomina': ['Cambio de cuenta','Recibos de Nomina','Problemas en la Nomina'],
-  'Rendimiento y Gestion de Personal': ['Cambio de jerarquia','Cambio de campaña','Cambio de horario','Promoción','Dar de Baja','Solicitud de PIP','Solicitud de Acta'],
+  'Rendimiento y Gestion de Personal': ['Cambio de Supervisor','Cambio de Queue','Cambio de campaña','Promoción','Dar de Baja','Solicitud de PIP','Solicitud de Acta'],
   'Corrección de Asistencia': ['Entrada mal marcada','Salida mal marcada','Entrada faltante','Salida faltante','Retardo mal marcado'],
   'Queja o Sugerencia': ['Queja','Sugerencia'],
   'Denuncia': ['Anonimo','Dar tu nombre'],
@@ -32442,6 +32445,7 @@ function _t_requiereRelacionadoGeneral(categoria, subtipo) {
   if (!_t_puedeSeleccionarRelacionado()) return false;
   if (_t_esCambioJerarquiaValor(categoria, subtipo)) return false;
   if (_t_esSolicitudBajaValor(categoria, subtipo)) return false;
+  if (_t_esCambioQueueValor(categoria,subtipo)) return false;
 
   // Quejas, denuncias y otros pueden no referirse a una persona concreta.
   return !['Queja o Sugerencia', 'Denuncia', 'Otros'].includes(categoria);
@@ -32453,8 +32457,21 @@ function _t_renderEmpleadoRelacionadoGeneral() {
 
   const categoria = document.getElementById('nt-categoria')?.value || '';
   const subtipo = document.getElementById('nt-subtipo')?.value || '';
-  const esEspecial = _t_esCambioJerarquiaValor(categoria, subtipo) ||
-    _t_esSolicitudBajaValor(categoria, subtipo);
+  const esEspecial =
+  _t_esCambioJerarquiaValor(
+    categoria,
+    subtipo
+  )
+  ||
+  _t_esCambioQueueValor(
+    categoria,
+    subtipo
+  )
+  ||
+  _t_esSolicitudBajaValor(
+    categoria,
+    subtipo
+  );
 
   if (!_t_puedeSeleccionarRelacionado() || esEspecial) {
     wrap.style.display = 'none';
@@ -32484,8 +32501,38 @@ function _t_renderEmpleadoRelacionadoGeneral() {
   if (select && previo && empleados.some(e => e.id === previo)) select.value = previo;
 }
 
-function _t_esCambioJerarquiaValor(categoria, subtipo) {
-  return categoria === 'Rendimiento y Gestion de Personal' && subtipo === 'Cambio de jerarquia';
+function _t_esCambioJerarquiaValor(
+  categoria,
+  subtipo
+) {
+
+  return (
+    categoria ===
+      'Rendimiento y Gestion de Personal'
+
+    &&
+
+    [
+      'Cambio de jerarquia',
+      'Cambio de Supervisor'
+    ].includes(subtipo)
+  );
+}
+
+
+function _t_esCambioQueueValor(
+  categoria,
+  subtipo
+) {
+
+  return (
+    categoria ===
+      'Rendimiento y Gestion de Personal'
+
+    &&
+
+    subtipo === 'Cambio de Queue'
+  );
 }
 
 
@@ -32558,7 +32605,7 @@ async function _t_cargarSupervisoresJerarquia(force = false) {
     return _t_SUPERVISORES_JERARQUIA;
   }
 
-  const allowedRoles = ['supervisor','manager','senior_manager','people','head_people','ceo'];
+  const allowedRoles = ['supervisor','manager','senior_manager','workforce','people','head_people','ceo'];
   if (!allowedRoles.includes(String(currentRole || '').toLowerCase())) {
     return _t_supervisoresActivos();
   }
@@ -32576,6 +32623,59 @@ async function _t_cargarSupervisoresJerarquia(force = false) {
     _t_SUPERVISORES_JERARQUIA_CARGADOS = false;
     return _t_supervisoresActivos();
   }
+}
+
+async function _t_cargarQueueOptions(force = false) {
+
+if (
+  _t_QUEUE_OPTIONS_CARGADAS &&
+  !force
+) {
+  return _t_QUEUE_OPTIONS;
+}
+
+
+try {
+
+  const {
+    data,
+    error
+  } = await _t_sb.rpc(
+    'get_workforce_queue_options'
+  );
+
+
+  if (error) throw error;
+
+
+  _t_QUEUE_OPTIONS =
+    Array.isArray(data)
+      ? data
+      : [];
+
+
+  _t_QUEUE_OPTIONS_CARGADAS =
+    true;
+
+
+  return _t_QUEUE_OPTIONS;
+
+} catch (error) {
+
+  console.warn(
+    '[Tickets WFM] No se pudieron cargar queues:',
+    error
+  );
+
+
+  _t_QUEUE_OPTIONS = [];
+
+  _t_QUEUE_OPTIONS_CARGADAS =
+    false;
+
+
+  return [];
+}
 }
 
 function _t_parseHierarchyData(t) {
@@ -32603,8 +32703,10 @@ function _t_renderCamposJerarquia() {
   if (!wrap) return;
 
   const categoria = document.getElementById('nt-categoria')?.value;
+
   const subtipo = document.getElementById('nt-subtipo')?.value;
 
+  if (_t_esCambioQueueValor(categoria,subtipo)) {_t_renderCamposQueue();return;}
   if (_t_esSolicitudBajaValor(categoria, subtipo)) { _t_renderCamposBaja(); return; }
   if (!_t_esCambioJerarquiaValor(categoria, subtipo)) {
     wrap.innerHTML = '';
@@ -32654,6 +32756,276 @@ function _t_renderCamposJerarquia() {
         <textarea id="nt-h-reason-other" rows="2" style="display:none;margin-top:8px" placeholder="Especifica el motivo..."></textarea>
       </div>
     </div>`;
+}
+
+function _t_renderCamposQueue() {
+
+const wrap =
+  document.getElementById(
+    'nt-dynamic-fields'
+  );
+
+if (!wrap) return;
+
+
+const empleados =
+  _t_empleadosCorregibles()
+    .filter(
+      e => e.status === 'active'
+    )
+    .sort(
+      (a, b) =>
+        String(a.full_name || '')
+          .localeCompare(
+            String(b.full_name || ''),
+            'es'
+          )
+    );
+
+
+wrap.innerHTML = `
+  <div
+    class="modal-section"
+    style="
+      border-color:#A5F3FC;
+      background:#ECFEFF
+    "
+  >
+
+    <div
+      class="ms-title"
+      style="color:#0E7490"
+    >
+      🎧 Cambio de Queue
+    </div>
+
+
+    <div class="form-row">
+
+      <label>
+        Colaborador
+      </label>
+
+      <select
+        id="nt-q-employee"
+        onchange="_t_actualizarPreviewQueue()"
+      >
+
+        <option value="">
+          Selecciona un colaborador...
+        </option>
+
+        ${
+          empleados
+            .map(
+              e => `
+                <option value="${e.id}">
+                  ${e.full_name}
+                  ${
+                    e.campaign_id
+                      ? ' · ' +
+                        e.campaign_id
+                      : ''
+                  }
+                </option>
+              `
+            )
+            .join('')
+        }
+
+      </select>
+
+    </div>
+
+
+    <div
+      id="nt-q-current-wrap"
+      style="
+        display:none;
+        margin-bottom:12px
+      "
+    ></div>
+
+
+    <div class="form-row">
+
+      <label>
+        Nueva Queue
+      </label>
+
+      <select id="nt-q-new-queue">
+
+        <option value="">
+          Primero selecciona al colaborador...
+        </option>
+
+      </select>
+
+    </div>
+
+
+    <div class="form-row">
+
+      <label>
+        Motivo
+      </label>
+
+      <textarea
+        id="nt-q-reason"
+        rows="3"
+        placeholder="Ej. Balanceo de HC, cambio operativo, necesidad del cliente..."
+      ></textarea>
+
+    </div>
+
+  </div>
+`;
+}
+
+
+function _t_actualizarPreviewQueue() {
+
+const empId =
+  document.getElementById(
+    'nt-q-employee'
+  )?.value;
+
+
+const emp =
+  _t_emp(empId);
+
+
+const wrap =
+  document.getElementById(
+    'nt-q-current-wrap'
+  );
+
+
+const select =
+  document.getElementById(
+    'nt-q-new-queue'
+  );
+
+
+if (!emp) {
+
+  if (wrap) {
+    wrap.style.display = 'none';
+  }
+
+  if (select) {
+    select.innerHTML = `
+      <option value="">
+        Primero selecciona al colaborador...
+      </option>
+    `;
+  }
+
+  return;
+}
+
+
+if (wrap) {
+
+  wrap.style.display = 'block';
+
+  wrap.innerHTML = `
+    <div
+      style="
+        background:#fff;
+        border:1px solid #A5F3FC;
+        border-radius:9px;
+        padding:10px 12px
+      "
+    >
+
+      <div
+        style="
+          font-size:10px;
+          color:#64748B;
+          font-weight:800;
+          text-transform:uppercase
+        "
+      >
+        Asignación actual
+      </div>
+
+      <div
+        style="
+          font-size:13px;
+          font-weight:800;
+          margin-top:5px
+        "
+      >
+        ${emp.queue || 'Sin Queue'}
+      </div>
+
+      <div
+        style="
+          font-size:11px;
+          color:#64748B;
+          margin-top:2px
+        "
+      >
+        ${emp.campaign_id || '—'}
+        ${emp.lob ? ' · ' + emp.lob : ''}
+      </div>
+
+    </div>
+  `;
+}
+
+
+const options =
+  (_t_QUEUE_OPTIONS || [])
+    .filter(
+      q =>
+        String(q.campaign_id || '')
+          .toLowerCase()
+        ===
+        String(emp.campaign_id || '')
+          .toLowerCase()
+    )
+    .filter(
+      q =>
+        q.queue &&
+        q.queue !== emp.queue
+    );
+
+
+const unique =
+  [
+    ...new Map(
+      options.map(
+        q => [
+          q.queue,
+          q
+        ]
+      )
+    ).values()
+  ];
+
+
+if (select) {
+
+  select.innerHTML =
+    `
+      <option value="">
+        Selecciona la nueva Queue...
+      </option>
+    `
+    +
+    unique
+      .map(
+        q => `
+          <option value="${q.queue}">
+            ${q.queue}
+            ${q.lob ? ' · ' + q.lob : ''}
+          </option>
+        `
+      )
+      .join('');
+}
 }
 
 function _t_toggleOtroMotivoJerarquia() {
@@ -32770,44 +33142,256 @@ function _t_abrirNuevo() {
 async function _t_crearTicket() {
   const categoria = document.getElementById('nt-categoria')?.value;
   const subtipo = document.getElementById('nt-subtipo')?.value;
-  let desc = document.getElementById('nt-desc')?.value?.trim() || '';
-  const esJerarquia = _t_esCambioJerarquiaValor(categoria, subtipo);
-  const esBaja = _t_esSolicitudBajaValor(categoria, subtipo);
-  let hierarchyData = null;
-  let terminationData = null;
-  const relatedEmployeeId = document.getElementById('nt-related-employee')?.value || null;
 
-  if (_t_requiereRelacionadoGeneral(categoria, subtipo) && !relatedEmployeeId) {
-    return alert('Selecciona al colaborador relacionado con el ticket');
+  let desc = document.getElementById('nt-desc')?.value?.trim() || '';
+
+  const esJerarquia =
+    _t_esCambioJerarquiaValor(
+      categoria,
+      subtipo
+    );
+
+  const esQueue =
+    _t_esCambioQueueValor(
+      categoria,
+      subtipo
+    );
+
+  const esBaja =
+    _t_esSolicitudBajaValor(
+      categoria,
+      subtipo
+    );
+
+
+  let hierarchyData = null;
+  let queueData = null;
+  let terminationData = null;
+
+
+  const relatedEmployeeId =
+    document.getElementById(
+      'nt-related-employee'
+    )?.value || null;
+
+
+  if (
+    _t_requiereRelacionadoGeneral(
+      categoria,
+      subtipo
+    )
+    &&
+    !relatedEmployeeId
+  ) {
+    return alert(
+      'Selecciona al colaborador relacionado con el ticket'
+    );
   }
 
-  if (esJerarquia) {
-    const targetEmployeeId = document.getElementById('nt-h-employee')?.value;
-    const newSupervisorId = document.getElementById('nt-h-new-supervisor')?.value;
-    const effectiveDate = document.getElementById('nt-h-effective-date')?.value;
-    const reasonSel = document.getElementById('nt-h-reason')?.value;
-    const reasonOther = document.getElementById('nt-h-reason-other')?.value?.trim();
-    const reason = reasonSel === 'Otro' ? reasonOther : reasonSel;
-    const targetEmployee = _t_emp(targetEmployeeId);
 
-    if (!targetEmployeeId) return alert('Selecciona al empleado que cambiará de supervisor');
-    if (!newSupervisorId) return alert('Selecciona al nuevo supervisor');
-    if (!effectiveDate) return alert('Selecciona la fecha efectiva');
-    if (!reason) return alert('Selecciona o escribe el motivo del cambio');
-    if (targetEmployee?.supervisor_id === newSupervisorId) return alert('El nuevo supervisor no puede ser el supervisor actual');
+  // ==========================================================
+  // CAMBIO DE SUPERVISOR
+  // ==========================================================
+
+  if (esJerarquia) {
+
+    const targetEmployeeId =
+      document.getElementById(
+        'nt-h-employee'
+      )?.value;
+
+    const newSupervisorId =
+      document.getElementById(
+        'nt-h-new-supervisor'
+      )?.value;
+
+    const effectiveDate =
+      document.getElementById(
+        'nt-h-effective-date'
+      )?.value;
+
+    const reasonSel =
+      document.getElementById(
+        'nt-h-reason'
+      )?.value;
+
+    const reasonOther =
+      document.getElementById(
+        'nt-h-reason-other'
+      )?.value?.trim();
+
+    const reason =
+      reasonSel === 'Otro'
+        ? reasonOther
+        : reasonSel;
+
+    const targetEmployee =
+      _t_emp(targetEmployeeId);
+
+
+    if (!targetEmployeeId) {
+      return alert(
+        'Selecciona al empleado que cambiará de supervisor'
+      );
+    }
+
+    if (!newSupervisorId) {
+      return alert(
+        'Selecciona al nuevo supervisor'
+      );
+    }
+
+    if (!effectiveDate) {
+      return alert(
+        'Selecciona la fecha efectiva'
+      );
+    }
+
+    if (!reason) {
+      return alert(
+        'Selecciona o escribe el motivo del cambio'
+      );
+    }
+
+    if (
+      targetEmployee?.supervisor_id ===
+      newSupervisorId
+    ) {
+      return alert(
+        'El nuevo supervisor no puede ser el supervisor actual'
+      );
+    }
+
 
     hierarchyData = {
-      target_employee_id: targetEmployeeId,
-      current_supervisor_id: targetEmployee?.supervisor_id || null,
-      new_supervisor_id: newSupervisorId,
-      effective_date: effectiveDate,
+      target_employee_id:
+        targetEmployeeId,
+
+      current_supervisor_id:
+        targetEmployee?.supervisor_id ||
+        null,
+
+      new_supervisor_id:
+        newSupervisorId,
+
+      effective_date:
+        effectiveDate,
+
       reason
     };
 
-    const resumen = `Solicitud de cambio de jerarquía para ${_t_nombreEmpleado(targetEmployeeId)}. Nuevo supervisor: ${_t_nombreEmpleado(newSupervisorId)}. Fecha efectiva: ${effectiveDate}. Motivo: ${reason}.`;
-    desc = `${resumen}${desc ? '\n\nComentarios adicionales: ' + desc : ''}\n<!--HIERARCHY_DATA:${JSON.stringify(hierarchyData)}-->`;
+
+    const resumen =
+      `Solicitud de cambio de Supervisor para ${_t_nombreEmpleado(targetEmployeeId)}. ` +
+      `Nuevo supervisor: ${_t_nombreEmpleado(newSupervisorId)}. ` +
+      `Fecha efectiva: ${effectiveDate}. ` +
+      `Motivo: ${reason}.`;
+
+
+    desc =
+      `${resumen}` +
+      (
+        desc
+          ? '\n\nComentarios adicionales: ' + desc
+          : ''
+      )
+      +
+      `\n<!--HIERARCHY_DATA:${JSON.stringify(hierarchyData)}-->`;
   }
 
+
+  // ==========================================================
+  // CAMBIO DE QUEUE
+  // AQUÍ VA EL BLOQUE QUE TE CONFUNDIÓ
+  // ==========================================================
+
+  if (esQueue) {
+
+    const targetEmployeeId =
+      document.getElementById(
+        'nt-q-employee'
+      )?.value;
+
+    const newQueue =
+      document.getElementById(
+        'nt-q-new-queue'
+      )?.value;
+
+    const reason =
+      document.getElementById(
+        'nt-q-reason'
+      )?.value?.trim();
+
+
+    const targetEmployee =
+      _t_emp(targetEmployeeId);
+
+
+    if (!targetEmployeeId) {
+      return alert(
+        'Selecciona al colaborador'
+      );
+    }
+
+
+    if (!newQueue) {
+      return alert(
+        'Selecciona la nueva Queue'
+      );
+    }
+
+
+    if (!reason) {
+      return alert(
+        'Escribe el motivo del cambio'
+      );
+    }
+
+
+    if (
+      targetEmployee?.queue ===
+      newQueue
+    ) {
+      return alert(
+        'El colaborador ya pertenece a esa Queue'
+      );
+    }
+
+
+    queueData = {
+      target_employee_id:
+        targetEmployeeId,
+
+      current_queue:
+        targetEmployee?.queue || null,
+
+      new_queue:
+        newQueue,
+
+      reason
+    };
+
+
+    const resumen =
+      `Solicitud de cambio de Queue para ${_t_nombreEmpleado(targetEmployeeId)}. ` +
+      `${targetEmployee?.queue || 'Sin Queue'} → ${newQueue}. ` +
+      `Motivo: ${reason}.`;
+
+
+    desc =
+      `${resumen}` +
+      (
+        desc
+          ? '\n\nComentarios adicionales: ' + desc
+          : ''
+      );
+  }
+
+
+  // ==========================================================
+  // BAJA
+  // AQUÍ CONTINÚA TU CÓDIGO QUE YA TENÍAS
+  // ==========================================================
 
   if (esBaja) {
     const targetEmployeeId = document.getElementById('nt-b-employee')?.value;
@@ -32838,12 +33422,30 @@ async function _t_crearTicket() {
     type: _T_CATEGORIA_SLUG[categoria] || 'otros',
     subtype: subtipo,
     description: desc,
-    target_employee_id: hierarchyData?.target_employee_id || terminationData?.target_employee_id || relatedEmployeeId || null,
-    target_date: hierarchyData?.effective_date || terminationData?.termination_date || null,
+    target_employee_id:
+      hierarchyData?.target_employee_id ||
+      queueData?.target_employee_id ||
+      terminationData?.target_employee_id ||
+      relatedEmployeeId ||
+      null,
+    target_date:
+      hierarchyData?.effective_date ||
+      terminationData?.termination_date ||
+      null,
     priority: 'normal',
     status: 'pending',
     sla_hours: 48,
     due_at: null, // Supabase calcula 48h de SLA sin fines de semana.
+    workforce_payload:
+      hierarchyData ||
+      queueData ||
+      null,
+    source_request_type:
+      esJerarquia
+        ? 'supervisor_change'
+        : esQueue
+          ? 'queue_change'
+          : null,
     updated_at: now
   });
 
@@ -32868,8 +33470,464 @@ async function _t_crearTicket() {
   _t_render();
 }
 
+
+function _t_renderServiceQueueSelector() {
+
+const role =
+  String(currentRole || '')
+    .toLowerCase();
+
+
+if (
+  ![
+    'head_people',
+    'ceo'
+  ].includes(role)
+) {
+  return '';
+}
+
+
+const all =
+  _t_TICKETS || [];
+
+
+const people =
+  all.filter(
+    t =>
+      (t.service_queue || 'people')
+      === 'people'
+  ).length;
+
+
+const workforce =
+  all.filter(
+    t =>
+      t.service_queue ===
+      'workforce'
+  ).length;
+
+
+return `
+  <div
+    style="
+      display:flex;
+      gap:8px;
+      margin-bottom:16px;
+      flex-wrap:wrap
+    "
+  >
+
+    ${
+      [
+        ['all', 'Todas', all.length],
+        ['people', 'People Queue', people],
+        ['workforce', 'Workforce Queue', workforce]
+      ]
+      .map(
+        ([value, label, count]) => `
+          <button
+            class="tab ${
+              _t_serviceQueueView === value
+                ? 'on'
+                : ''
+            }"
+            onclick="_t_setServiceQueueView('${value}')"
+          >
+            ${label} (${count})
+          </button>
+        `
+      )
+      .join('')
+    }
+
+  </div>
+`;
+}
+
+function _t_wfmPayload(t) {
+
+if (
+  t?.workforce_payload &&
+  typeof t.workforce_payload === 'object'
+) {
+  return t.workforce_payload;
+}
+
+return {};
+}
+
+
+function _t_abrirResolverWfm(t) {
+
+const payload =
+  _t_wfmPayload(t);
+
+
+const newQueue =
+  payload.new_queue || '';
+
+
+const esRace =
+  String(newQueue)
+    .trim()
+    .toLowerCase()
+  === 'race';
+
+const subtypeNorm =
+  String(t?.subtype || '')
+    .trim()
+    .toLowerCase();
+
+const legacyUnlinked =
+  ['cambio de horario', 'cambio de descanso'].includes(subtypeNorm)
+  && !t?.source_request_type;
+
+
+document.getElementById(
+  'modalTitle'
+).textContent =
+  'Procesar solicitud Workforce';
+
+
+document.getElementById(
+  'modalSub'
+).textContent =
+  t.subtype || 'Solicitud operativa';
+
+
+document.getElementById(
+  'modalBody'
+).innerHTML = `
+
+  <div
+    class="modal-section"
+    style="
+      background:#ECFEFF;
+      border-color:#A5F3FC
+    "
+  >
+
+    <div
+      class="ms-title"
+      style="color:#0E7490"
+    >
+      ⚙ Workforce Queue
+    </div>
+
+    <div class="kv">
+      <span class="k">
+        Colaborador
+      </span>
+
+      <span class="v">
+        ${_t_nombreEmpleado(
+          t.target_employee_id
+        )}
+      </span>
+    </div>
+
+    <div class="kv">
+      <span class="k">
+        Solicitud
+      </span>
+
+      <span class="v">
+        ${t.subtype || '—'}
+      </span>
+    </div>
+
+    ${t.target_date ? `
+      <div class="kv">
+        <span class="k">Fecha</span>
+        <span class="v"><strong>${t.target_date}</strong></span>
+      </div>
+    ` : ''}
+
+    ${
+      payload.current_queue
+      ? `
+        <div class="kv">
+          <span class="k">
+            Queue actual
+          </span>
+
+          <span class="v">
+            ${payload.current_queue}
+          </span>
+        </div>
+      `
+      : ''
+    }
+
+    ${
+      payload.new_queue
+      ? `
+        <div class="kv">
+          <span class="k">
+            Nueva Queue
+          </span>
+
+          <span class="v">
+            <strong>
+              ${payload.new_queue}
+            </strong>
+          </span>
+        </div>
+      `
+      : ''
+    }
+
+    <div
+      style="
+        margin-top:10px;
+        font-size:12px;
+        color:#475569;
+        line-height:1.5
+      "
+    >
+      ${_t_ticketDescripcionVisible(t)}
+    </div>
+
+  </div>
+
+  ${legacyUnlinked ? `
+    <div class="modal-section" style="background:#FEF2F2;border-color:#FCA5A5">
+      <div class="ms-title" style="color:#991B1B">⚠ Ticket legacy sin solicitud operativa</div>
+      <div style="font-size:12px;color:#991B1B;line-height:1.55">
+        Este ticket fue creado por el formulario manual y no está vinculado a la solicitud de Asistencia. No se puede aplicar automáticamente. Cancélalo y, si el cambio sigue siendo necesario, vuelve a solicitarlo desde Asistencia.
+      </div>
+    </div>
+  ` : ''}
+
+
+  ${
+    esRace && !legacyUnlinked
+    ? `
+      <div class="modal-section">
+
+        <label class="modal-label">
+          SKILL RACE *
+        </label>
+
+        <select
+          id="tr-wfm-race-skill"
+          style="
+            width:100%;
+            padding:8px;
+            border:1px solid #E2E8F0;
+            border-radius:8px
+          "
+        >
+
+          <option value="">
+            Selecciona...
+          </option>
+
+          <option value="Cuenta">
+            Cuenta
+          </option>
+
+          <option value="Crédito">
+            Crédito
+          </option>
+
+          <option value="Educación al usuario">
+            Educación al usuario
+          </option>
+
+        </select>
+
+      </div>
+    `
+    : ''
+  }
+
+
+  <div class="modal-section">
+
+    <label class="modal-label">
+      COMENTARIOS / RESOLUCIÓN
+    </label>
+
+    <textarea
+      id="tr-wfm-notes"
+      rows="3"
+      style="
+        width:100%;
+        padding:8px;
+        border:1px solid #E2E8F0;
+        border-radius:8px
+      "
+      placeholder="Comentario opcional al aprobar; obligatorio al rechazar..."
+    ></textarea>
+
+  </div>
+`;
+
+
+document.getElementById(
+  'modalFooter'
+).innerHTML = legacyUnlinked
+  ? `
+      <button class="btn-ghost" onclick="closeModal()">Cerrar</button>
+      <button class="btn-red" onclick="_t_cancelarTicket('${t.id}')">Cancelar ticket legacy</button>
+    `
+  : `
+      <button class="btn-ghost" onclick="closeModal()">Cerrar</button>
+      <button
+        class="btn-ghost"
+        style="color:#DC2626;border:1px solid #FCA5A5"
+        onclick="_t_confirmarResolverWfm('${t.id}','reject')"
+      >
+        Rechazar
+      </button>
+      <button
+        class="btn-primary"
+        onclick="_t_confirmarResolverWfm('${t.id}','approve')"
+      >
+        ✅ Aprobar y aplicar
+      </button>
+    `;
+
+
+document.getElementById(
+  'modalBackdrop'
+).style.display = 'flex';
+}
+
+
+async function _t_confirmarResolverWfm(
+id,
+decision
+) {
+
+const t =
+  _t_TICKETS.find(
+    x => x.id === id
+  );
+
+
+if (!t) return;
+
+
+const notes =
+  document.getElementById(
+    'tr-wfm-notes'
+  )?.value?.trim() || null;
+
+
+const raceSkill =
+  document.getElementById(
+    'tr-wfm-race-skill'
+  )?.value || null;
+
+
+if (
+  decision === 'reject' &&
+  !notes
+) {
+  return alert(
+    'Escribe el motivo del rechazo.'
+  );
+}
+
+
+const payload =
+  _t_wfmPayload(t);
+
+
+if (
+  decision === 'approve' &&
+  String(
+    payload.new_queue || ''
+  ).toLowerCase() === 'race' &&
+  !raceSkill
+) {
+  return alert(
+    'Selecciona el Skill RACE.'
+  );
+}
+
+
+const action =
+  decision === 'approve'
+    ? 'aprobar y aplicar'
+    : 'rechazar';
+
+
+if (
+  !confirm(
+    `¿Seguro que quieres ${action} esta solicitud?`
+  )
+) {
+  return;
+}
+
+
+const {
+  data,
+  error
+} = await _t_sb.rpc(
+  'review_workforce_ticket',
+  {
+
+    p_ticket_id:
+      id,
+
+    p_decision:
+      decision,
+
+    p_resolution_notes:
+      notes,
+
+    p_race_skill:
+      raceSkill
+
+  }
+);
+
+
+if (error) {
+
+  alert(
+    'No se pudo procesar la solicitud:\n\n' +
+    error.message
+  );
+
+  return;
+}
+
+
+closeModal();
+
+_t_detalleId = null;
+
+
+await _t_cargarTickets();
+
+
+_t_render();
+
+
+alert(
+  decision === 'approve'
+    ? '✅ Cambio aplicado y ticket completado.'
+    : 'Solicitud rechazada y ticket cerrado.'
+);
+
+
+return data;
+}
+
 async function _t_resolverTicket(id) {
   const t = _t_TICKETS.find(x => x.id === id);
+
+  if (t?.service_queue === 'workforce') {
+    _t_abrirResolverWfm(t);
+    return;
+  }
+
   const esCorreccionIncidencia = _t_esCorreccionIncidencia(t);
   const esCorreccion = t?.type === 'correccion_asistencia' && !esCorreccionIncidencia;
   const incidentData = _t_parseIncidentCorrectionData(t);
@@ -33334,7 +34392,131 @@ let _t_reporteFechas = {
 };
 
 function _t_puedeGestionar() {
-  return ['people', 'head_people', 'ceo'].includes(currentRole);
+  return [
+    'people',
+    'head_people',
+    'ceo',
+    'workforce'
+  ].includes(
+    String(currentRole || '').toLowerCase()
+  );
+}
+
+
+function _t_puedeProcesarTicket(t) {
+
+  if (!t) return false;
+
+  const role =
+    String(currentRole || '')
+      .toLowerCase();
+
+  const queue =
+    String(
+      t.service_queue || 'people'
+    ).toLowerCase();
+
+
+  if (role === 'head_people') {
+    return [
+      'people',
+      'workforce'
+    ].includes(queue);
+  }
+
+
+  if (role === 'people') {
+    return queue === 'people';
+  }
+
+
+  if (role === 'workforce') {
+    return queue === 'workforce';
+  }
+
+
+  // CEO es seguimiento solamente.
+  return false;
+}
+
+
+function _t_bandejaBase() {
+
+  const role =
+    String(currentRole || '')
+      .toLowerCase();
+
+
+  if (role === 'workforce') {
+    return (_t_TICKETS || [])
+      .filter(
+        t => t.service_queue === 'workforce'
+      );
+  }
+
+
+  if (role === 'people') {
+    return (_t_TICKETS || [])
+      .filter(
+        t =>
+          (t.service_queue || 'people')
+          === 'people'
+      );
+  }
+
+
+  if (
+    role === 'head_people' ||
+    role === 'ceo'
+  ) {
+
+    if (
+      _t_serviceQueueView ===
+      'workforce'
+    ) {
+      return (_t_TICKETS || [])
+        .filter(
+          t =>
+            t.service_queue ===
+            'workforce'
+        );
+    }
+
+
+    if (
+      _t_serviceQueueView ===
+      'people'
+    ) {
+      return (_t_TICKETS || [])
+        .filter(
+          t =>
+            (t.service_queue || 'people')
+            === 'people'
+        );
+    }
+
+  }
+
+
+  return _t_TICKETS || [];
+}
+
+
+function _t_setServiceQueueView(value) {
+
+  if (
+    ![
+      'all',
+      'people',
+      'workforce'
+    ].includes(value)
+  ) {
+    return;
+  }
+
+  _t_serviceQueueView = value;
+
+  _t_render();
 }
 
 function _t_esAbierto(t) {
@@ -34086,17 +35268,43 @@ function _t_renderTablaTickets(lista, emptyMsg = 'Sin tickets registrados') {
 }
 
 function _t_renderBandeja() {
-  const lista = _t_filtrarTickets(_t_TICKETS);
+  const baseLista = _t_bandejaBase();
+  const lista = _t_filtrarTickets(baseLista);
+  const role = String(currentRole || '').toLowerCase();
+
+  const title =
+    role === 'workforce'
+      ? 'Workforce Queue'
+      : role === 'people'
+        ? 'People Queue'
+        : _t_serviceQueueView === 'workforce'
+          ? 'Workforce Queue'
+          : _t_serviceQueueView === 'people'
+            ? 'People Queue'
+            : 'Todas las queues';
 
   return `
     <div style="max-width:1100px;margin:0 auto">
       ${_t_renderTabs()}
-      ${_t_renderKpisTickets()}
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap">
-        <div style="font-size:13px;color:#64748B">${lista.length} ticket${lista.length !== 1 ? 's' : ''} en bandeja</div>
+      ${_t_renderServiceQueueSelector()}
+
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:14px;gap:10px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:18px;font-weight:900;color:#0F172A">${title}</div>
+          <div style="font-size:12px;color:#64748B;margin-top:3px">
+            ${role === 'workforce' ? 'Solicitudes operativas de Supervisor, Queue, Horario y Descanso.' : role === 'people' ? 'Solicitudes administradas por People.' : 'Vista de seguimiento por ownership.'}
+          </div>
+        </div>
         <button onclick="_t_abrirNuevo()" class="btn-primary">+ Nuevo ticket</button>
       </div>
-      ${_t_renderFiltros(_t_TICKETS)}
+
+      ${_t_renderKpisTickets(baseLista)}
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap">
+        <div style="font-size:13px;color:#64748B">${lista.length} ticket${lista.length !== 1 ? 's' : ''} en bandeja</div>
+      </div>
+
+      ${_t_renderFiltros(baseLista)}
       ${_t_renderTablaTickets(lista)}
     </div>
   `;
@@ -34321,7 +35529,7 @@ function _t_renderReportes() {
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         ${_t_reportTable('👥 Tickets por supervisor', porSupervisor, 'Supervisor')}
-        ${_t_reportTable('🙋 Tickets por responsable People', porResponsable, 'Responsable')}
+        ${_t_reportTable('🙋 Tickets por responsable', porResponsable, 'Responsable')}
       </div>
     </div>
   `;
@@ -34445,7 +35653,7 @@ function _t_render() {
   }
 
   /*
-   * People / Head People / CEO.
+   * People / Head People / CEO / Workforce.
    */
   if (_t_puedeGestionar()) {
     if (!['bandeja', 'mis', 'reportes'].includes(_t_vistaTickets)) {
@@ -34486,7 +35694,11 @@ function _t_renderDetalle(id) {
   _t_markTicketRead(id);
 
   const c = document.getElementById('content');
-  const isSup = _t_puedeGestionar();
+  const canProcess = _t_puedeProcesarTicket(t);
+  const isWorkforceTicket = String(t.service_queue || 'people') === 'workforce';
+  const isLegacyUnlinkedWorkforce = isWorkforceTicket
+    && ['cambio de horario', 'cambio de descanso'].includes(String(t.subtype || '').trim().toLowerCase())
+    && !t.source_request_type;
   const sla = _t_slaInfo(t);
   const payrollReviewHTML = _t_renderPayrollReviewBox(t);
   
@@ -34555,22 +35767,32 @@ function _t_renderDetalle(id) {
 
 ${t.resolution_notes ? `
   <div style="margin-top:16px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:14px">
-    <div style="font-size:10px;color:#166534;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:900">Respuesta de People</div>
+    <div style="font-size:10px;color:#166534;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:900">${isWorkforceTicket ? 'Resolución Workforce' : 'Respuesta de People'}</div>
     <div style="font-size:13px;color:#334155;line-height:1.6">${t.resolution_notes}</div>
   </div>
 ` : ''}
 
-        ${isSup && !['resolved', 'cancelled'].includes(t.status) ? `
+        ${canProcess && !['resolved', 'cancelled'].includes(t.status) ? `
           <div style="margin-top:18px;display:flex;gap:8px;flex-wrap:wrap">
             ${!t.assigned_to || t.assigned_to !== ROLES[currentRole].id ? `
               <button onclick="_t_tomarTicket('${t.id}')" class="btn-primary">Tomar ticket</button>
             ` : ''}
 
             <button onclick="_t_resolverTicket('${t.id}')" class="btn-green">
-              ${_t_esCorreccionIncidencia(t) ? '✅ Resolver incidencia' : t.type === 'correccion_asistencia' ? '✅ Aplicar y completar' : _t_esSolicitudBajaValor(_t_categoriaLabel(t.type), t.subtype) ? '✅ Revisar y procesar baja' : '✅ Marcar como completado'}
+              ${isWorkforceTicket
+                ? (isLegacyUnlinkedWorkforce ? '⚠ Revisar ticket legacy' : '⚙ Procesar solicitud')
+                : _t_esCorreccionIncidencia(t)
+                  ? '✅ Resolver incidencia'
+                  : t.type === 'correccion_asistencia'
+                    ? '✅ Aplicar y completar'
+                    : _t_esSolicitudBajaValor(_t_categoriaLabel(t.type), t.subtype)
+                      ? '✅ Revisar y procesar baja'
+                      : '✅ Marcar como completado'}
             </button>
 
-            <button onclick="_t_cancelarTicket('${t.id}')" class="btn-ghost">Cancelar ticket</button>
+            ${!isWorkforceTicket ? `
+              <button onclick="_t_cancelarTicket('${t.id}')" class="btn-ghost">Cancelar ticket</button>
+            ` : ''}
           </div>
         ` : ''}
       </div>
