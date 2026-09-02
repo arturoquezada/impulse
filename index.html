@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION   = '1.0.88';
-const APP_BUILD = '1.0.88-mobile-private-access-01';
+const APP_VERSION = '1.0.89';
+const APP_BUILD = '1.0.89-roster-race-skill-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -48653,7 +48653,7 @@ window._init_organigrama = async function(){
       if(_ro_filters.queue!=='all' && String(r.queue||'')!==_ro_filters.queue) return false;
       if(_ro_filters.license!=='all' && !_roLicenseNames(r).includes(_ro_filters.license)) return false;
       if(q){
-        const hay=[r.employee_id,r.full_name,r.supervisor_name,r.campaign_id,r.lob,r.queue,r.termination_reason,_roDaysOff(r),..._roLicenseNames(r)].join(' ').toLowerCase();
+        const hay=[r.employee_id,r.full_name,r.supervisor_name,r.campaign_id,r.lob,r.queue,r.race_skill,r.workforce_user,r.termination_reason,_roDaysOff(r),..._roLicenseNames(r)].join(' ').toLowerCase();
         if(!hay.includes(q)) return false;
       }
       return true;
@@ -48706,6 +48706,7 @@ window._init_organigrama = async function(){
     const bajas=_ro_rows.length-active;
     const withLicense=_ro_rows.filter(r=>_roLicenseNames(r).length>0).length;
     const offboarding=_ro_rows.filter(r=>!_roIsActive(r)&&_roLicenseNames(r).length>0).length;
+    const racePending=_ro_rows.filter(r=>_roIsActive(r)&&_roNorm(r.campaign_id)==='aplazo'&&_roNorm(r.queue)==='race'&&!String(r.race_skill||'').trim()).length;
     const canManage=!!_ro_payload.can_manage_licenses;
     const filterChips=_roFilterChips();
     const scopeLabel=_ro_filters.status==='active'?'Activos':_ro_filters.status==='inactive'?'Bajas':'Todos';
@@ -48734,6 +48735,30 @@ window._init_organigrama = async function(){
         <div class="roster-kpi license"><div class="roster-kpi-icon">🔐</div><div><div class="roster-kpi-label">Con licencias</div><div class="roster-kpi-value">${withLicense}</div><div class="roster-kpi-note">Una o más activas</div></div></div>
         <div class="roster-kpi offboard"><div class="roster-kpi-icon">${offboarding?'⚠':'✓'}</div><div><div class="roster-kpi-label">Bajas con licencia</div><div class="roster-kpi-value" style="color:${offboarding?'#B54708':'#0F172A'}">${offboarding}</div><div class="roster-kpi-note">Pendiente de offboarding</div></div></div>
       </div>
+${
+  racePending
+  ?
+  `
+  <div
+    class="roster-warning"
+    style="margin-bottom:16px"
+  >
+
+    <b>
+      ⚠ ${racePending}
+      colaborador${racePending===1?'':'es'}
+      RACE sin Skill.
+    </b>
+
+    WFM o Head of People debe asignar
+    Cuenta, Crédito o Educación al usuario
+    desde el perfil del colaborador.
+
+  </div>
+  `
+  :
+  ''
+}
 
       <div class="roster-toolbar">
         <div class="roster-toolbar-top">
@@ -48846,618 +48871,658 @@ window._init_organigrama = async function(){
   function _roCloseCatalog(){ document.getElementById('rosterCatalogDrawer')?.remove(); }
 
   function _roOpenLicenseDrawer(employeeId){
+  const r=_roEmployee(employeeId);
+  if(!r)return;
 
-const r = _roEmployee(employeeId);
-if(!r) return;
+  _ro_modalEmployeeId=employeeId;
 
-_ro_modalEmployeeId = employeeId;
+  document.getElementById('rosterDrawer')?.remove();
 
-document
-  .getElementById('rosterDrawer')
-  ?.remove();
+  const canManageLicenses=
+    !!_ro_payload?.can_manage_licenses;
 
+  const canAssignLicenses=
+    canManageLicenses &&
+    _roIsActive(r);
 
-const canManage =
-  !!_ro_payload?.can_manage_licenses;
+  const canManageRaceSkill=
+    !!_ro_payload?.can_manage_race_skill &&
+    _roIsActive(r);
 
-const canAssign =
-  canManage && _roIsActive(r);
+  const isAplazo=
+    _roNorm(r.campaign_id)==='aplazo';
 
-const isAplazo =
-  String(r.campaign_id || '')
-    .trim()
-    .toLowerCase() === 'aplazo';
+  const isRace=
+    isAplazo &&
+    _roNorm(r.queue)==='race';
 
-const activeLicenses =
-  r.licenses || [];
+  const activeLicenses=
+    r.licenses||[];
 
-const history =
-  (r.license_history || [])
-    .slice(0, 14);
+  const history=
+    (r.license_history||[])
+      .slice(0,14);
 
-
-const backdrop =
-  document.createElement('div');
-
-backdrop.id =
-  'rosterDrawer';
-
-backdrop.className =
-  'roster-drawer-backdrop';
+  const raceSkill=
+    String(
+      r.race_skill||''
+    ).trim();
 
 
-backdrop.onclick = e => {
+  const backdrop=
+    document.createElement('div');
 
-  if(e.target === backdrop){
-    _roCloseDrawer();
-  }
+  backdrop.id='rosterDrawer';
+  backdrop.className=
+    'roster-drawer-backdrop';
 
-};
-
-
-backdrop.innerHTML = `
-
-  <div class="roster-drawer">
-
-    <!-- =====================================================
-         HEADER
-         ===================================================== -->
-
-    <div class="roster-drawer-head">
-
-      <div>
-
-        <div class="roster-drawer-title">
-          Accesos del colaborador
-        </div>
-
-        <div class="roster-drawer-sub">
-          Usuario operativo y licencias · sin salir del empleado actual
-        </div>
-
-      </div>
-
-      <button
-        class="roster-btn ghost small"
-        onclick="_roCloseDrawer()">
-        ✕
-      </button>
-
-    </div>
+  backdrop.onclick=e=>{
+    if(e.target===backdrop)
+      _roCloseDrawer();
+  };
 
 
-    <div class="roster-drawer-body">
+  backdrop.innerHTML=`
+    <div class="roster-drawer">
 
-
-      <!-- ===================================================
-           PERFIL
-           =================================================== -->
-
-      <div class="roster-profile">
-
-        <div class="roster-avatar">
-          ${_roEsc(_roInitials(r.full_name))}
-        </div>
-
+      <div class="roster-drawer-head">
         <div>
-
-          <div class="roster-profile-name">
-            ${_roEsc(r.full_name || r.employee_id)}
+          <div class="roster-drawer-title">
+            Gestión operativa del colaborador
           </div>
 
-          <div class="roster-cx">
-            ${_roEsc(r.employee_id)}
+          <div class="roster-drawer-sub">
+            Roster · estructura, accesos y licencias
           </div>
-
         </div>
 
+        <button
+          class="roster-btn ghost small"
+          onclick="_roCloseDrawer()"
+        >
+          ✕
+        </button>
       </div>
 
 
-      <!-- ===================================================
-           INFORMACIÓN OPERATIVA
-           =================================================== -->
+      <div class="roster-drawer-body">
 
-      <div class="roster-op-grid">
+        <div class="roster-profile">
 
-        <div class="roster-op-cell">
-
-          <div class="roster-op-k">
-            Supervisor
+          <div class="roster-avatar">
+            ${_roEsc(
+              _roInitials(
+                r.full_name
+              )
+            )}
           </div>
 
-          <div class="roster-op-v">
-            ${_roEsc(r.supervisor_name || '—')}
-          </div>
+          <div>
 
-        </div>
-
-
-        <div class="roster-op-cell">
-
-          <div class="roster-op-k">
-            Campaña / LOB
-          </div>
-
-          <div class="roster-op-v">
-            ${_roEsc(r.campaign_id || '—')}
-            ·
-            ${_roEsc(r.lob || '—')}
-          </div>
-
-        </div>
-
-
-        <div class="roster-op-cell">
-
-          <div class="roster-op-k">
-            Queue
-          </div>
-
-          <div class="roster-op-v">
-            ${_roEsc(r.queue || '—')}
-          </div>
-
-        </div>
-
-
-        <div class="roster-op-cell">
-
-          <div class="roster-op-k">
-            Horario / Descanso
-          </div>
-
-          <div class="roster-op-v">
-
-            ${_roTime(r.shift_start)}
-            –
-            ${_roTime(r.shift_end)}
-
-            ·
-
-            ${_roEsc(_roDaysOff(r))}
-
-          </div>
-
-        </div>
-
-      </div>
-
-
-      <!-- ===================================================
-           AVISO DE BAJA
-           =================================================== -->
-
-      ${
-        !_roIsActive(r)
-
-          ? `
-            <div class="roster-warning">
-
-              <b>Colaborador dado de baja.</b>
-
-              No se pueden asignar nuevos accesos;
-              sí puedes retirar licencias activas
-              para cerrar el offboarding.
-
+            <div class="roster-profile-name">
+              ${_roEsc(
+                r.full_name||
+                r.employee_id
+              )}
             </div>
+
+            <div class="roster-cx">
+              ${_roEsc(
+                r.employee_id
+              )}
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <div class="roster-op-grid">
+
+          <div class="roster-op-cell">
+
+            <div class="roster-op-k">
+              Supervisor
+            </div>
+
+            <div class="roster-op-v">
+              ${_roEsc(
+                r.supervisor_name||
+                '—'
+              )}
+            </div>
+
+          </div>
+
+
+          <div class="roster-op-cell">
+
+            <div class="roster-op-k">
+              Campaña / LOB
+            </div>
+
+            <div class="roster-op-v">
+              ${_roEsc(
+                r.campaign_id||
+                '—'
+              )}
+              ·
+              ${_roEsc(
+                r.lob||
+                '—'
+              )}
+            </div>
+
+          </div>
+
+
+          <div class="roster-op-cell">
+
+            <div class="roster-op-k">
+              Queue
+            </div>
+
+            <div class="roster-op-v">
+              ${_roEsc(
+                r.queue||
+                '—'
+              )}
+            </div>
+
+          </div>
+
+
+          <div class="roster-op-cell">
+
+            <div class="roster-op-k">
+              Horario / Descanso
+            </div>
+
+            <div class="roster-op-v">
+              ${_roTime(r.shift_start)}
+              –
+              ${_roTime(r.shift_end)}
+              ·
+              ${_roEsc(
+                _roDaysOff(r)
+              )}
+            </div>
+
+          </div>
+
+        </div>
+
+
+        ${
+          !_roIsActive(r)
+          ?
           `
+          <div class="roster-warning">
 
-          : ''
-      }
+            <b>
+              Colaborador dado de baja.
+            </b>
 
+            No se pueden realizar nuevas
+            asignaciones operativas.
 
-      <!-- ===================================================
-           USER APLAZO
-           SOLO PARA CAMPAÑA APLAZO
-           =================================================== -->
-
-      ${
-        isAplazo
-
-          ? `
-
-            <div class="roster-section-title">
-              Usuario Aplazo
-            </div>
+          </div>
+          `
+          :
+          ''
+        }
 
 
-            <div class="roster-assignment-box">
+        ${
+          isAplazo
+          ?
+          `
+          <div class="roster-section-title">
+            Usuario Aplazo
+          </div>
 
+          <div class="roster-assignment-box">
 
+            ${
+              canAssignLicenses
+              ?
+              `
               <div class="roster-assignment-row">
-
 
                 <div
                   style="
                     flex:1;
-                    min-width:0;
+                    min-width:0
                   "
                 >
 
                   <input
-
                     id="ro-workforce-user"
-
                     class="roster-input"
-
                     type="text"
-
                     maxlength="100"
-
                     autocomplete="off"
-
-                    placeholder="Ej. Agente NL 44"
-
+                    placeholder="Usuario operativo de Aplazo"
                     value="${_roEsc(
-                      r.workforce_user || ''
+                      r.workforce_user||
+                      ''
                     )}"
-
-                    ${!canAssign ? 'disabled' : ''}
-
-                    onkeydown="
-                      if(event.key==='Enter'){
-                        event.preventDefault();
-                        _roSaveWorkforceUser(
-                          '${_roEsc(r.employee_id)}'
-                        );
-                      }
-                    "
-
                   >
 
                 </div>
-
-
-                ${
-                  canAssign
-
-                    ? `
-
-                      <button
-
-                        type="button"
-
-                        class="roster-btn blue"
-
-                        onclick="
-                          _roSaveWorkforceUser(
-                            '${_roEsc(r.employee_id)}'
-                          )
-                        "
-                      >
-
-                        Guardar
-
-                      </button>
-
-                    `
-
-                    : ''
-                }
-
-
-              </div>
-
-
-              <div
-                class="roster-secondary"
-                style="margin-top:7px"
-              >
-
-                Usuario operativo del colaborador
-                dentro de Aplazo.
-
-              </div>
-
-
-            </div>
-
-          `
-
-          : ''
-      }
-
-
-      <!-- ===================================================
-           ASIGNAR LICENCIA
-           =================================================== -->
-
-      ${
-        canAssign
-
-          ? `
-
-            <div class="roster-section-title">
-              Asignar nueva licencia
-            </div>
-
-
-            <div class="roster-assignment-box">
-
-
-              <div class="roster-assignment-row">
-
-
-                <div
-                  style="
-                    flex:1;
-                    min-width:0;
-                  "
-                >
-
-                  <input
-
-                    id="ro-license-text"
-
-                    class="roster-input"
-
-                    type="text"
-
-                    maxlength="80"
-
-                    autocomplete="off"
-
-                    placeholder="Escribe la licencia, ej. agente_nl_44@aplazo.support"
-
-                    onkeydown="
-                      if(event.key==='Enter'){
-                        event.preventDefault();
-                        _roAssignTextLicense(
-                          '${_roEsc(r.employee_id)}'
-                        );
-                      }
-                    "
-
-                  >
-
-                </div>
-
 
                 <button
-
-                  type="button"
-
                   class="roster-btn blue"
+                  onclick="_roSaveWorkforceUser('${_roEsc(
+                    r.employee_id
+                  )}')"
+                >
+                  Guardar
+                </button>
 
-                  onclick="
-                    _roAssignTextLicense(
-                      '${_roEsc(r.employee_id)}'
-                    )
+              </div>
+              `
+              :
+              `
+              <div class="roster-main">
+                ${_roEsc(
+                  r.workforce_user||
+                  'Sin usuario asignado'
+                )}
+              </div>
+              `
+            }
+
+          </div>
+          `
+          :
+          ''
+        }
+
+
+        ${
+          isRace
+          ?
+          `
+          <div class="roster-section-title">
+            Skill RACE
+          </div>
+
+          <div class="roster-assignment-box">
+
+            ${
+              !raceSkill
+              ?
+              `
+              <div
+                class="roster-warning"
+                style="
+                  margin-bottom:10px
+                "
+              >
+                <b>
+                  ⚠ Skill pendiente.
+                </b>
+
+                Este colaborador está en
+                RACE y todavía no tiene
+                clasificación asignada.
+              </div>
+              `
+              :
+              ''
+            }
+
+
+            ${
+              canManageRaceSkill
+              ?
+              `
+              <div class="roster-assignment-row">
+
+                <div
+                  style="
+                    flex:1;
+                    min-width:0
                   "
                 >
 
-                  ＋ Asignar
+                  <select
+                    id="ro-race-skill"
+                    class="roster-select"
+                    style="width:100%"
+                  >
 
+                    <option
+                      value=""
+                      ${
+                        !raceSkill
+                        ? 'selected'
+                        : ''
+                      }
+                    >
+                      Pendiente de asignar
+                    </option>
+
+                    <option
+                      value="Cuenta"
+                      ${
+                        raceSkill==='Cuenta'
+                        ? 'selected'
+                        : ''
+                      }
+                    >
+                      Cuenta
+                    </option>
+
+                    <option
+                      value="Crédito"
+                      ${
+                        raceSkill==='Crédito'
+                        ? 'selected'
+                        : ''
+                      }
+                    >
+                      Crédito
+                    </option>
+
+                    <option
+                      value="Educación al usuario"
+                      ${
+                        raceSkill===
+                          'Educación al usuario'
+                        ? 'selected'
+                        : ''
+                      }
+                    >
+                      Educación al usuario
+                    </option>
+
+                  </select>
+
+                </div>
+
+                <button
+                  class="roster-btn blue"
+                  onclick="_roSaveRaceSkill('${_roEsc(
+                    r.employee_id
+                  )}')"
+                >
+                  Guardar Skill
                 </button>
 
-
               </div>
-
 
               <div
                 class="roster-secondary"
                 style="margin-top:7px"
               >
+                Solo WFM y Head of People
+                pueden modificar esta
+                clasificación.
+              </div>
+              `
+              :
+              `
+              <div>
 
-                Escribe el nombre de la licencia.
-                Impulse reutiliza el mismo registro
-                si ya existe y lo asigna únicamente a
-
-                <b>
-                  ${_roEsc(
-                    r.full_name || r.employee_id
-                  )}
-                </b>.
+                ${
+                  raceSkill
+                  ?
+                  `
+                  <span class="roster-chip license">
+                    ${_roEsc(raceSkill)}
+                  </span>
+                  `
+                  :
+                  `
+                  <span class="roster-chip warn">
+                    Pendiente de asignar
+                  </span>
+                  `
+                }
 
               </div>
 
+              <div
+                class="roster-secondary"
+                style="margin-top:7px"
+              >
+                Solo WFM y Head of People
+                pueden modificar el Skill.
+              </div>
+              `
+            }
+
+          </div>
+          `
+          :
+          ''
+        }
+
+
+        ${
+          canAssignLicenses
+          ?
+          `
+          <div class="roster-section-title">
+            Asignar nueva licencia
+          </div>
+
+          <div class="roster-assignment-box">
+
+            <div class="roster-assignment-row">
+
+              <div
+                style="
+                  flex:1;
+                  min-width:0
+                "
+              >
+
+                <input
+                  id="ro-license-text"
+                  class="roster-input"
+                  type="text"
+                  maxlength="80"
+                  autocomplete="off"
+                  placeholder="Escribe la licencia, ej. Five9, Zendesk, Salesforce…"
+                  onkeydown="
+                    if(event.key==='Enter'){
+                      event.preventDefault();
+                      _roAssignTextLicense('${_roEsc(
+                        r.employee_id
+                      )}')
+                    }
+                  "
+                >
+
+              </div>
+
+              <button
+                class="roster-btn blue"
+                onclick="_roAssignTextLicense('${_roEsc(
+                  r.employee_id
+                )}')"
+              >
+                ＋ Asignar
+              </button>
 
             </div>
-
-          `
-
-          : ''
-      }
-
-
-      <!-- ===================================================
-           LICENCIAS ACTIVAS
-           =================================================== -->
-
-      <div class="roster-section-title">
-
-        Licencias activas ·
-        ${activeLicenses.length}
-
-      </div>
-
-
-      ${
-        activeLicenses.length
-
-          ? activeLicenses
-              .map(a => `
-
-                <div class="roster-license-row active">
-
-
-                  <div>
-
-
-                    <div class="roster-license-name">
-
-                      ${_roEsc(
-                        a.license_name ||
-                        'Licencia'
-                      )}
-
-                    </div>
-
-
-                    <div class="roster-license-desc">
-
-                      Asignada
-                      ${_roDate(a.assigned_at)}
-
-                      ${
-                        a.assigned_by_name
-
-                          ? `
-                            ·
-                            ${_roEsc(
-                              a.assigned_by_name
-                            )}
-                          `
-
-                          : ''
-                      }
-
-                    </div>
-
-
-                  </div>
-
-
-                  ${
-                    canManage
-
-                      ? `
-
-                        <button
-
-                          type="button"
-
-                          class="roster-btn danger small"
-
-                          onclick="
-                            _roRevoke(
-                              '${_roEsc(
-                                a.assignment_id
-                              )}'
-                            )
-                          "
-                        >
-
-                          Retirar
-
-                        </button>
-
-                      `
-
-                      : `
-
-                        <span class="roster-chip active">
-                          Activa
-                        </span>
-
-                      `
-                  }
-
-
-                </div>
-
-              `)
-              .join('')
-
-          : `
 
             <div
-              class="roster-empty"
-              style="
-                padding:22px 8px;
-              "
+              class="roster-secondary"
+              style="margin-top:7px"
             >
-
-              Este colaborador
-              no tiene licencias activas.
-
+              Impulse reutiliza el mismo
+              nombre si ya existe y lo
+              asigna únicamente a
+              <b>
+                ${_roEsc(
+                  r.full_name||
+                  r.employee_id
+                )}
+              </b>.
             </div>
 
+          </div>
           `
-      }
+          :
+          ''
+        }
 
 
-      <!-- ===================================================
-           HISTORIAL
-           =================================================== -->
-
-      <div class="roster-section-title">
-        Historial
-      </div>
+        <div class="roster-section-title">
+          Licencias activas ·
+          ${activeLicenses.length}
+        </div>
 
 
-      ${
-        history.length
+        ${
+          activeLicenses.length
+          ?
+          activeLicenses.map(a=>`
 
-          ? history
-              .map(h => `
+            <div class="roster-license-row active">
 
-                <div class="roster-history">
+              <div>
 
-                  <b>
-                    ${_roEsc(
-                      h.license_name ||
-                      'Licencia'
-                    )}
-                  </b>
-
-                  · Asignada
-                  ${_roDate(h.assigned_at)}
-
-                  por
+                <div class="roster-license-name">
                   ${_roEsc(
-                    h.assigned_by_name ||
-                    h.assigned_by ||
-                    '—'
+                    a.license_name||
+                    'Licencia'
+                  )}
+                </div>
+
+                <div class="roster-license-desc">
+
+                  Asignada
+                  ${_roDate(
+                    a.assigned_at
                   )}
 
                   ${
-                    h.revoked_at
-
-                      ? `
-
-                        · Retirada
-                        ${_roDate(
-                          h.revoked_at
-                        )}
-
-                        por
-                        ${_roEsc(
-                          h.revoked_by_name ||
-                          h.revoked_by ||
-                          '—'
-                        )}
-
-                      `
-
-                      : ' · Activa'
+                    a.assigned_by_name
+                    ?
+                    ` · ${_roEsc(
+                      a.assigned_by_name
+                    )}`
+                    :
+                    ''
                   }
 
                 </div>
 
-              `)
-              .join('')
+              </div>
 
-          : `
+              ${
+                canManageLicenses
+                ?
+                `
+                <button
+                  class="roster-btn danger small"
+                  onclick="_roRevoke('${_roEsc(
+                    a.assignment_id
+                  )}')"
+                >
+                  Retirar
+                </button>
+                `
+                :
+                `
+                <span class="roster-chip active">
+                  Activa
+                </span>
+                `
+              }
 
-            <div class="roster-secondary">
-              Sin movimientos registrados.
             </div>
 
+          `).join('')
+          :
           `
-      }
+          <div
+            class="roster-empty"
+            style="padding:22px 8px"
+          >
+            Este colaborador no tiene
+            licencias activas.
+          </div>
+          `
+        }
 
+
+        <div class="roster-section-title">
+          Historial
+        </div>
+
+
+        ${
+          history.length
+          ?
+          history.map(h=>`
+
+            <div class="roster-history">
+
+              <b>
+                ${_roEsc(
+                  h.license_name||
+                  'Licencia'
+                )}
+              </b>
+
+              · Asignada
+              ${_roDate(
+                h.assigned_at
+              )}
+
+              por
+
+              ${_roEsc(
+                h.assigned_by_name||
+                h.assigned_by||
+                '—'
+              )}
+
+              ${
+                h.revoked_at
+                ?
+                `
+                · Retirada
+                ${_roDate(
+                  h.revoked_at
+                )}
+                por
+                ${_roEsc(
+                  h.revoked_by_name||
+                  h.revoked_by||
+                  '—'
+                )}
+                `
+                :
+                ' · Activa'
+              }
+
+            </div>
+
+          `).join('')
+          :
+          `
+          <div class="roster-secondary">
+            Sin movimientos registrados.
+          </div>
+          `
+        }
+
+      </div>
 
     </div>
-
-  </div>
-
-`;
+  `;
 
 
-document.body.appendChild(backdrop);
-
+  document.body.appendChild(
+    backdrop
+  );
 }
 
 
@@ -49468,6 +49533,235 @@ document.body.appendChild(backdrop);
     if(reopenEmployee)_roOpenLicenseDrawer(reopenEmployee);
     return true;
   }
+
+  async function _roSaveWorkforceUser(employeeId){
+
+const r=
+  _roEmployee(employeeId);
+
+const input=
+  document.getElementById(
+    'ro-workforce-user'
+  );
+
+
+if(!r){
+  _roToast(
+    'No se encontró al colaborador.',
+    'error'
+  );
+  return;
+}
+
+
+if(!_roIsActive(r)){
+  _roToast(
+    'El colaborador está dado de baja.',
+    'error'
+  );
+  return;
+}
+
+
+const value=
+  input?.value?.trim()||null;
+
+
+try{
+
+  if(input)
+    input.disabled=true;
+
+
+  const {
+    error
+  }=
+    await _auth_sb.rpc(
+      'save_workforce_user',
+      {
+        p_employee_id:
+          employeeId,
+
+        p_workforce_user:
+          value
+      }
+    );
+
+
+  if(error)
+    throw error;
+
+
+  await _roReload({
+    reopenEmployee:
+      employeeId
+  });
+
+
+  _roToast(
+    value
+      ? 'Usuario Aplazo actualizado.'
+      : 'Usuario Aplazo eliminado.'
+  );
+
+
+}catch(error){
+
+  _roToast(
+    error?.message||
+    String(error),
+    'error'
+  );
+
+
+  if(input)
+    input.disabled=false;
+
+}
+
+}
+
+
+
+async function _roSaveRaceSkill(employeeId){
+
+const r=
+  _roEmployee(employeeId);
+
+const select=
+  document.getElementById(
+    'ro-race-skill'
+  );
+
+
+if(!r){
+
+  _roToast(
+    'No se encontró al colaborador.',
+    'error'
+  );
+
+  return;
+
+}
+
+
+if(
+  !_ro_payload?.
+    can_manage_race_skill
+){
+
+  _roToast(
+    'No tienes permiso para modificar el Skill RACE.',
+    'error'
+  );
+
+  return;
+
+}
+
+
+if(!_roIsActive(r)){
+
+  _roToast(
+    'El colaborador está dado de baja.',
+    'error'
+  );
+
+  return;
+
+}
+
+
+if(
+  _roNorm(r.campaign_id)!==
+    'aplazo'
+  ||
+  _roNorm(r.queue)!==
+    'race'
+){
+
+  _roToast(
+    'Skill RACE solo aplica a colaboradores activos de Aplazo en Queue RACE.',
+    'error'
+  );
+
+  return;
+
+}
+
+
+const value=
+  select?.value||null;
+
+
+const label=
+  value||
+  'Pendiente de asignar';
+
+
+if(
+  !confirm(
+    `¿Guardar Skill RACE “${label}” para ${r.full_name||employeeId}?`
+  )
+){
+  return;
+}
+
+
+try{
+
+  if(select)
+    select.disabled=true;
+
+
+  const {
+    error
+  }=
+    await _auth_sb.rpc(
+      'save_race_skill',
+      {
+        p_employee_id:
+          employeeId,
+
+        p_race_skill:
+          value
+      }
+    );
+
+
+  if(error)
+    throw error;
+
+
+  await _roReload({
+    reopenEmployee:
+      employeeId
+  });
+
+
+  _roToast(
+    value
+      ? `Skill RACE actualizado a ${value}.`
+      : 'Skill RACE marcado como pendiente.'
+  );
+
+
+}catch(error){
+
+  _roToast(
+    error?.message||
+    String(error),
+    'error'
+  );
+
+
+  if(select)
+    select.disabled=false;
+
+}
+
+}
 
   async function _roSaveWorkforceUser(employeeId){
 
@@ -49653,17 +49947,22 @@ try{
   }
 
   window._init_roster=_roInit;
-  window._rerender_roster=_roRender;
-  window._roSetFilter=_roSetFilter;
-  window._roClearFilter=_roClearFilter;
-  window._roClearAllFilters=_roClearAllFilters;
-  window._roExportExcel=_roExportExcel;
-  window._roExportCSV=_roExportCSV;
-  window._roOpenLicenseDrawer=_roOpenLicenseDrawer;
-  window._roCloseDrawer=_roCloseDrawer;
-  window._roAssignTextLicense=_roAssignTextLicense;
-  window._roRevoke=_roRevoke;
-  window._roSaveWorkforceUser=_roSaveWorkforceUser;
+window._rerender_roster=_roRender;
+window._roSetFilter=_roSetFilter;
+window._roClearFilter=_roClearFilter;
+window._roClearAllFilters=_roClearAllFilters;
+window._roExportExcel=_roExportExcel;
+window._roExportCSV=_roExportCSV;
+
+window._roOpenLicenseDrawer=_roOpenLicenseDrawer;
+window._roCloseDrawer=_roCloseDrawer;
+
+window._roSaveWorkforceUser=_roSaveWorkforceUser;
+window._roSaveRaceSkill=_roSaveRaceSkill;
+
+window._roAssignTextLicense=_roAssignTextLicense;
+window._roRevoke=_roRevoke;
+
 })();
 </script>
 
