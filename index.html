@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION = '1.0.90';
-const APP_BUILD = '1.0.90-workforce-queue-01';
+const APP_VERSION = '1.0.91';
+const APP_BUILD = '1.0.91-workforce-sla24-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -33434,8 +33434,8 @@ async function _t_crearTicket() {
       null,
     priority: 'normal',
     status: 'pending',
-    sla_hours: 48,
-    due_at: null, // Supabase calcula 48h de SLA sin fines de semana.
+    sla_hours: (esJerarquia || esQueue) ? 24 : 48,
+    due_at: null, // Supabase calcula el SLA hábil según la cola del ticket.
     workforce_payload:
       hierarchyData ||
       queueData ||
@@ -33473,77 +33473,77 @@ async function _t_crearTicket() {
 
 function _t_renderServiceQueueSelector() {
 
-const role =
-  String(currentRole || '')
-    .toLowerCase();
+  const role =
+    String(currentRole || '')
+      .toLowerCase();
 
-if (
-  ![
-    'head_people',
-    'ceo'
-  ].includes(role)
-) {
-  return '';
-}
+  if (
+    ![
+      'head_people',
+      'ceo'
+    ].includes(role)
+  ) {
+    return '';
+  }
 
-const all =
-  _t_TICKETS || [];
+  const all =
+    _t_TICKETS || [];
 
-const open =
-  all.filter(
-    t =>
-      t.status === 'pending' ||
-      t.status === 'in_progress'
-  );
+  // Los contadores superiores representan backlog actual, no histórico.
+  const open =
+    all.filter(
+      t =>
+        t.status === 'pending' ||
+        t.status === 'in_progress'
+    );
 
-const people =
-  open.filter(
-    t =>
-      (t.service_queue || 'people')
-      === 'people'
-  ).length;
+  const people =
+    open.filter(
+      t =>
+        (t.service_queue || 'people') === 'people'
+    ).length;
 
-const workforce =
-  open.filter(
-    t =>
-      t.service_queue === 'workforce'
-  ).length;
+  const workforce =
+    open.filter(
+      t =>
+        t.service_queue === 'workforce'
+    ).length;
 
-return `
-  <div
-    style="
-      display:flex;
-      gap:8px;
-      margin-bottom:16px;
-      flex-wrap:wrap
-    "
-  >
+  return `
+    <div
+      style="
+        display:flex;
+        gap:8px;
+        margin-bottom:16px;
+        flex-wrap:wrap
+      "
+    >
 
-    ${
-      [
-        ['all', 'Todas', open.length],
-        ['people', 'People Queue', people],
-        ['workforce', 'Workforce Queue', workforce]
-      ]
-      .map(
-        ([value, label, count]) => `
-          <button
-            class="tab ${
-              _t_serviceQueueView === value
-                ? 'on'
-                : ''
-            }"
-            onclick="_t_setServiceQueueView('${value}')"
-          >
-            ${label} (${count})
-          </button>
-        `
-      )
-      .join('')
-    }
+      ${
+        [
+          ['all', 'Todas', open.length],
+          ['people', 'People Queue', people],
+          ['workforce', 'Workforce Queue', workforce]
+        ]
+        .map(
+          ([value, label, count]) => `
+            <button
+              class="tab ${
+                _t_serviceQueueView === value
+                  ? 'on'
+                  : ''
+              }"
+              onclick="_t_setServiceQueueView('${value}')"
+            >
+              ${label} (${count})
+            </button>
+          `
+        )
+        .join('')
+      }
 
-  </div>
-`;
+    </div>
+  `;
 }
 
 function _t_wfmPayload(t) {
@@ -35179,7 +35179,7 @@ function _t_renderKpisTickets(baseLista = _t_TICKETS) {
 
       <div class="kpi-box">
         <div class="kpi-val" style="color:#16A34A">${slaPct}%</div>
-        <div class="kpi-lbl" title="48 horas de SLA; sábado y domingo no cuentan">SLA cumplimiento hábil</div>
+        <div class="kpi-lbl" title="People: 48 horas hábiles · Workforce: 24 horas hábiles; sábado y domingo no cuentan">SLA cumplimiento hábil</div>
       </div>
     </div>
   `;
