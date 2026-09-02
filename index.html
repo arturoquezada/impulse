@@ -33477,7 +33477,6 @@ const role =
   String(currentRole || '')
     .toLowerCase();
 
-
 if (
   ![
     'head_people',
@@ -33487,26 +33486,28 @@ if (
   return '';
 }
 
-
 const all =
   _t_TICKETS || [];
 
+const open =
+  all.filter(
+    t =>
+      t.status === 'pending' ||
+      t.status === 'in_progress'
+  );
 
 const people =
-  all.filter(
+  open.filter(
     t =>
       (t.service_queue || 'people')
       === 'people'
   ).length;
 
-
 const workforce =
-  all.filter(
+  open.filter(
     t =>
-      t.service_queue ===
-      'workforce'
+      t.service_queue === 'workforce'
   ).length;
-
 
 return `
   <div
@@ -33520,7 +33521,7 @@ return `
 
     ${
       [
-        ['all', 'Todas', all.length],
+        ['all', 'Todas', open.length],
         ['people', 'People Queue', people],
         ['workforce', 'Workforce Queue', workforce]
       ]
