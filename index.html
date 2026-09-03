@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION = '1.0.92';
-const APP_BUILD = '1.0.92-supervisor-wfm-requests-01';
+const APP_VERSION = '1.0.93';
+const APP_BUILD = '1.0.93-workforce-permanent-changes-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -5917,10 +5917,10 @@ function _a_renderSupervisorWfmRequestBox() {
     <div class="card" style="border-color:#A5F3FC;background:#F8FEFF">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
         <div style="min-width:240px;flex:1">
-          <div class="card-title" style="margin-bottom:4px">⚙ Solicitudes a Workforce</div>
+          <div class="card-title" style="margin-bottom:4px">🗓 Cambios temporales a Workforce</div>
           <div style="font-size:12px;color:#64748B;line-height:1.5;max-width:720px">
-            Selecciona a un colaborador de tu equipo y solicita un cambio temporal de horario o descanso.
-            La solicitud llegará automáticamente a <strong>Workforce Queue</strong> con SLA de <strong>24 horas hábiles</strong>.
+            Selecciona a un colaborador de tu equipo y solicita un cambio <strong>temporal</strong> de horario o descanso para una fecha específica.
+            La solicitud llegará automáticamente a <strong>Workforce Queue</strong> con SLA de <strong>24 horas hábiles</strong>. Para cambios permanentes usa <strong>Tickets → Rendimiento y Gestión de Personal</strong>.
           </div>
         </div>
 
@@ -32272,7 +32272,7 @@ async function _t_cargarTickets(options = {}) {
     const { data: emps, error: empError } = await _t_sb
       .from('employees')
       .select(
-  'id,full_name,supervisor_id,supervisor_name,status,campaign_id,lob,queue,race_skill,system_role,position_title,hire_date'
+  'id,full_name,supervisor_id,supervisor_name,status,campaign_id,lob,queue,race_skill,shift_start,shift_end,days_off,system_role,position_title,hire_date'
 )
       .eq('status', 'active')
       .order('full_name');
@@ -32456,7 +32456,7 @@ function _t_renderDetalle(id) {
 const _T_CATEGORIAS = {
   'Verificación de Empleo': ['Carta de Recomendación','Carta Patronal','Carta de referencia','Carta de antigüedad'],
   'Nomina': ['Cambio de cuenta','Recibos de Nomina','Problemas en la Nomina'],
-  'Rendimiento y Gestion de Personal': ['Cambio de Supervisor','Cambio de Queue','Cambio de campaña','Promoción','Dar de Baja','Solicitud de PIP','Solicitud de Acta'],
+  'Rendimiento y Gestion de Personal': ['Cambio de Supervisor','Cambio de Queue','Cambio de Horario','Cambio de Descanso','Cambio de campaña','Promoción','Dar de Baja','Solicitud de PIP','Solicitud de Acta'],
   'Corrección de Asistencia': ['Entrada mal marcada','Salida mal marcada','Entrada faltante','Salida faltante','Retardo mal marcado'],
   'Queja o Sugerencia': ['Queja','Sugerencia'],
   'Denuncia': ['Anonimo','Dar tu nombre'],
@@ -32512,6 +32512,8 @@ function _t_requiereRelacionadoGeneral(categoria, subtipo) {
   if (_t_esCambioJerarquiaValor(categoria, subtipo)) return false;
   if (_t_esSolicitudBajaValor(categoria, subtipo)) return false;
   if (_t_esCambioQueueValor(categoria,subtipo)) return false;
+  if (_t_esCambioHorarioPermanenteValor(categoria, subtipo)) return false;
+  if (_t_esCambioDescansoPermanenteValor(categoria, subtipo)) return false;
 
   // Quejas, denuncias y otros pueden no referirse a una persona concreta.
   return !['Queja o Sugerencia', 'Denuncia', 'Otros'].includes(categoria);
@@ -32530,6 +32532,16 @@ function _t_renderEmpleadoRelacionadoGeneral() {
   )
   ||
   _t_esCambioQueueValor(
+    categoria,
+    subtipo
+  )
+  ||
+  _t_esCambioHorarioPermanenteValor(
+    categoria,
+    subtipo
+  )
+  ||
+  _t_esCambioDescansoPermanenteValor(
     categoria,
     subtipo
   )
@@ -32601,6 +32613,35 @@ function _t_esCambioQueueValor(
   );
 }
 
+
+function _t_esCambioHorarioPermanenteValor(categoria, subtipo) {
+  return categoria === 'Rendimiento y Gestion de Personal' && subtipo === 'Cambio de Horario';
+}
+
+function _t_esCambioDescansoPermanenteValor(categoria, subtipo) {
+  return categoria === 'Rendimiento y Gestion de Personal' && subtipo === 'Cambio de Descanso';
+}
+
+const _T_DAY_ORDER = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+const _T_DAY_LABELS = {
+  monday: 'Lunes',
+  tuesday: 'Martes',
+  wednesday: 'Miércoles',
+  thursday: 'Jueves',
+  friday: 'Viernes',
+  saturday: 'Sábado',
+  sunday: 'Domingo'
+};
+
+function _t_normalizeDaysOff(days) {
+  const values = Array.isArray(days) ? days.map(x => String(x || '').trim().toLowerCase()) : [];
+  return _T_DAY_ORDER.filter(day => values.includes(day));
+}
+
+function _t_daysOffLabel(days) {
+  const normalized = _t_normalizeDaysOff(days);
+  return normalized.length ? normalized.map(day => _T_DAY_LABELS[day] || day).join(', ') : 'Sin descanso configurado';
+}
 
 function _t_esSolicitudBajaValor(categoria, subtipo) {
   return categoria === 'Rendimiento y Gestion de Personal' && subtipo === 'Dar de Baja';
@@ -32773,6 +32814,8 @@ function _t_renderCamposJerarquia() {
   const subtipo = document.getElementById('nt-subtipo')?.value;
 
   if (_t_esCambioQueueValor(categoria,subtipo)) {_t_renderCamposQueue();return;}
+  if (_t_esCambioHorarioPermanenteValor(categoria, subtipo)) { _t_renderCamposHorarioPermanente(); return; }
+  if (_t_esCambioDescansoPermanenteValor(categoria, subtipo)) { _t_renderCamposDescansoPermanente(); return; }
   if (_t_esSolicitudBajaValor(categoria, subtipo)) { _t_renderCamposBaja(); return; }
   if (!_t_esCambioJerarquiaValor(categoria, subtipo)) {
     wrap.innerHTML = '';
@@ -33094,6 +33137,156 @@ if (select) {
 }
 }
 
+function _t_renderCamposHorarioPermanente() {
+  const wrap = document.getElementById('nt-dynamic-fields');
+  if (!wrap) return;
+
+  const empleados = _t_empleadosCorregibles()
+    .filter(e => e.status === 'active')
+    .sort((a,b) => String(a.full_name || '').localeCompare(String(b.full_name || ''), 'es'));
+
+  wrap.innerHTML = `
+    <div class="modal-section" style="border-color:#BFDBFE;background:#EFF6FF">
+      <div class="ms-title" style="color:#1D4ED8">🕒 Cambio permanente de horario</div>
+      <div style="font-size:11px;color:#1E40AF;margin-bottom:12px;line-height:1.45">
+        Este cambio modifica el horario habitual del colaborador a partir de la fecha efectiva. Para un solo día usa Asistencia → Cambios temporales.
+      </div>
+
+      <div class="form-row">
+        <label>Colaborador</label>
+        <select id="nt-s-employee" onchange="_t_actualizarPreviewHorarioPermanente()">
+          <option value="">Selecciona un colaborador...</option>
+          ${empleados.map(e => `<option value="${e.id}">${e.full_name}${e.campaign_id ? ' · ' + e.campaign_id : ''}</option>`).join('')}
+        </select>
+      </div>
+
+      <div id="nt-s-current-wrap" style="display:none;margin-bottom:12px"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-row">
+          <label>Nueva entrada</label>
+          <input id="nt-s-start" type="time" />
+        </div>
+        <div class="form-row">
+          <label>Nueva salida</label>
+          <input id="nt-s-end" type="time" />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Fecha efectiva</label>
+        <input id="nt-s-effective-date" type="date" value="${ymd(new Date())}" min="${ymd(new Date())}" />
+      </div>
+
+      <div class="form-row" style="margin-bottom:0">
+        <label>Motivo del cambio</label>
+        <textarea id="nt-s-reason" rows="3" placeholder="Ej. Cambio operativo permanente, cobertura de turno, necesidad del cliente..."></textarea>
+      </div>
+    </div>`;
+}
+
+function _t_actualizarPreviewHorarioPermanente() {
+  const emp = _t_emp(document.getElementById('nt-s-employee')?.value);
+  const wrap = document.getElementById('nt-s-current-wrap');
+  const start = document.getElementById('nt-s-start');
+  const end = document.getElementById('nt-s-end');
+
+  if (!emp) {
+    if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
+    if (start) start.value = '';
+    if (end) end.value = '';
+    return;
+  }
+
+  const currentStart = String(emp.shift_start || '').slice(0,5);
+  const currentEnd = String(emp.shift_end || '').slice(0,5);
+
+  if (wrap) {
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+      <div style="background:#fff;border:1px solid #BFDBFE;border-radius:9px;padding:10px 12px">
+        <div style="font-size:10px;color:#64748B;font-weight:800;text-transform:uppercase">Horario actual</div>
+        <div style="font-size:14px;font-weight:800;color:#0F172A;margin-top:5px">${currentStart || '—'} – ${currentEnd || '—'}</div>
+      </div>`;
+  }
+
+  if (start) start.value = currentStart || '09:00';
+  if (end) end.value = currentEnd || '18:00';
+}
+
+function _t_renderCamposDescansoPermanente() {
+  const wrap = document.getElementById('nt-dynamic-fields');
+  if (!wrap) return;
+
+  const empleados = _t_empleadosCorregibles()
+    .filter(e => e.status === 'active')
+    .sort((a,b) => String(a.full_name || '').localeCompare(String(b.full_name || ''), 'es'));
+
+  wrap.innerHTML = `
+    <div class="modal-section" style="border-color:#DDD6FE;background:#F5F3FF">
+      <div class="ms-title" style="color:#6D28D9">🛌 Cambio permanente de descanso</div>
+      <div style="font-size:11px;color:#6D28D9;margin-bottom:12px;line-height:1.45">
+        Este cambio modifica los días de descanso habituales del colaborador a partir de la fecha efectiva. Para una sola semana usa Asistencia → Cambios temporales.
+      </div>
+
+      <div class="form-row">
+        <label>Colaborador</label>
+        <select id="nt-d-employee" onchange="_t_actualizarPreviewDescansoPermanente()">
+          <option value="">Selecciona un colaborador...</option>
+          ${empleados.map(e => `<option value="${e.id}">${e.full_name}${e.campaign_id ? ' · ' + e.campaign_id : ''}</option>`).join('')}
+        </select>
+      </div>
+
+      <div id="nt-d-current-wrap" style="display:none;margin-bottom:12px"></div>
+
+      <div class="form-row">
+        <label>Nuevos días de descanso</label>
+        <div style="display:flex;gap:7px;flex-wrap:wrap">
+          ${_T_DAY_ORDER.map(day => `
+            <label style="display:flex;align-items:center;gap:5px;background:#fff;border:1px solid #DDD6FE;border-radius:8px;padding:8px 10px;cursor:pointer;text-transform:none;letter-spacing:0;color:#334155;font-size:12px;font-weight:700">
+              <input class="nt-d-day" type="checkbox" value="${day}" style="width:auto" />
+              ${_T_DAY_LABELS[day]}
+            </label>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>Fecha efectiva</label>
+        <input id="nt-d-effective-date" type="date" value="${ymd(new Date())}" min="${ymd(new Date())}" />
+      </div>
+
+      <div class="form-row" style="margin-bottom:0">
+        <label>Motivo del cambio</label>
+        <textarea id="nt-d-reason" rows="3" placeholder="Ej. Cobertura operativa permanente, ajuste de plantilla, necesidad del cliente..."></textarea>
+      </div>
+    </div>`;
+}
+
+function _t_actualizarPreviewDescansoPermanente() {
+  const emp = _t_emp(document.getElementById('nt-d-employee')?.value);
+  const wrap = document.getElementById('nt-d-current-wrap');
+  const current = _t_normalizeDaysOff(emp?.days_off || []);
+
+  document.querySelectorAll('.nt-d-day').forEach(input => {
+    input.checked = current.includes(input.value);
+  });
+
+  if (!emp) {
+    if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
+    return;
+  }
+
+  if (wrap) {
+    wrap.style.display = 'block';
+    wrap.innerHTML = `
+      <div style="background:#fff;border:1px solid #DDD6FE;border-radius:9px;padding:10px 12px">
+        <div style="font-size:10px;color:#64748B;font-weight:800;text-transform:uppercase">Descanso actual</div>
+        <div style="font-size:13px;font-weight:800;color:#0F172A;margin-top:5px">${_t_daysOffLabel(current)}</div>
+      </div>`;
+  }
+}
+
 function _t_toggleOtroMotivoJerarquia() {
   const otro = document.getElementById('nt-h-reason-other');
   if (otro) otro.style.display = document.getElementById('nt-h-reason')?.value === 'Otro' ? 'block' : 'none';
@@ -33223,6 +33416,18 @@ async function _t_crearTicket() {
       subtipo
     );
 
+  const esHorarioPermanente =
+    _t_esCambioHorarioPermanenteValor(
+      categoria,
+      subtipo
+    );
+
+  const esDescansoPermanente =
+    _t_esCambioDescansoPermanenteValor(
+      categoria,
+      subtipo
+    );
+
   const esBaja =
     _t_esSolicitudBajaValor(
       categoria,
@@ -33232,6 +33437,8 @@ async function _t_crearTicket() {
 
   let hierarchyData = null;
   let queueData = null;
+  let scheduleData = null;
+  let dayOffData = null;
   let terminationData = null;
 
 
@@ -33455,6 +33662,90 @@ async function _t_crearTicket() {
 
 
   // ==========================================================
+  // CAMBIO PERMANENTE DE HORARIO
+  // ==========================================================
+
+  if (esHorarioPermanente) {
+    const targetEmployeeId = document.getElementById('nt-s-employee')?.value;
+    const newStart = document.getElementById('nt-s-start')?.value;
+    const newEnd = document.getElementById('nt-s-end')?.value;
+    const effectiveDate = document.getElementById('nt-s-effective-date')?.value;
+    const reason = document.getElementById('nt-s-reason')?.value?.trim();
+    const targetEmployee = _t_emp(targetEmployeeId);
+
+    if (!targetEmployeeId) return alert('Selecciona al colaborador');
+    if (!newStart || !newEnd) return alert('Selecciona el nuevo horario de entrada y salida');
+    if (newStart === newEnd) return alert('La hora de entrada y salida no pueden ser iguales');
+    if (!effectiveDate) return alert('Selecciona la fecha efectiva');
+    if (!reason) return alert('Escribe el motivo del cambio');
+
+    const currentStart = String(targetEmployee?.shift_start || '').slice(0,5) || null;
+    const currentEnd = String(targetEmployee?.shift_end || '').slice(0,5) || null;
+
+    if (currentStart === newStart && currentEnd === newEnd) {
+      return alert('El nuevo horario es igual al horario actual');
+    }
+
+    scheduleData = {
+      target_employee_id: targetEmployeeId,
+      current_shift_start: currentStart,
+      current_shift_end: currentEnd,
+      new_shift_start: newStart,
+      new_shift_end: newEnd,
+      effective_date: effectiveDate,
+      reason
+    };
+
+    const resumen =
+      `Solicitud de cambio permanente de Horario para ${_t_nombreEmpleado(targetEmployeeId)}. ` +
+      `${currentStart || 'Sin entrada'} – ${currentEnd || 'Sin salida'} → ${newStart} – ${newEnd}. ` +
+      `Fecha efectiva: ${effectiveDate}. Motivo: ${reason}.`;
+
+    desc = `${resumen}${desc ? '\n\nComentarios adicionales: ' + desc : ''}`;
+  }
+
+
+  // ==========================================================
+  // CAMBIO PERMANENTE DE DESCANSO
+  // ==========================================================
+
+  if (esDescansoPermanente) {
+    const targetEmployeeId = document.getElementById('nt-d-employee')?.value;
+    const effectiveDate = document.getElementById('nt-d-effective-date')?.value;
+    const reason = document.getElementById('nt-d-reason')?.value?.trim();
+    const targetEmployee = _t_emp(targetEmployeeId);
+    const newDays = _T_DAY_ORDER.filter(day =>
+      Array.from(document.querySelectorAll('.nt-d-day:checked')).some(input => input.value === day)
+    );
+    const currentDays = _t_normalizeDaysOff(targetEmployee?.days_off || []);
+
+    if (!targetEmployeeId) return alert('Selecciona al colaborador');
+    if (!newDays.length) return alert('Selecciona al menos un día de descanso');
+    if (!effectiveDate) return alert('Selecciona la fecha efectiva');
+    if (!reason) return alert('Escribe el motivo del cambio');
+
+    if (JSON.stringify(currentDays) === JSON.stringify(newDays)) {
+      return alert('Los nuevos días de descanso son iguales a los actuales');
+    }
+
+    dayOffData = {
+      target_employee_id: targetEmployeeId,
+      current_days_off: currentDays,
+      new_days_off: newDays,
+      effective_date: effectiveDate,
+      reason
+    };
+
+    const resumen =
+      `Solicitud de cambio permanente de Descanso para ${_t_nombreEmpleado(targetEmployeeId)}. ` +
+      `${_t_daysOffLabel(currentDays)} → ${_t_daysOffLabel(newDays)}. ` +
+      `Fecha efectiva: ${effectiveDate}. Motivo: ${reason}.`;
+
+    desc = `${resumen}${desc ? '\n\nComentarios adicionales: ' + desc : ''}`;
+  }
+
+
+  // ==========================================================
   // BAJA
   // AQUÍ CONTINÚA TU CÓDIGO QUE YA TENÍAS
   // ==========================================================
@@ -33491,27 +33782,37 @@ async function _t_crearTicket() {
     target_employee_id:
       hierarchyData?.target_employee_id ||
       queueData?.target_employee_id ||
+      scheduleData?.target_employee_id ||
+      dayOffData?.target_employee_id ||
       terminationData?.target_employee_id ||
       relatedEmployeeId ||
       null,
     target_date:
       hierarchyData?.effective_date ||
+      scheduleData?.effective_date ||
+      dayOffData?.effective_date ||
       terminationData?.termination_date ||
       null,
     priority: 'normal',
     status: 'pending',
-    sla_hours: (esJerarquia || esQueue) ? 24 : 48,
+    sla_hours: (esJerarquia || esQueue || esHorarioPermanente || esDescansoPermanente) ? 24 : 48,
     due_at: null, // Supabase calcula el SLA hábil según la cola del ticket.
     workforce_payload:
       hierarchyData ||
       queueData ||
+      scheduleData ||
+      dayOffData ||
       null,
     source_request_type:
       esJerarquia
         ? 'supervisor_change'
         : esQueue
           ? 'queue_change'
-          : null,
+          : esHorarioPermanente
+            ? 'permanent_schedule_change'
+            : esDescansoPermanente
+              ? 'permanent_day_off_change'
+              : null,
     updated_at: now
   });
 
@@ -33745,6 +34046,28 @@ document.getElementById(
       : ''
     }
 
+    ${payload.current_shift_start || payload.new_shift_start ? `
+      <div class="kv">
+        <span class="k">Horario actual</span>
+        <span class="v">${payload.current_shift_start || '—'} – ${payload.current_shift_end || '—'}</span>
+      </div>
+      <div class="kv">
+        <span class="k">Nuevo horario</span>
+        <span class="v"><strong>${payload.new_shift_start || '—'} – ${payload.new_shift_end || '—'}</strong></span>
+      </div>
+    ` : ''}
+
+    ${Array.isArray(payload.new_days_off) ? `
+      <div class="kv">
+        <span class="k">Descanso actual</span>
+        <span class="v">${_t_daysOffLabel(payload.current_days_off || [])}</span>
+      </div>
+      <div class="kv">
+        <span class="k">Nuevo descanso</span>
+        <span class="v"><strong>${_t_daysOffLabel(payload.new_days_off || [])}</strong></span>
+      </div>
+    ` : ''}
+
     <div
       style="
         margin-top:10px;
@@ -33762,7 +34085,7 @@ document.getElementById(
     <div class="modal-section" style="background:#FEF2F2;border-color:#FCA5A5">
       <div class="ms-title" style="color:#991B1B">⚠ Ticket legacy sin solicitud operativa</div>
       <div style="font-size:12px;color:#991B1B;line-height:1.55">
-        Este ticket fue creado por el formulario manual y no está vinculado a la solicitud de Asistencia. No se puede aplicar automáticamente. Cancélalo y, si el cambio sigue siendo necesario, vuelve a solicitarlo desde Asistencia.
+        Este ticket fue creado antes del nuevo flujo estructurado y no contiene la información necesaria para aplicar el cambio automáticamente. Cancélalo y vuelve a crear la solicitud desde Tickets si es permanente, o desde Asistencia si es temporal.
       </div>
     </div>
   ` : ''}
