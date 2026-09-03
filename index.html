@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION = '1.0.91';
-const APP_BUILD = '1.0.91-workforce-sla24-01';
+const APP_VERSION = '1.0.92';
+const APP_BUILD = '1.0.92-supervisor-wfm-requests-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -5779,7 +5779,9 @@ function _a_puedeSolicitarCambioDescanso() {
 }
 
 function _a_puedeAprobarCambioDescanso() {
-  return ['manager','people','head_people','ceo'].includes(currentRole);
+  // Los cambios temporales ya se procesan desde Workforce Queue en Tickets.
+  // Conservamos esta función por compatibilidad, pero ocultamos la bandeja legacy de Asistencia.
+  return false;
 }
 
 function _a_empActualDetalle() {
@@ -5884,7 +5886,7 @@ function _a_renderCambioDescansoBox() {
         <div>
           <div class="card-title" style="margin-bottom:4px">Cambios temporales</div>
           <div style="font-size:12px;color:#64748B;max-width:720px">
-            Solicita un cambio de descanso o de horario para una fecha específica. Basta con la aprobación de una persona con rol Manager, People, Head People o CEO.
+            Solicita un cambio de descanso o de horario para una fecha específica. La solicitud se enviará automáticamente a Workforce Queue para revisión y aplicación.
           </div>
         </div>
 
@@ -5899,6 +5901,69 @@ function _a_renderCambioDescansoBox() {
       </div>
     </div>
   `;
+}
+
+function _a_renderSupervisorWfmRequestBox() {
+  if (String(currentRole || '').toLowerCase() !== 'supervisor') return '';
+
+  const equipo = (Array.isArray(_a_TEAM) ? _a_TEAM : [])
+    .filter(e => e && e.id)
+    .slice()
+    .sort((a, b) => String(a.name || a.full_name || '').localeCompare(String(b.name || b.full_name || ''), 'es'));
+
+  if (!equipo.length) return '';
+
+  return `
+    <div class="card" style="border-color:#A5F3FC;background:#F8FEFF">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+        <div style="min-width:240px;flex:1">
+          <div class="card-title" style="margin-bottom:4px">⚙ Solicitudes a Workforce</div>
+          <div style="font-size:12px;color:#64748B;line-height:1.5;max-width:720px">
+            Selecciona a un colaborador de tu equipo y solicita un cambio temporal de horario o descanso.
+            La solicitud llegará automáticamente a <strong>Workforce Queue</strong> con SLA de <strong>24 horas hábiles</strong>.
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:min(100%,520px)">
+          <select
+            id="a-supervisor-wfm-employee"
+            style="min-width:250px;flex:1;border:1px solid #BAE6FD;border-radius:8px;padding:9px 11px;font-size:12px;font-family:var(--f);background:#fff;color:#0F172A"
+          >
+            <option value="">Selecciona un colaborador...</option>
+            ${equipo.map(e => `
+              <option value="${e.id}">${e.name || e.full_name || e.id}${e.camp || e.campaign_id ? ' · ' + (e.camp || e.campaign_id) : ''}</option>
+            `).join('')}
+          </select>
+
+          <button class="btn-primary" onclick="_a_openSupervisorWfmRequest('schedule')">
+            🕒 Cambio de horario
+          </button>
+
+          <button class="btn-cyan" onclick="_a_openSupervisorWfmRequest('day_off')">
+            🛌 Cambio de descanso
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function _a_openSupervisorWfmRequest(kind) {
+  const empId = document.getElementById('a-supervisor-wfm-employee')?.value;
+
+  if (!empId) {
+    alert('Selecciona primero al colaborador de tu equipo.');
+    return;
+  }
+
+  if (kind === 'schedule') {
+    _a_abrirCambioHorario(empId);
+    return;
+  }
+
+  if (kind === 'day_off') {
+    _a_abrirCambioDescanso(empId);
+  }
 }
 
 function _a_abrirCambioHorario(empId) {
@@ -5999,7 +6064,7 @@ function _a_actualizarResumenCambioHorario() {
       <div style="font-size:12px;color:#334155;line-height:1.7">
         <div>✅ Fecha: <b>${_a_fechaLabel(fecha)}</b></div>
         <div>✅ Horario temporal: <b>${entrada} – ${salida}</b></div>
-        <div>⏳ Basta con una aprobación de Manager, People, Head People o CEO.</div>
+        <div>⏳ Workforce revisará la solicitud desde Tickets. Head of People queda como respaldo.</div>
       </div>
     </div>
   `;
@@ -6036,7 +6101,7 @@ async function _a_solicitarCambioHorario(empId) {
   await _a_cargarDatos();
   _a_cargando = false;
   _a_render();
-  alert('Solicitud enviada. Basta con la aprobación de Manager, People, Head People o CEO.');
+  alert('Solicitud enviada a Workforce Queue. El SLA de WFM es de 24 horas hábiles.');
 }
 
 async function _a_cargarCambiosHorario() {
@@ -6115,7 +6180,7 @@ function _a_abrirCambioDescanso(empId) {
   const descansos = emp?.daysOff || emp?.days_off || [];
 
   document.getElementById('modalTitle').textContent = '🔄 Cambio temporal de descanso';
-  document.getElementById('modalSub').textContent = 'Basta con una aprobación de Manager, People, Head People o CEO';
+  document.getElementById('modalSub').textContent = 'La solicitud será revisada por Workforce desde Tickets';
 
   document.getElementById('modalBody').innerHTML = `
     <div class="alert alert-blue">
@@ -6213,7 +6278,7 @@ function _a_actualizarResumenCambioDescanso() {
         <div>✅ Semana aplicable: <b>${_a_fechaLabel(inicioSemana)} al ${_a_fechaLabel(finSemana)}</b></div>
         <div>✅ Trabajará su descanso original: <b>${_a_fechaLabel(originalDate)}</b></div>
         <div>✅ Descansará temporalmente: <b>${_a_fechaLabel(newDate)}</b></div>
-        <div>⏳ Basta con una aprobación de Manager, People, Head People o CEO.</div>
+        <div>⏳ Workforce revisará la solicitud desde Tickets. Head of People queda como respaldo.</div>
       </div>
     </div>
   `;
@@ -6275,7 +6340,7 @@ if (!_a_mismaSemanaLunesDomingo(originalDate, newDate)) {
   _a_cargando = false;
   _a_render();
 
-  alert('Solicitud enviada. Basta con una aprobación de Manager, People, Head People o CEO.');
+  alert('Solicitud enviada a Workforce Queue. El SLA de WFM es de 24 horas hábiles.');
 }
 
 function _a_renderCambiosDescansoPendientes() {
@@ -6333,7 +6398,7 @@ function _a_renderCambiosDescansoPendientes() {
     <div class="card">
       <div class="card-title">Cambios temporales pendientes</div>
       <div class="alert alert-amber">
-        Una sola aprobación de Manager, People, Head People o CEO aplica el cambio. No se requiere una cadena de aprobaciones.
+        Estas solicitudes se procesan desde Workforce Queue en Tickets. Esta bandeja legacy de Asistencia ya no se utiliza.
       </div>
       <div class="tbl-wrap">
         <div style="overflow-x:auto">
@@ -16585,6 +16650,7 @@ function _a_renderSupervisor(){
   </div>
 
   <div class="readonly-notice">👁️ <span>Las siguientes secciones son de tu equipo — <strong>solo lectura.</strong> No puedes marcar entrada/salida por un agente.</span></div>
+  ${_a_renderSupervisorWfmRequestBox()}
   ${_a_dateFilterHTML()}
   ${_a_renderCambiosDescansoPendientes()}
 
