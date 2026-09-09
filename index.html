@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION = '1.0.93';
-const APP_BUILD = '1.0.93-workforce-permanent-changes-01';
+const APP_VERSION = '1.0.94';
+const APP_BUILD = '1.0.94-people-actions-sanction-preview-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -42848,12 +42848,15 @@ function _d_followupById(id) {
   );
 }
 
+function _d_followupMatchingMatrices(t) {
+  return (_d_MATRIX || []).filter(m =>
+    m.is_active !== false &&
+    _d_attendanceLinkType(m) === t.incident_type
+  );
+}
+
 function _d_followupMatrixOptions(t) {
-  return (_d_MATRIX || [])
-    .filter(m =>
-      m.is_active !== false &&
-      _d_attendanceLinkType(m) === t.incident_type
-    )
+  return _d_followupMatchingMatrices(t)
     .map(m => `
       <option value="${_d_esc(m.id)}">
         #${_d_esc(m.matrix_no)} ·
@@ -42862,6 +42865,221 @@ function _d_followupMatrixOptions(t) {
       </option>
     `)
     .join('');
+}
+
+function _d_followupLevelRank(level) {
+  const normalized = _d_normalizeLevel(level);
+  const ranks = {
+    feedback: 0,
+    verbal: 1,
+    first_written: 2,
+    second_written: 3,
+    last_warning: 4,
+    termination: 5
+  };
+
+  return Object.prototype.hasOwnProperty.call(ranks, normalized)
+    ? ranks[normalized]
+    : -1;
+}
+
+function _d_followupNextLevel(level) {
+  const normalized = _d_normalizeLevel(level);
+
+  const next = {
+    feedback: 'verbal',
+    verbal: 'first_written',
+    first_written: 'second_written',
+    second_written: 'last_warning',
+    last_warning: 'termination',
+    termination: 'termination'
+  };
+
+  return next[normalized] || 'verbal';
+}
+
+function _d_followupSanctionPreview(t, matrixId) {
+  const matrix = (_d_MATRIX || []).find(
+    m => String(m.id) === String(matrixId || '')
+  );
+
+  if (!t || !matrix) {
+    return null;
+  }
+
+  const incidentDate = String(t.incident_date || '').slice(0, 10);
+  const defaultLevel = _d_normalizeLevel(matrix.default_level);
+
+  const previousCases = (_d_CASES || [])
+    .filter(c =>
+      String(c.employee_id || '') === String(t.employee_id || '') &&
+      String(c.matrix_id || '') === String(matrix.id || '') &&
+      String(c.status || '').toLowerCase() === 'approved' &&
+      Boolean(c.active_until) &&
+      String(c.active_until).slice(0, 10) >= incidentDate
+    )
+    .sort((a, b) => {
+      const aIssued = String(a.issued_at || '');
+      const bIssued = String(b.issued_at || '');
+
+      if (aIssued && bIssued && aIssued !== bIssued) {
+        return bIssued.localeCompare(aIssued);
+      }
+
+      if (aIssued && !bIssued) return -1;
+      if (!aIssued && bIssued) return 1;
+
+      return String(b.created_at || '').localeCompare(
+        String(a.created_at || '')
+      );
+    });
+
+  const previousCase = previousCases[0] || null;
+
+  let level = defaultLevel;
+
+  if (previousCase) {
+    level = _d_followupNextLevel(
+      previousCase.issued_level || previousCase.recommended_level
+    );
+  }
+
+  if (
+    _d_followupLevelRank(level) <
+    _d_followupLevelRank(defaultLevel)
+  ) {
+    level = defaultLevel;
+  }
+
+  return {
+    matrix,
+    level,
+    defaultLevel,
+    previousCase,
+    escalated: Boolean(previousCase)
+  };
+}
+
+function _d_followupSanctionPreviewHTML(t, matrixId) {
+  const preview = _d_followupSanctionPreview(t, matrixId);
+
+  if (!preview) {
+    return `
+      <div
+        class="alert alert-amber"
+        style="font-size:12px;line-height:1.5"
+      >
+        No fue posible calcular la sanción antes de confirmar.
+      </div>
+    `;
+  }
+
+  const previousLevel = preview.previousCase
+    ? _d_normalizeLevel(
+        preview.previousCase.issued_level ||
+        preview.previousCase.recommended_level
+      )
+    : null;
+
+  const durationText =
+    preview.matrix.sanction_duration_text ||
+    preview.matrix.duration_text ||
+    (
+      preview.matrix.sanction_duration_days != null
+        ? `${preview.matrix.sanction_duration_days} días`
+        : preview.matrix.duration_days != null
+          ? `${preview.matrix.duration_days} días`
+          : null
+    );
+
+  return `
+    <div
+      style="
+        margin:-2px 0 14px;
+        border:1px solid ${
+          preview.level === 'termination' ? '#FCA5A5' : '#BFDBFE'
+        };
+        background:${
+          preview.level === 'termination' ? '#FEF2F2' : '#EFF6FF'
+        };
+        border-radius:12px;
+        padding:12px 14px;
+      "
+    >
+      <div
+        style="
+          font-size:10px;
+          font-weight:900;
+          letter-spacing:.6px;
+          text-transform:uppercase;
+          color:#64748B;
+          margin-bottom:7px;
+        "
+      >
+        Sanción que emitirá Impulse
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${_d_levelBadge(preview.level)}
+        ${
+          durationText && preview.level !== 'termination'
+            ? `<span style="font-size:11px;color:#64748B">Vigencia: ${_d_esc(durationText)}</span>`
+            : ''
+        }
+      </div>
+
+      <div
+        style="
+          font-size:11px;
+          color:#475569;
+          line-height:1.5;
+          margin-top:8px;
+        "
+      >
+        ${
+          preview.previousCase
+            ? `Escala por reincidencia: existe una ${_d_esc(
+                _d_levelLabel(previousLevel)
+              )} vigente hasta ${_d_esc(
+                String(preview.previousCase.active_until || '').slice(0, 10)
+              )}.`
+            : `No hay una acción vigente de este mismo criterio; se aplicará el nivel base de la matriz.`
+        }
+      </div>
+
+      ${
+        preview.level === 'termination'
+          ? `
+            <div
+              style="
+                margin-top:8px;
+                font-size:11px;
+                font-weight:800;
+                color:#991B1B;
+              "
+            >
+              Esto genera una recomendación de baja; no da de baja al colaborador automáticamente.
+            </div>
+          `
+          : ''
+      }
+    </div>
+  `;
+}
+
+function _d_updateFollowupSanctionPreview(id) {
+  const container = document.getElementById(
+    'd-followup-sanction-preview'
+  );
+
+  if (!container) return;
+
+  const t = _d_followupById(id);
+  const matrixId =
+    document.getElementById('d-followup-matrix')?.value || '';
+
+  container.innerHTML =
+    _d_followupSanctionPreviewHTML(t, matrixId);
 }
 
 function _d_openFollowupCase(id) {
@@ -42900,7 +43118,9 @@ function _d_openFollowupCase(id) {
   }
 
   const days = _d_followupDays(t);
+  const matchingMatrices = _d_followupMatchingMatrices(t);
   const options = _d_followupMatrixOptions(t);
+  const initialMatrixId = matchingMatrices[0]?.id || '';
 
   if (!options) {
     alert(
@@ -42969,10 +43189,19 @@ function _d_openFollowupCase(id) {
 
     <div class="form-row">
       <label>2. ${_d_esc(guidance.matrixLabel)}</label>
-      <select id="d-followup-matrix">
+      <select
+        id="d-followup-matrix"
+        onchange="_d_updateFollowupSanctionPreview('${_d_esc(t.id)}')"
+      >
         ${options}
       </select>
     </div>
+
+    ${currentRole === 'supervisor' ? `
+      <div id="d-followup-sanction-preview">
+        ${_d_followupSanctionPreviewHTML(t, initialMatrixId)}
+      </div>
+    ` : ''}
 
     <div class="form-row">
       <label>3. ${_d_esc(guidance.factsLabel)}</label>
@@ -50225,6 +50454,7 @@ window._init_organigrama = async function(){
 </script>
 
 <!-- IMPULSE PEOPLE ACTIONS POLICY v1.0.80: MATRIX_AUTO_ISSUE -->
+<!-- IMPULSE PEOPLE ACTIONS SANCTION PREVIEW v1.0.94 -->
 <!-- IMPULSE ROSTER OPERATIVO v1.0.84 · MODERN UI + FREE TEXT LICENSE -->
 <script>
 (() => {
