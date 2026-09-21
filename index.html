@@ -3521,8 +3521,8 @@ const _AUTH_SB_URL = 'https://kpuqabxmpavxgbzxzlng.supabase.co';
 const _AUTH_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwdXFhYnhtcGF2eGdienh6bG5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ2OTk1NzAsImV4cCI6MjA4MDI3NTU3MH0.CoB4NA6Z8qtTrRzvIqfP-hm3T1m24WpRNI1Xc74all8';
 const _auth_sb = supabase.createClient(_AUTH_SB_URL, _AUTH_SB_KEY);
 
-const APP_VERSION = '1.0.94';
-const APP_BUILD = '1.0.94-people-actions-sanction-preview-01';
+const APP_VERSION = '1.0.95';
+const APP_BUILD = '1.0.95-attendance-audit-inactive-employees-01';
 const SESSION_MAX   = 3 * 60 * 60 * 1000;
 const IDLE_MAX      = 30 * 60 * 1000;
 const VERSION_CHECK = 5 * 60 * 1000;
@@ -25771,10 +25771,34 @@ async function _dd_loadOperationalData(
     }
   }
 
-  const directoryRows=curBundle.employees||[];
+  // v1.0.95: la auditoría histórica también debe conservar a personas ya dadas de baja.
+  // Unimos el directorio del periodo actual y del comparativo para no perder a
+  // quien terminó antes del periodo actual pero sí tuvo asistencia en el histórico.
+  const directoryRows=[
+    ...new Map(
+      [
+        ...(curBundle.employees||[]),
+        ...(prevBundle.employees||[])
+      ]
+        .filter(e=>e?.id)
+        .map(e=>[String(e.id||'').trim().toUpperCase(),e])
+    ).values()
+  ];
   const activeDirectoryRows=directoryRows.filter(e=>_dd_norm(e.status)==='active');
+  const auditEmployeeIds=new Set(
+    [
+      ...(curBundle.attendance||[]),
+      ...(prevBundle.attendance||[])
+    ]
+      .map(r=>String(r?.employee_id||'').trim().toUpperCase())
+      .filter(Boolean)
+  );
+  const auditDirectoryRows=directoryRows.filter(e=>
+    _dd_norm(e.status)==='active' ||
+    auditEmployeeIds.has(String(e.id||'').trim().toUpperCase())
+  );
   const employeeById=new Map(directoryRows.map(e=>[String(e.id||'').trim().toUpperCase(),e]));
-  const attendanceUniverse=_dd4_buildAttendanceUniverse(activeDirectoryRows);
+  const attendanceUniverse=_dd4_buildAttendanceUniverse(auditDirectoryRows);
   const prepare=(bundle)=>{
     const marked=_dd_markLateJustifications(bundle.attendance||[],bundle.exceptions||[]).filter(r=>_dd4_includeAttendanceRow(r,employeeById));
     const dedupe=_dd4_dedupeAttendance(marked);
@@ -26307,9 +26331,31 @@ async function _dd_loadData(){
     }
   });
 
+  // v1.0.95: para Auditoría incluimos también bajas que tengan filas
+  // reales dentro del rango consultado. El HC activo sigue usando
+  // activeDirectoryRows por separado.
+  const auditEmployeeIds=new Set(
+    [
+      ...(currentAudit.data||[]),
+      ...(previousAudit.data||[]),
+      ...(historyCur?.data||[]),
+      ...(historyPrev?.data||[])
+    ]
+      .map(row=>String(row?.employee_id||'').trim().toUpperCase())
+      .filter(Boolean)
+  );
+
+  const auditDirectoryRows=
+    directoryRows.filter(employee=>
+      _dd_norm(employee.status)==='active' ||
+      auditEmployeeIds.has(
+        String(employee.id||'').trim().toUpperCase()
+      )
+    );
+
   const attendanceUniverse=
     _dd4_buildAttendanceUniverse(
-      activeDirectoryRows
+      auditDirectoryRows
     );
 
   const currentRaw=
@@ -50455,6 +50501,7 @@ window._init_organigrama = async function(){
 
 <!-- IMPULSE PEOPLE ACTIONS POLICY v1.0.80: MATRIX_AUTO_ISSUE -->
 <!-- IMPULSE PEOPLE ACTIONS SANCTION PREVIEW v1.0.94 -->
+<!-- IMPULSE AUDITORIA HISTORICA DE BAJAS v1.0.95 -->
 <!-- IMPULSE ROSTER OPERATIVO v1.0.84 · MODERN UI + FREE TEXT LICENSE -->
 <script>
 (() => {
