@@ -13595,7 +13595,10 @@ let _a_AUDIT_LOADING = false;
 let _a_AUDIT_FILTERS = {
   from: ymd(new Date(new Date().setDate(new Date().getDate() - 6))),
   to: ymd(new Date()),
-  status: 'all',
+  employeeStatuses: ['active'],
+  attendanceStatuses: [],
+  exceptionTypes: [],
+  exceptionStatuses: [],
   campaign: 'all',
   supervisor: 'all',
   search: ''
@@ -13637,7 +13640,7 @@ async function _a_loadAuditoria() {
       followupResult,
       casesResult
     ] = await Promise.all([
-      _a_sb.rpc('attendance_audit_range', {
+      _a_sb.rpc('attendance_audit_range_v2', {
         p_from: _a_AUDIT_FILTERS.from,
         p_to: _a_AUDIT_FILTERS.to
       }),
@@ -14280,6 +14283,72 @@ function _a_setAuditFilter(k, v) {
   _a_render();
 }
 
+function _a_toggleAuditFilter(group, value, checked) {
+  const current = Array.isArray(_a_AUDIT_FILTERS[group])
+    ? [..._a_AUDIT_FILTERS[group]]
+    : [];
+
+  if (checked && !current.includes(value)) current.push(value);
+  if (!checked) {
+    const index = current.indexOf(value);
+    if (index >= 0) current.splice(index, 1);
+  }
+
+  _a_AUDIT_FILTERS[group] = current;
+  _a_refreshAuditUI();
+}
+
+function _a_setAuditPreset(preset) {
+  const allAttendance = [
+    'completo', 'sin_entrada', 'sin_salida', 'sin_entrada_salida',
+    'retardo', 'tolerancia', 'descanso', 'sin_horario'
+  ];
+  const allExceptions = [
+    'falta_injustificada', 'falta_justificada', 'incapacidad',
+    'permiso', 'retardo_justificado', 'vacaciones', 'correccion_horario',
+    'permuta_descanso', 'permuta_trabajo', 'permuta_horario'
+  ];
+
+  _a_AUDIT_FILTERS.employeeStatuses = [];
+  _a_AUDIT_FILTERS.attendanceStatuses = [];
+  _a_AUDIT_FILTERS.exceptionTypes = [];
+  _a_AUDIT_FILTERS.exceptionStatuses = [];
+
+  if (preset === 'pendientes') {
+    _a_AUDIT_FILTERS.attendanceStatuses = [
+      'sin_entrada', 'sin_salida', 'sin_entrada_salida', 'retardo'
+    ];
+  } else if (preset === 'injustificadas') {
+    _a_AUDIT_FILTERS.exceptionTypes = ['falta_injustificada'];
+  } else if (preset === 'justificadas') {
+    _a_AUDIT_FILTERS.exceptionTypes = [
+      'falta_justificada', 'retardo_justificado', 'permiso', 'incapacidad', 'vacaciones'
+    ];
+  } else if (preset === 'aprobadas') {
+    _a_AUDIT_FILTERS.exceptionStatuses = ['approved'];
+  } else if (preset === 'bajas') {
+    _a_AUDIT_FILTERS.employeeStatuses = ['inactive'];
+  } else if (preset === 'todo') {
+    // Arrays vacíos significan "sin filtro" y muestran todos los registros.
+  }
+
+  _a_refreshAuditUI();
+  _a_renderAuditFilterState();
+}
+
+function _a_auditHasAny(values, candidate) {
+  return !values.length || values.includes(String(candidate || '').toLowerCase());
+}
+
+function _a_renderAuditFilterState() {
+  document.querySelectorAll('[data-audit-filter-group]').forEach(input => {
+    const group = input.dataset.auditFilterGroup;
+    const value = input.value;
+    input.checked = Array.isArray(_a_AUDIT_FILTERS[group])
+      && _a_AUDIT_FILTERS[group].includes(value);
+  });
+}
+
 function _a_auditCampaigns() {
   return [...new Set((_a_AUDIT_ROWS || []).map(r => r.campaign_id).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b));
@@ -14303,7 +14372,22 @@ function _a_auditFilteredRows() {
   const q = String(f.search || '').trim().toLowerCase();
 
   return (_a_AUDIT_ROWS || []).filter(r => {
-    if (f.status !== 'all' && r.audit_status !== f.status) return false;
+    if (!_a_auditHasAny(f.employeeStatuses, r.employee_status)) return false;
+    if (!_a_auditHasAny(f.attendanceStatuses, r.audit_status)) return false;
+    if (f.exceptionTypes.length) {
+      const exceptionValues = String(r.result_code || '')
+        .split(',')
+        .map(v => v.trim().toLowerCase())
+        .filter(Boolean);
+      if (!f.exceptionTypes.some(v => exceptionValues.includes(v))) return false;
+    }
+    if (f.exceptionStatuses.length) {
+      const statusValues = String(r.exception_status || '')
+        .split(',')
+        .map(v => v.trim().toLowerCase())
+        .filter(Boolean);
+      if (!f.exceptionStatuses.some(v => statusValues.includes(v))) return false;
+    }
     if (f.campaign !== 'all' && r.campaign_id !== f.campaign) return false;
     if (f.supervisor !== 'all' && r.supervisor_id !== f.supervisor) return false;
 
@@ -14514,7 +14598,10 @@ function _a_exportAuditoriaCSV() {
     'Fecha',
     'Employee ID',
     'Nombre',
+    'Estado laboral',
     'Campaña',
+    'LOB',
+    'Queue',
     'Supervisor',
     'Horario',
     'Entrada',
@@ -14522,6 +14609,9 @@ function _a_exportAuditoriaCSV() {
     'Minutos tarde',
     'Horas trabajadas',
     'Estado',
+    'Resultado',
+    'Tipo de excepción',
+    'Estado de excepción',
     'Pendiente'
   ];
 
@@ -14529,7 +14619,10 @@ function _a_exportAuditoriaCSV() {
     r.work_date,
     r.employee_id,
     r.employee_name,
+    r.employee_status === 'inactive' ? 'Baja' : 'Activo',
     r.campaign_id || '',
+    r.lob || '',
+    r.queue || '',
     r.supervisor_name || '',
     `${_a_fmtAuditTime(r.shift_start)}-${_a_fmtAuditTime(r.shift_end)}`,
     _a_fmtAuditTime(r.time_in, r, 'entry'),
@@ -14537,6 +14630,9 @@ function _a_exportAuditoriaCSV() {
     r.minutes_late || 0,
     _a_auditWorkedHours(r),
     r.audit_status || '',
+    r.result_code || '',
+    r.exception_type || '',
+    r.exception_status || '',
     r.pending_issue || ''
   ]);
 
@@ -14723,6 +14819,13 @@ function _a_auditTableRowsHTML(rows) {
         </td>
 
         <td>
+          <span class="pill ${r.employee_status === 'inactive' ? 'pill-gray' : 'pill-green'}">
+            <span class="dot"></span>
+            ${r.employee_status === 'inactive' ? 'Baja' : 'Activo'}
+          </span>
+        </td>
+
+        <td>
           ${r.campaign_id || '—'}
         </td>
 
@@ -14841,7 +14944,7 @@ function _a_refreshAuditUI() {
   if (tableBody) {
     tableBody.innerHTML = _a_auditTableRowsHTML(rows) || `
       <tr>
-        <td colspan="16" style="text-align:center;color:#94A3B8;padding:28px">
+        <td colspan="17" style="text-align:center;color:#94A3B8;padding:28px">
           Sin resultados con los filtros actuales.
         </td>
       </tr>
@@ -14861,19 +14964,47 @@ function _a_renderAuditoria() {
   const campaigns = _a_auditCampaigns();
   const supervisors = _a_auditSupervisors();
 
-  const statusOpts = [
-    ['all', 'Todos'],
+  const attendanceOpts = [
+    ['completo', 'Completa'],
     ['sin_entrada', 'Sin entrada'],
     ['sin_salida', 'Sin salida'],
+    ['sin_entrada_salida', 'Sin entrada y salida'],
     ['retardo', 'Retardo'],
-    ['falta_injustificada', 'Falta injustificada'],
-    ['completo', 'Completo'],
-    ['permiso', 'Permiso'],
-    ['incapacidad', 'Incapacidad'],
-    ['vacaciones', 'Vacaciones'],
+    ['tolerancia', 'Tolerancia'],
     ['descanso', 'Descanso'],
     ['sin_horario', 'Sin horario']
   ];
+  const exceptionOpts = [
+    ['falta_injustificada', 'Falta injustificada'],
+    ['falta_justificada', 'Falta justificada'],
+    ['incapacidad', 'Incapacidad'],
+    ['permiso', 'Permiso'],
+    ['retardo_justificado', 'Retardo justificado'],
+    ['vacaciones', 'Vacaciones'],
+    ['correccion_horario', 'Corrección de horario'],
+    ['permuta_descanso', 'Permuta de descanso'],
+    ['permuta_trabajo', 'Permuta de trabajo'],
+    ['permuta_horario', 'Permuta de horario']
+  ];
+  const exceptionStatusOpts = [
+    ['pending', 'Pendiente'],
+    ['approved', 'Aprobada'],
+    ['rejected', 'Rechazada'],
+    ['cancelled', 'Cancelada']
+  ];
+
+  const auditCheckboxes = (group, options) => options.map(([value, label]) => `
+    <label style="display:inline-flex;align-items:center;gap:6px;margin:3px 10px 3px 0;font-size:11px;color:#334155;cursor:pointer">
+      <input
+        type="checkbox"
+        value="${value}"
+        data-audit-filter-group="${group}"
+        ${_a_AUDIT_FILTERS[group].includes(value) ? 'checked' : ''}
+        onchange="_a_toggleAuditFilter('${group}', this.value, this.checked)"
+      >
+      ${label}
+    </label>
+  `).join('');
 
   return `
     <div style="max-width:1280px;margin:0 auto">
@@ -14898,9 +15029,30 @@ function _a_renderAuditoria() {
 
         <div class="df-sep">|</div>
 
-        <select class="df-input" onchange="_a_setAuditFilter('status', this.value)">
-          ${statusOpts.map(([v, l]) => `<option value="${v}" ${_a_AUDIT_FILTERS.status === v ? 'selected' : ''}>${l}</option>`).join('')}
-        </select>
+        <div style="width:100%;margin-top:10px;padding:10px 12px;border:1px solid #E2E8F0;border-radius:10px;background:#F8FAFC">
+          <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:5px">
+            <strong style="font-size:11px;color:#475569;margin-right:4px">Vistas rápidas:</strong>
+            <button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="_a_setAuditPreset('pendientes')">Solo pendientes</button>
+            <button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="_a_setAuditPreset('injustificadas')">Faltas injustificadas</button>
+            <button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="_a_setAuditPreset('justificadas')">Justificadas</button>
+            <button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="_a_setAuditPreset('aprobadas')">Aprobadas</button>
+            <button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="_a_setAuditPreset('bajas')">Bajas</button>
+            <button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="_a_setAuditPreset('todo')">Ver todo</button>
+            <button class="btn-ghost" style="padding:4px 8px;font-size:11px" onclick="_a_setAuditPreset('limpiar')">Limpiar</button>
+          </div>
+          <div style="margin-top:6px"><strong style="font-size:11px;color:#475569">Estado laboral:</strong><br>
+            ${auditCheckboxes('employeeStatuses', [['active','Activos'],['inactive','Bajas']])}
+          </div>
+          <div style="margin-top:4px"><strong style="font-size:11px;color:#475569">Resultado de asistencia:</strong><br>
+            ${auditCheckboxes('attendanceStatuses', attendanceOpts)}
+          </div>
+          <div style="margin-top:4px"><strong style="font-size:11px;color:#475569">Tipo de excepción:</strong><br>
+            ${auditCheckboxes('exceptionTypes', exceptionOpts)}
+          </div>
+          <div style="margin-top:4px"><strong style="font-size:11px;color:#475569">Estado de excepción:</strong><br>
+            ${auditCheckboxes('exceptionStatuses', exceptionStatusOpts)}
+          </div>
+        </div>
 
         <select class="df-input" onchange="_a_setAuditFilter('campaign', this.value)">
           <option value="all">Todas las campañas</option>
@@ -14951,6 +15103,7 @@ function _a_renderAuditoria() {
   <tr>
     <th>Fecha</th>
     <th>Empleado</th>
+    <th>Estado laboral</th>
     <th>Campaña</th>
     <th>Supervisor</th>
     <th>Horario</th>
@@ -14973,7 +15126,7 @@ function _a_renderAuditoria() {
                 <tbody id="auditTableBody">
                   ${_a_auditTableRowsHTML(rows) || `
                     <tr>
-                      <td colspan="16" style="text-align:center;color:#94A3B8;padding:28px">
+                      <td colspan="17" style="text-align:center;color:#94A3B8;padding:28px">
                         Sin resultados con los filtros actuales.
                       </td>
                     </tr>
@@ -21282,8 +21435,8 @@ async function _dd_loadData() {
   const prevTo = _dd_FILTERS.prevTo;
 
   const [attCur, attPrev, ticketsCur, ticketsPrev, actionsCur, actionsPrev, excCur, excPrev, historyCur, historyPrev, activeEmployees] = await Promise.all([
-    _a_sb.rpc('attendance_audit_range', { p_from: from, p_to: to }),
-    _a_sb.rpc('attendance_audit_range', { p_from: prevFrom, p_to: prevTo }),
+    _a_sb.rpc('attendance_audit_range_v2', { p_from: from, p_to: to }),
+    _a_sb.rpc('attendance_audit_range_v2', { p_from: prevFrom, p_to: prevTo }),
 
     _a_sb.from('hr_tickets')
       .select('*')
@@ -25883,7 +26036,7 @@ async function _dd4_fetchAuditRange(
 
     try{
       const response=await _a_sb.rpc(
-        'attendance_audit_range',
+        'attendance_audit_range_v2',
         {
           p_from:from,
           p_to:to
