@@ -47274,7 +47274,7 @@ function _e_procesarBulkCSV(event) {
       if (!row.position_title) errs.push('Falta puesto');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(row.hire_date || '')) errs.push('Fecha de ingreso inválida');
       if (!['agent','supervisor','manager','people','head_people','ceo','workforce'].includes(row.system_role)) errs.push('Rol inválido');
-      if (!['aplazo','stori','iforex','casap','cashmind','clivi','admin','liderazgo','naya','sanarai','expx','nido','sueno_americano'].includes(row.campaign_id)) errs.push('Campaña inválida');
+      if (!['aplazo','stori','iforex','casap','cashmind','clivi','admin','liderazgo','naya','sanarai','expx','nido','sueno_americano','totalpass'].includes(row.campaign_id)) errs.push('Campaña inválida');
       if (row.personal_email && !/^\S+@\S+\.\S+$/.test(row.personal_email)) errs.push('Correo personal inválido');
       if (row.shift_start && !/^([01]\d|2[0-3]):[0-5]\d$/.test(row.shift_start)) errs.push('Hora de entrada inválida');
       if (row.shift_end && !/^([01]\d|2[0-3]):[0-5]\d$/.test(row.shift_end)) errs.push('Hora de salida inválida');
@@ -47630,7 +47630,7 @@ async function _e_abrirEditar(empId) {
       <div class="modal-section">
         <label class="modal-label">CAMPAÑA PRINCIPAL</label>
         <select id="edit-campana" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)">
-          ${['aplazo','stori','iforex','casap','cashmind','clivi','admin','liderazgo','naya','sanarai','expx','nido','sueno_americano'].map(c=>`<option value="${c}" ${e.campaign_id===c?'selected':''}>${c}</option>`).join('')}
+          ${['aplazo','stori','iforex','casap','cashmind','clivi','admin','liderazgo','naya','sanarai','expx','nido','sueno_americano','totalpass'].map(c=>`<option value="${c}" ${e.campaign_id===c?'selected':''}>${c}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -47638,7 +47638,7 @@ async function _e_abrirEditar(empId) {
       <label class="modal-label">CAMPAÑA SECUNDARIA</label>
       <select id="edit-campana-sec" ${!e.secondary_campaign?'disabled':''} style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f);${!e.secondary_campaign?'background:#F8FAFC;color:#94A3B8':''}">
         <option value="">Ninguna</option>
-        ${['aplazo','stori','iforex','casap','cashmind','clivi','admin','liderazgo','naya','sanarai','expx','nido','sueno_americano'].map(c=>`<option value="${c}" ${e.secondary_campaign===c?'selected':''}>${c}</option>`).join('')}
+        ${['aplazo','stori','iforex','casap','cashmind','clivi','admin','liderazgo','naya','sanarai','expx','nido','sueno_americano','totalpass'].map(c=>`<option value="${c}" ${e.secondary_campaign===c?'selected':''}>${c}</option>`).join('')}
       </select>
       <div style="font-size:11px;color:#94A3B8;margin-top:4px">${!e.secondary_campaign?'Por ahora no se aceptan nuevas asignaciones de doble campaña (Asistencia no soporta 2 turnos del mismo empleado el mismo día). Si necesitas un caso nuevo, contacta soporte técnico.':'Esta persona ya tiene doble campaña asignada — puedes editarla o quitarla.'}</div>
     </div>
@@ -48014,7 +48014,7 @@ function _e_abrirAlta(reingresoId) {
     <div style="font-size:11px;font-weight:700;color:#0F172A;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid #F1F5F9">Puesto y operación</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="modal-section"><label class="modal-label">ROL EN IMPULSE *</label><select id="alta-rol" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"><option value="agent">Agente</option><option value="supervisor">Supervisor</option><option value="manager">Manager</option><option value="workforce">Workforce</option><option value="people">People</option><option value="head_people">Head of People</option><option value="ceo">CEO</option></select></div>
-      <div class="modal-section"><label class="modal-label">CAMPAÑA *</label><select id="alta-campana" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"><option value="aplazo">Aplazo</option><option value="stori">Stori</option><option value="iforex">iForex</option><option value="casap">Casap</option><option value="cashmind">Cashmind</option><option value="clivi">Clivi</option><option value="admin">Admin</option><option value="liderazgo">Liderazgo</option><option value="naya">Naya</option><option value="sanarai">Sanarai</option><option value="expx">ExpX</option><option value="nido">Nido</option><option value="sueno_americano">Sueño Americano</option></select></div>
+      <div class="modal-section"><label class="modal-label">CAMPAÑA *</label><select id="alta-campana" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"><option value="aplazo">Aplazo</option><option value="stori">Stori</option><option value="iforex">iForex</option><option value="casap">Casap</option><option value="cashmind">Cashmind</option><option value="clivi">Clivi</option><option value="admin">Admin</option><option value="liderazgo">Liderazgo</option><option value="naya">Naya</option><option value="sanarai">Sanarai</option><option value="expx">ExpX</option><option value="nido">Nido</option><option value="sueno_americano">Sueño Americano</option><option value="totalpass">TotalPass</option></select></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="modal-section"><label class="modal-label">LOB</label><input type="text" id="alta-lob" placeholder="Ej. Soporte" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div><div class="modal-section"><label class="modal-label">QUEUE</label><input type="text" id="alta-queue" placeholder="Ej. WA Pagos" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div></div>
     <div class="modal-section"><label class="modal-label">PUESTO *</label><input type="text" id="alta-puesto" placeholder="Representante de Atención a Clientes" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/></div>
