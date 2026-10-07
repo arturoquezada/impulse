@@ -52169,7 +52169,7 @@ window._roRevoke=_roRevoke;
 
 // Se monta en el panel actual de licencias/skill del Roster Operativo.
 window._dfMountRosterEditor=async function(drawer,row,reload){
-  if(!['workforce','people','head_people','ceo'].includes(currentRole))return;
+  if(!['workforce','people','head_people','ceo'].includes(String(currentRole||'').trim().toLowerCase()))return;
   const box=document.createElement('div');box.className='roster-assignment-box df-roster-editor';
   box.innerHTML='<div class="roster-section-title">Supervisor, LOB y queue</div><p>Cargando asignación…</p>';
   const grid=drawer.querySelector('.roster-op-grid');if(!grid)return;grid.after(box);
@@ -52178,6 +52178,7 @@ window._dfMountRosterEditor=async function(drawer,row,reload){
   try{
     const {data,error}=await _auth_sb.rpc('impulse_roster_assignment_options_v1',{p_employee_id:row.employee_id});
     if(error)throw error;if(!drawer.isConnected)return;
+    if(data?.ok===false)throw new Error(data.message||'No fue posible cargar los permisos del editor.');
     const e=data.employee,day=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
     if(e.status!=='active'||(e.termination_date&&e.termination_date<=day)){box.innerHTML='<p>La asignación de esta baja no se puede editar.</p>';return;}
     const seen={supervisor_id:e.supervisor_id,lob:e.lob,queue:e.queue,campaign_id:e.campaign_id};
@@ -52227,6 +52228,7 @@ window._dfMountRosterEditor=async function(drawer,row,reload){
           ...(campaignChanged?{p_campaign_id:next.campaign_id}:{}),p_seen:seen,p_reason:form.elements.reason.value.trim()
         });
         if(result.error)throw result.error;
+        if(!result.data || result.data.ok === false) throw new Error(result.data?.message || 'Supabase rechazó el cambio de asignación.');
         await reload();
         const current=document.getElementById('rosterDrawer');if(current){const notice=document.createElement('p');notice.className='df-message';notice.textContent=result.data.message;current.querySelector('.roster-drawer-body')?.prepend(notice);}
       }catch(error){err.textContent=error.message||String(error);}finally{btn.disabled=false;}
