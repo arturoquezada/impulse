@@ -6533,39 +6533,25 @@ function _a_periodChunks(items, size) {
 }
 
 async function _a_fetchPeriodSummaryDirect(employeeIds, fromDate, toDate) {
-  const rows = [];
-
-  // Respaldo conservador. Solo se usa si la RPC filtrada no existe.
-  // Lotes pequeños evitan volver a disparar una consulta masiva.
-  for (const chunk of _a_periodChunks(employeeIds, 8)) {
-    const { data, error } = await _a_sb
-      .from('attendance_daily_summary')
-      .select([
-        'employee_id',
-        'campaign_id',
-        'shift_hours',
-        'punch_date',
-        'time_in',
-        'time_out',
-        'hours_worked',
-        'attendance_status',
-        'record_status',
-        'is_absent',
-        'is_no_show',
-        'is_missing_checkout',
-        'counts_absence',
-        'counts_late',
-        'exception_type',
-        'exception_status'
-      ].join(','))
-      .gte('punch_date', fromDate)
-      .lte('punch_date', toDate)
-      .in('employee_id', chunk);
-
-    if (error) throw error;
-    rows.push(...(data || []));
+  const cleanIds = [...new Set((employeeIds || []).filter(Boolean).map(String))];
+  if (!cleanIds.length) return [];
+  if (!fromDate || !toDate || fromDate > toDate) {
+    throw new Error('Rango de fechas inválido para asistencia.');
   }
 
+  const rows = [];
+  // Sin fallback a attendance_daily_summary: evita saturación de Disk I/O.
+  for (const chunk of _a_periodChunks(cleanIds, 80)) {
+    const { data, error } = await _a_sb.rpc(
+      'get_attendance_daily_summary_filtered_v1',
+      { p_employee_ids: chunk, p_from: fromDate, p_to: toDate }
+    );
+    if (error) {
+      console.error('[Impulse Asistencia] RPC filtrada de periodo:', error);
+      throw error;
+    }
+    rows.push(...(data || []));
+  }
   return rows;
 }
 
@@ -6608,45 +6594,12 @@ async function _a_cargarKPIsPeriodo({ force = false } = {}) {
     return true;
   }
 
-  const rows = [];
-
   try {
-    let rpcFailed = false;
-
-    // La RPC conserva la salida de attendance_daily_summary, pero filtra las
-    // tablas base antes de agrupar. Ya existe en el proyecto por la prueba
-    // anterior; aquí solo se usa para leer el periodo correctamente.
-    for (const chunk of _a_periodChunks(employeeIds, 80)) {
-      const { data, error } = await _a_sb.rpc(
-        'get_attendance_daily_summary_filtered_v1',
-        {
-          p_employee_ids: chunk,
-          p_from: _a_dateFilter.from,
-          p_to: _a_dateFilter.to
-        }
-      );
-
-      if (error) {
-        rpcFailed = true;
-        console.warn(
-          '[Impulse Asistencia] RPC de periodo no disponible; usando vista por lotes.',
-          error
-        );
-        break;
-      }
-
-      rows.push(...(data || []));
-    }
-
-    let finalRows = rows;
-
-    if (rpcFailed) {
-      finalRows = await _a_fetchPeriodSummaryDirect(
-        employeeIds,
-        _a_dateFilter.from,
-        _a_dateFilter.to
-      );
-    }
+    const finalRows = await _a_fetchPeriodSummaryDirect(
+      employeeIds,
+      _a_dateFilter.from,
+      _a_dateFilter.to
+    );
 
     const teamById = new Map(
       (_a_TEAM || []).map(row => [String(row.id), row])
@@ -9534,13 +9487,10 @@ async function _a_cargarQDAYS(empId, from, to) {
       .eq('id', empId)
       .maybeSingle(),
 
-    _a_sb
-      .from('attendance_daily_summary')
-      .select('*')
-      .eq('employee_id', empId)
-      .gte('punch_date', from)
-      .lte('punch_date', to)
-      .order('punch_date'),
+    _a_sb.rpc(
+      'get_attendance_daily_summary_filtered_v1',
+      { p_employee_ids: [String(empId)], p_from: from, p_to: to }
+    ).order('punch_date', { ascending: true }),
 
     _a_sb
       .from('attendance_punches')
@@ -9620,6 +9570,11 @@ async function _a_cargarQDAYS(empId, from, to) {
       }
     )
   ]);
+
+  if (summaryRes.error) {
+    console.error('[Impulse Asistencia] No se pudo cargar el detalle filtrado:', summaryRes.error);
+    throw summaryRes.error;
+  }
 
   const daysOff = empRes.data?.days_off || [];
   const summary = summaryRes.data || [];
@@ -10606,37 +10561,25 @@ async function _a_cargarDatos(options = {}) {
     };
 
     async function _a_fetchTodaySummaries(ids) {
-      const cleanIds = [...new Set((ids || []).filter(Boolean))];
+      const cleanIds = [...new Set((ids || []).filter(Boolean).map(String))];
+      if (!cleanIds.length) return [];
       const out = [];
-
-      async function fetchSummaryChunk(chunk) {
-        const { data, error } = await _a_sb
-          .from('attendance_daily_summary')
-          .select('*')
-          .eq('punch_date', hoy)
-          .in('employee_id', chunk);
-
-        // La vista puede ser pesada para equipos grandes. Si PostgREST responde
-        // 500/timeout, dividimos el lote hasta un mínimo seguro en vez de perder
-        // toda la pantalla de Asistencia.
-        if (error && chunk.length > 8) {
-          const mid = Math.ceil(chunk.length / 2);
-          const left = await fetchSummaryChunk(chunk.slice(0, mid));
-          const right = await fetchSummaryChunk(chunk.slice(mid));
-          return [...left, ...right];
+      // Una petición por lote; no dividir ni reintentar una vista pesada.
+      for (const chunk of _a_chunks(cleanIds, 80)) {
+        const { data, error } = await _a_sb.rpc(
+          'get_attendance_daily_summary_filtered_v1',
+          { p_employee_ids: chunk, p_from: hoy, p_to: hoy }
+        );
+        if (error) {
+          console.error('[Impulse Asistencia] RPC filtrada de hoy:', error);
+          throw error;
         }
-        if (error) throw error;
-        return data || [];
+        out.push(...(data || []));
       }
-
-      for (const chunk of _a_chunks(cleanIds, 35)) {
-        out.push(...await fetchSummaryChunk(chunk));
-      }
-
       return out;
     }
 
-    async function _a_fetchTodayExceptions(ids) {
+async function _a_fetchTodayExceptions(ids) {
       const cleanIds = [...new Set((ids || []).filter(Boolean))];
       const out = [];
 
