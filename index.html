@@ -46942,7 +46942,7 @@ function _e_avatarColor(seed) {
 function _e_renderPerfil(empId) {
   const e = _e_EMPLEADOS.find(x => x.id === empId);
   if (!e) return '<div style="text-align:center;padding:40px;color:#94A3B8">Empleado no encontrado</div>';
-  const canManage = ['people','head_people'].includes(currentRole);
+  const canManage = ['people','head_people','ceo'].includes(currentRole);
   const canBaja = canManage && e.status === 'active';
   const canEditBaja = canManage && e.status === 'inactive';
   const esMiPropioPerfil = e.id === (ROLES[currentRole]||{}).id;
@@ -47506,6 +47506,28 @@ async function _e_resetearPassword(empId, nombre) {
 }
 
 
+function _impulseOrgChoices(currentCampaign, currentLob, currentQueue) {
+  const source = (typeof _e_EMPLEADOS !== 'undefined' && Array.isArray(_e_EMPLEADOS)) ? _e_EMPLEADOS : [];
+  const vals = source.map(e => ({campaign:String(e.campaign_id||'').trim(), lob:String(e.lob||'').trim(), queue:String(e.queue||'').trim()}));
+  vals.push({campaign:String(currentCampaign||''),lob:String(currentLob||''),queue:String(currentQueue||'')});
+  const baseCampaigns=['aplazo','stori','iforex','casap','cashmind','clivi','admin','liderazgo','naya','sanarai','expx','nido','sueno_americano','totalpass'];
+  const uniq=a=>[...new Set(a.filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+  const campaigns=uniq([...baseCampaigns,...vals.map(v=>v.campaign)]);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const opts=(list,selected)=>'<option value="">Seleccionar…</option>'+list.map(v=>`<option value="${esc(v)}" ${v===selected?'selected':''}>${esc(v)}</option>`).join('');
+  return {vals,campaigns,uniq,opts};
+}
+function _impulseBindTeamOrgChoices(e) {
+  const campaign=document.getElementById('edit-campana'),lob=document.getElementById('edit-lob'),queue=document.getElementById('edit-queue');
+  if(!campaign||!lob||!queue)return;
+  const c=_impulseOrgChoices(e.campaign_id,e.lob,e.queue);
+  campaign.innerHTML=c.opts(c.campaigns,e.campaign_id||'');
+  function setLob(keep){const list=c.uniq(c.vals.filter(v=>v.campaign===campaign.value).map(v=>v.lob));if(keep&&!list.includes(keep))list.push(keep);lob.innerHTML=c.opts(list,keep||'');}
+  function setQueue(keep){const list=c.uniq(c.vals.filter(v=>v.campaign===campaign.value&&v.lob===lob.value).map(v=>v.queue));if(keep&&!list.includes(keep))list.push(keep);queue.innerHTML=c.opts(list,keep||'');}
+  campaign.addEventListener('change',()=>{setLob('');setQueue('');});
+  lob.addEventListener('change',()=>setQueue(''));
+  setLob(e.lob||'');setQueue(e.queue||'');
+}
 async function _e_abrirEditar(empId) {
   const e = _e_EMPLEADOS.find(x => x.id === empId);
   if (!e) { alert('Empleado no encontrado'); return; }
@@ -47589,11 +47611,11 @@ async function _e_abrirEditar(empId) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="modal-section">
         <label class="modal-label">LOB</label>
-        <input type="text" id="edit-lob" value="${e.lob||''}" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+        <select id="edit-lob" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"></select>
       </div>
       <div class="modal-section">
         <label class="modal-label">QUEUE</label>
-        <input type="text" id="edit-queue" value="${e.queue||''}" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"/>
+        <select id="edit-queue" style="width:100%;padding:8px;border:1px solid #E2E8F0;border-radius:8px;font-size:13px;font-family:var(--f)"></select>
       </div>
     </div>
     <div class="modal-section">
@@ -47719,6 +47741,7 @@ async function _e_abrirEditar(empId) {
   document.getElementById('modalFooter').innerHTML = `
     <button class="btn-ghost" onclick="closeModal()">Cancelar</button>
     <button onclick="_e_confirmarEditar('${e.id}')" style="background:#0F172A;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer">Guardar cambios</button>`;
+  _impulseBindTeamOrgChoices(e);
   document.getElementById('modalBackdrop').style.display = 'flex';
 }
 
@@ -50669,6 +50692,7 @@ window._init_organigrama = async function(){
       if(error) throw error;
       _ro_payload=data||{};
       _ro_rows=_roSortRows(Array.isArray(_ro_payload.rows)?_ro_payload.rows:[]);
+      window._impulseRosterRows=_ro_rows;
       _ro_catalog=(Array.isArray(_ro_payload.license_catalog)?_ro_payload.license_catalog:[])
         .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'es',{sensitivity:'base'}));
       return true;
@@ -52145,7 +52169,7 @@ window._roRevoke=_roRevoke;
 
 // Se monta en el panel actual de licencias/skill del Roster Operativo.
 window._dfMountRosterEditor=async function(drawer,row,reload){
-  if(!['workforce','people','head_people'].includes(currentRole))return;
+  if(!['workforce','people','head_people','ceo'].includes(currentRole))return;
   const box=document.createElement('div');box.className='roster-assignment-box df-roster-editor';
   box.innerHTML='<div class="roster-section-title">Supervisor, LOB y queue</div><p>Cargando asignación…</p>';
   const grid=drawer.querySelector('.roster-op-grid');if(!grid)return;grid.after(box);
@@ -52160,30 +52184,48 @@ window._dfMountRosterEditor=async function(drawer,row,reload){
     const supervisorOptions=data.supervisors.slice();
     if(e.supervisor_id&&!supervisorOptions.some(s=>s.id===e.supervisor_id))supervisorOptions.unshift({id:e.supervisor_id,full_name:(e.supervisor_name||e.supervisor_id)+' · revisar vigencia'});
     const history=data.history||[];
-    box.innerHTML=`<div class="roster-section-title">Supervisor, LOB y queue</div><form class="df-form">
+    const known=Array.isArray(window._impulseRosterRows)?window._impulseRosterRows:[];
+    const entries=known.map(v=>({campaign:String(v.campaign_id||''),lob:String(v.lob||''),queue:String(v.queue||'')}));
+    entries.push({campaign:String(e.campaign_id||''),lob:String(e.lob||''),queue:String(e.queue||'')});
+    const distinct=values=>[...new Set(values.filter(Boolean))].sort((x,y)=>x.localeCompare(y,'es',{sensitivity:'base'}));
+    const campaigns=distinct([...entries.map(v=>v.campaign),'aplazo','stori','iforex','casap','cashmind','clivi','admin','liderazgo','naya','sanarai','expx','nido','sueno_americano','totalpass']);
+    const options=(values,current)=>'<option value="">Seleccionar…</option>'+values.map(v=>`<option value="${esc(v)}" ${v===current?'selected':''}>${esc(v)}</option>`).join('');
+    box.innerHTML=`<div class="roster-section-title">Supervisor, campaña, LOB y queue</div><form class="df-form">
       <label>Supervisor<select name="supervisor"><option value="">Sin supervisor asignado</option>${supervisorOptions.map(s=>`<option value="${esc(s.id)}" ${s.id===e.supervisor_id?'selected':''}>${esc(s.full_name)}</option>`).join('')}</select></label>
-      <label>LOB<input name="lob" maxlength="200" list="dfRosterLobs" value="${esc(e.lob)}"><datalist id="dfRosterLobs">${data.lobs.map(v=>`<option value="${esc(v)}"></option>`).join('')}</datalist></label>
-      <label>Queue<input name="queue" maxlength="200" list="dfRosterQueues" value="${esc(e.queue)}"><datalist id="dfRosterQueues">${data.queues.map(v=>`<option value="${esc(v)}"></option>`).join('')}</datalist></label>
+      <label>Campaña<select name="campaign" required>${options(campaigns,e.campaign_id||'')}</select></label>
+      <label>LOB<select name="lob" required></select></label>
+      <label>Queue<select name="queue" required></select></label>
       <label>Motivo del cambio<textarea name="reason" required maxlength="2000" rows="2" placeholder="Ej. Corrección reportada por QA; el agente ya atiende WA Pagos."></textarea></label>
       <p class="df-foot">Vigencia desde hoy, ${esc(day)}, en CDMX. Se conserva el historial anterior.</p>
       <p class="df-message" id="dfRosterQueueWarning" hidden>Al cambiar de queue, Echo puede cerrar el seguimiento de calidad vinculado a la asignación anterior y reiniciar su elegibilidad. Si sale de RACE, se retirará el skill de RACE.</p>
       <button class="df-btn primary" type="submit">Guardar asignación</button><div class="df-error" role="alert"></div></form>
       <button class="df-btn" id="dfRosterAlerts" style="margin-top:14px">Ver alertas del colaborador</button>
       ${history.length?`<details style="margin-top:16px"><summary>Últimos cambios desde este editor</summary>${history.map(h=>`<div class="roster-history"><b>${esc(h.changed_by_name)}</b> · ${esc(h.effective_date)}<br>Supervisor: ${esc(h.before_values.supervisor_name||'Sin dato')} → ${esc(h.after_values.supervisor_name||'Sin dato')}<br>LOB: ${esc(h.before_values.lob||'Sin dato')} → ${esc(h.after_values.lob||'Sin dato')}<br>Queue: ${esc(h.before_values.queue||'Sin dato')} → ${esc(h.after_values.queue||'Sin dato')}<br>${esc(h.reason)}</div>`).join('')}</details>`:''}`;
-    const form=box.querySelector('form');form.elements.queue.oninput=()=>{box.querySelector('#dfRosterQueueWarning').hidden=norm(form.elements.queue.value)===norm(e.queue);};
+    const form=box.querySelector('form');
+    function fillLobs(keep){const list=distinct(entries.filter(v=>v.campaign===form.elements.campaign.value).map(v=>v.lob));if(keep&&!list.includes(keep))list.push(keep);form.elements.lob.innerHTML=options(list,keep||'');}
+    function fillQueues(keep){const list=distinct(entries.filter(v=>v.campaign===form.elements.campaign.value&&v.lob===form.elements.lob.value).map(v=>v.queue));if(keep&&!list.includes(keep))list.push(keep);form.elements.queue.innerHTML=options(list,keep||'');}
+    form.elements.campaign.onchange=()=>{fillLobs('');fillQueues('');};
+    form.elements.lob.onchange=()=>fillQueues('');
+    fillLobs(e.lob||'');fillQueues(e.queue||'');
+    form.elements.queue.onchange=()=>{box.querySelector('#dfRosterQueueWarning').hidden=norm(form.elements.queue.value)===norm(e.queue);};
     box.querySelector('#dfRosterAlerts').onclick=()=>window._dfViewEmployeeAlerts(e.id);
     form.onsubmit=async event=>{event.preventDefault();const btn=form.querySelector('[type=submit]'),err=form.querySelector('.df-error');btn.disabled=true;err.textContent='';
       try{
-        const next={supervisor_id:form.elements.supervisor.value||null,lob:form.elements.lob.value.trim()||null,queue:form.elements.queue.value.trim()||null};
+        const next={campaign_id:form.elements.campaign.value||null,supervisor_id:form.elements.supervisor.value||null,lob:form.elements.lob.value.trim()||null,queue:form.elements.queue.value.trim()||null};
         const sup=supervisorOptions.find(s=>s.id===next.supervisor_id);
         const changes=[];
+        if(next.campaign_id!==e.campaign_id)changes.push('Campaña: '+(e.campaign_id||'Sin dato')+' → '+(next.campaign_id||'Sin dato'));
         if(next.supervisor_id!==e.supervisor_id)changes.push('Supervisor: '+(e.supervisor_name||'Sin dato')+' → '+(sup?.full_name||'Sin asignar'));
         if(next.lob!==e.lob)changes.push('LOB: '+(e.lob||'Sin dato')+' → '+(next.lob||'Sin dato'));
         if(next.queue!==e.queue)changes.push('Queue: '+(e.queue||'Sin dato')+' → '+(next.queue||'Sin dato'));
         if(!changes.length){err.textContent='No hay cambios para guardar.';return;}
         let warning=norm(next.queue)!==norm(e.queue)?'\n\nEl cambio de queue aplica las reglas actuales de Echo y de skill RACE.':'';
         if(!confirm('Guardar para '+e.full_name+' desde hoy:\n\n'+changes.join('\n')+warning))return;
-        const result=await _auth_sb.rpc('impulse_roster_assignment_save_v1',{p_employee_id:e.id,p_supervisor_id:next.supervisor_id,p_lob:next.lob,p_queue:next.queue,p_seen:seen,p_reason:form.elements.reason.value.trim()});
+        const campaignChanged=next.campaign_id!==e.campaign_id;
+        const result=await _auth_sb.rpc(campaignChanged?'impulse_roster_assignment_save_v2':'impulse_roster_assignment_save_v1',{
+          p_employee_id:e.id,p_supervisor_id:next.supervisor_id,p_lob:next.lob,p_queue:next.queue,
+          ...(campaignChanged?{p_campaign_id:next.campaign_id}:{}),p_seen:seen,p_reason:form.elements.reason.value.trim()
+        });
         if(result.error)throw result.error;
         await reload();
         const current=document.getElementById('rosterDrawer');if(current){const notice=document.createElement('p');notice.className='df-message';notice.textContent=result.data.message;current.querySelector('.roster-drawer-body')?.prepend(notice);}
