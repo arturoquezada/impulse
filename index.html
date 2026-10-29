@@ -3953,7 +3953,10 @@ function _auth_shiftLabel(emp, fallback = '') {
 // ── ACCESO MÓVIL PRIVADO ─────────────────────────────────────
 // Mobile se considera el mismo breakpoint que usa Impulse Mobile 2.0.
 // Arturo / Head of People = CX00009 (employee_id confirmado en Supabase).
-const IMPULSE_MOBILE_ALLOWED_EMPLOYEE_IDS = new Set(['CX00009']);
+const IMPULSE_MOBILE_ALLOWED_EMPLOYEE_IDS = new Set([
+  'CX00009', // Arturo
+  'CX00008'  // Alberto
+]);
 
 function _impulseIsMobileViewport() {
   return !!window.matchMedia?.('(max-width:820px)')?.matches;
